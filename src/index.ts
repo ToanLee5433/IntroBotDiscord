@@ -54,8 +54,9 @@ let isDrafting = false;
 let currentRole = "";
 let currentAgent = "";
 
-// ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA MULTIPLAYER =================
+// ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA =================
 const playerBalances: { [userId: string]: number } = {};
+const playerDebts: { [userId: string]: number } = {}; // Sổ ghi nợ
 const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
 const bauCuaEmojis: { [key: string]: string } = {
     "Bầu": "🎃", "Cua": "🦀", "Tôm": "🦐", "Cá": "🐟", "Gà": "🐓", "Nai": "🦌"
@@ -63,6 +64,9 @@ const bauCuaEmojis: { [key: string]: string } = {
 let isBauCuaActive = false;
 let bauCuaHost = "";
 let bauCuaBets: { [userId: string]: { name: string, symbol: string, amount: number }[] } = {};
+let currentRound = 1;
+let lastRoundResult = "";
+let sessionPlayers = new Set<string>();
 
 // ================= TÍNH NĂNG CHAT VÀ VÒNG QUAY =================
 client.on('messageCreate', async (message: Message) => {
@@ -79,6 +83,32 @@ client.on('messageCreate', async (message: Message) => {
         return; 
     }
 
+    // ----------------- TÍNH NĂNG VAY NGÂN HÀNG -----------------
+    const vayTriggers = ['vay ngân hàng', 'vay ngan hang', 'vay tiền', 'vay tien'];
+    if (vayTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
+        const uid = message.author.id;
+        
+        // Cấp vốn tân thủ nếu chưa chơi bao giờ
+        if (playerBalances[uid] === undefined) {
+            playerBalances[uid] = 100;
+            playerDebts[uid] = 0;
+            await message.reply("Mày chưa chơi bao giờ, tao cho 100k khởi nghiệp miễn phí không cần tính nợ. Gọi `@BotToan bầu cua` để vào sòng!");
+            return;
+        }
+
+        // Đang còn tiền không cho vay
+        if (playerBalances[uid] >= 10) {
+            await message.reply(`Đĩ thõa, ví mày còn **${playerBalances[uid]}k** mà đòi vay thêm à? Bao giờ nhẵn túi tao mới cho vay!`);
+            return;
+        }
+
+        // Xử lý vay
+        playerBalances[uid] += 100;
+        playerDebts[uid] = (playerDebts[uid] || 0) + 100;
+        await message.reply(`🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nĐã bơm cho mày **100k** vào ví.\n💸 Ghi sổ: Mày đang nợ tao tổng cộng **${playerDebts[uid]}k**. Vào sòng mà gỡ đi con trai!`);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG GAME "BẦU CUA MULTIPLAYER" -----------------
     if (userQuestion.toLowerCase().includes('bầu cua')) {
         if (isBauCuaActive) {
@@ -88,10 +118,13 @@ client.on('messageCreate', async (message: Message) => {
 
         isBauCuaActive = true;
         bauCuaHost = message.author.id;
-        bauCuaBets = {}; // Xóa lịch sử cược ván cũ
+        bauCuaBets = {}; 
+        currentRound = 1;
+        lastRoundResult = "";
+        sessionPlayers.clear();
 
-        const draftMsg = await message.reply("🎲 **SÒNG BẦU CUA CHÍNH THỨC MỞ!**\nAnh em bơi hết vào đây đặt cược. Đang trải chiếu...");
-        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 }); // Sòng tồn tại tối đa 2 phút
+        const draftMsg = await message.reply("🎲 **SÒNG BẦU CUA CHÍNH THỨC MỞ CỬA!**\nAnh em bơi hết vào đây đặt cược. Đang trải chiếu...");
+        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 1800000 }); 
 
         const updateBoard = async (interaction?: any) => {
             const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -105,11 +138,11 @@ client.on('messageCreate', async (message: Message) => {
                 new ButtonBuilder().setCustomId('bc_Nai').setLabel('🦌 Nai').setStyle(ButtonStyle.Success)
             );
             const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('bc_mobat').setLabel('🎲 MỞ BÁT! (Chỉ Host bấm)').setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId('bc_mobat').setLabel('🎲 MỞ BÁT!').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('bc_dongsong').setLabel('🛑 Đóng Sòng').setStyle(ButtonStyle.Danger)
             );
 
-            // Gom nhóm và hiển thị ai đặt gì
-            let betSummary = "📝 **TÌNH HÌNH GỬI GẠO:**\n";
+            let betSummary = `📝 **TÌNH HÌNH GỬI GẠO VÒNG ${currentRound}:**\n`;
             if (Object.keys(bauCuaBets).length === 0) {
                 betSummary += "*Chưa có mống nào xuống tiền...*";
             } else {
@@ -121,12 +154,17 @@ client.on('messageCreate', async (message: Message) => {
                     }, {} as any);
                     
                     const betStrings = Object.entries(summary).map(([sym, amt]) => `${bauCuaEmojis[sym]} ${sym} (**${amt}k**)`);
-                    // Hiển thị thêm số lượt đã đặt / tổng 3 lượt
                     betSummary += `- **${userBets[0].name}** (${userBets.length}/3 lượt): ${betStrings.join(', ')}\n`;
                 }
             }
 
-            const text = `🎲 **SÒNG BẦU CUA ĐANG MỞ!** 🎲\n👉 Bấm để đặt **10k/nháy**. Giới hạn: **3 lượt đặt/người** (có thể cược trùng 1 con).\n👑 Host <@${bauCuaHost}> chốt sổ thì bấm Mở Bát!\n\n${betSummary}`;
+            let text = `🎲 **SÒNG BẦU CUA (Host: <@${bauCuaHost}>) - ĐANG Ở VÒNG ${currentRound}** 🎲\n👉 Bấm để đặt **10k/nháy**. Tối đa: **3 lượt đặt/người/vòng**.\n*(Cháy túi thì ra ngoài chat \`@BotToan vay ngân hàng\`)*\n\n`;
+            
+            if (lastRoundResult !== "") {
+                text += `🔥 **KẾT QUẢ VÒNG TRƯỚC:**\n${lastRoundResult}\n\n`;
+            }
+            
+            text += betSummary;
             
             if (interaction) await interaction.update({ content: text, components: [row1, row2, row3] }).catch(()=>{});
             else await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
@@ -136,25 +174,45 @@ client.on('messageCreate', async (message: Message) => {
             const uid = i.user.id;
             const uname = i.user.displayName || i.user.username;
 
-            // Xử lý nút Mở Bát
-            if (i.customId === 'bc_mobat') {
+            // Xử lý nút Đóng Sòng
+            if (i.customId === 'bc_dongsong') {
                 if (uid !== bauCuaHost) {
-                    await i.reply({ content: "Mày đéo phải chủ sòng, xê ra cho Host mở bát!", ephemeral: true }).catch(()=>{});
+                    await i.reply({ content: "Mày đéo phải Host, xê ra để Host đóng cửa!", ephemeral: true }).catch(()=>{});
                     return;
                 }
 
-                // Lắc bầu cua
+                let finalText = `🛑 **SÒNG ĐÃ ĐÓNG CỬA! LÀNG GIẢI TÁN!** 🛑\n\n💰 **TỔNG KẾT TÀI SẢN:**\n`;
+                if (sessionPlayers.size === 0) finalText += "*Sòng ế quá không có ai chơi...*";
+                else {
+                    sessionPlayers.forEach(pId => {
+                        const debt = playerDebts[pId] || 0;
+                        finalText += `- <@${pId}> cầm: **${playerBalances[pId]}k** | Đang nợ: **${debt}k**\n`;
+                    });
+                }
+
+                await i.update({ content: finalText, components: [] }).catch(()=>{});
+                isBauCuaActive = false;
+                collector.stop();
+                return;
+            }
+
+            // Xử lý nút Mở Bát
+            if (i.customId === 'bc_mobat') {
+                if (uid !== bauCuaHost) {
+                    await i.reply({ content: "Chỉ Host mới được quyền Mở Bát!", ephemeral: true }).catch(()=>{});
+                    return;
+                }
+
                 const result = [
                     bauCuaSymbols[Math.floor(Math.random() * 6)],
                     bauCuaSymbols[Math.floor(Math.random() * 6)],
                     bauCuaSymbols[Math.floor(Math.random() * 6)]
                 ];
 
-                let resultText = `🎲 **KẾT QUẢ:** ${result.map(s => bauCuaEmojis[s]).join(' - ')} \n\n`;
+                lastRoundResult = `Vừa lắc ra: **${result.map(s => bauCuaEmojis[s]).join(' - ')}** \n`;
                 
-                // Tính tiền
                 if (Object.keys(bauCuaBets).length === 0) {
-                    resultText += "Chả có mống nào chơi, sòng ế vc!";
+                    lastRoundResult += "Vòng rồi đéo ai chơi, nhà cái bú trọn không khí!";
                 } else {
                     for (const playerId in bauCuaBets) {
                         let totalWon = 0;
@@ -164,7 +222,7 @@ client.on('messageCreate', async (message: Message) => {
                         userBets.forEach(bet => {
                             let matches = result.filter(r => r === bet.symbol).length;
                             if (matches > 0) {
-                                const winAmt = bet.amount + (bet.amount * matches); // Trả vốn + Tiền ăn
+                                const winAmt = bet.amount + (bet.amount * matches); 
                                 playerBalances[playerId] += winAmt;
                                 totalWon += (bet.amount * matches);
                             } else {
@@ -173,21 +231,24 @@ client.on('messageCreate', async (message: Message) => {
                         });
 
                         const balance = playerBalances[playerId];
+                        const debt = playerDebts[playerId] || 0;
+                        
+                        // Hiển thị cả nợ
+                        const info = `(Ví: ${balance}k | Nợ: ${debt}k)`;
+
                         if (totalWon > totalLost) {
-                            resultText += `🤑 **${userBets[0].name}** húp được **${totalWon - totalLost}k** (Đang có ${balance}k)\n`;
+                            lastRoundResult += `🤑 **${userBets[0].name}** húp **${totalWon - totalLost}k** ➡️ ${info}\n`;
                         } else if (totalLost > totalWon) {
-                            resultText += `💸 **${userBets[0].name}** cúng cho cái **${totalLost - totalWon}k** (Đang có ${balance}k)\n`;
+                            lastRoundResult += `💸 **${userBets[0].name}** lỗ **${totalLost - totalWon}k** ➡️ ${info}\n`;
                         } else {
-                            resultText += `⚖️ **${userBets[0].name}** hòa vốn! (Đang có ${balance}k)\n`;
+                            lastRoundResult += `⚖️ **${userBets[0].name}** hòa vốn! ➡️ ${info}\n`;
                         }
                     }
                 }
 
-                resultText += `\n*Muốn gỡ? Tag tao gọi "bầu cua" ván mới!*`;
-                await i.update({ content: resultText, components: [] }).catch(()=>{});
-                
-                isBauCuaActive = false;
-                collector.stop();
+                bauCuaBets = {}; 
+                currentRound++;
+                await updateBoard(i);
                 return;
             }
 
@@ -195,25 +256,26 @@ client.on('messageCreate', async (message: Message) => {
             if (i.customId.startsWith('bc_')) {
                 const betSymbol = i.customId.split('_')[1];
                 
-                // Nạp vốn tự động nếu hết hoặc chưa có (Cho 100k)
-                if (!playerBalances[uid] || playerBalances[uid] <= 0) {
-                    playerBalances[uid] = 100; 
+                // Cấp vốn khởi nghiệp
+                if (playerBalances[uid] === undefined) {
+                    playerBalances[uid] = 100;
+                    playerDebts[uid] = 0;
                 }
 
-                // Hết sạch tiền thì báo lỗi riêng
+                // Báo hết tiền yêu cầu đi vay
                 if (playerBalances[uid] < 10) {
-                    await i.reply({ content: "Mày cháy túi rồi con giời, hóng thôi đừng bấm nữa!", ephemeral: true }).catch(()=>{});
+                    await i.reply({ content: "Mày cháy túi rồi con giời! Kêu Host mở bát xong ra ngoài chat `@BotToan vay ngân hàng` đi.", ephemeral: true }).catch(()=>{});
                     return;
                 }
 
-                // GIỚI HẠN: Mỗi người chỉ được đặt tối đa 3 ván (tương đương 30k)
+                // Giới hạn 3 lượt
                 if (bauCuaBets[uid] && bauCuaBets[uid].length >= 3) {
-                    await i.reply({ content: "Mỗi ván mày chỉ được đặt tối đa 3 phát (30k) thôi con tham này! Đợi mở bát đi.", ephemeral: true }).catch(()=>{});
+                    await i.reply({ content: "Mỗi vòng mày chỉ được đặt tối đa 3 nháy thôi con tham này! Đợi mở bát đi.", ephemeral: true }).catch(()=>{});
                     return;
                 }
 
-                // Trừ tiền cược
                 playerBalances[uid] -= 10;
+                sessionPlayers.add(uid); 
                 
                 if (!bauCuaBets[uid]) bauCuaBets[uid] = [];
                 bauCuaBets[uid].push({ name: uname, symbol: betSymbol, amount: 10 });
@@ -225,7 +287,7 @@ client.on('messageCreate', async (message: Message) => {
         collector.on('end', () => {
             if (isBauCuaActive) {
                 isBauCuaActive = false;
-                draftMsg.reply("Sòng đóng cửa vì chủ sòng chạy trốn, hoàn lại tiền cho anh em!").catch(()=>{});
+                draftMsg.reply("Sòng đóng cửa vì quá hạn 30 phút, hoàn lại tiền cho anh em đang kẹt cược!").catch(()=>{});
             }
         });
 
