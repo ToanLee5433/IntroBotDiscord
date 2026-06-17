@@ -56,19 +56,24 @@ client.on('messageCreate', async (message: Message) => {
                 1. Dùng Tiếng Việt, xưng hô mày-tao cho thân thiết.
                 2. Phản hồi cực gắt, hài hước, bỗ bã nhưng không xúc phạm quá đà.
                 3. BẮT BUỘC: Nếu gợi ý nhạc/phim/tài liệu phải kèm Link URL thực tế.
-                4. ĐỘ DÀI: Câu trả lời PHẢI dưới 1100 ký tự. Tóm tắt ngắn gọn, đừng dài dòng.
+                4. ĐỘ DÀI: Câu trả lời ngắn gọn, tóm tắt ý chính.
             `
         });
 
         const result = await model.generateContent(userQuestion);
         const responseText = result.response.text();
         
-        // Cắt gọn 1100 ký tự cho HornBot
-        const finalResponse = responseText.length > 1100 
-            ? responseText.substring(0, 1095) + '...' 
-            : responseText;
-            
-        await message.reply(finalResponse);
+        // Chia nhỏ tin nhắn (tối đa 900 ký tự) để HornBot đọc không bị cụt[cite: 1]
+        const maxLength = 900;
+        const chunks = responseText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [responseText];
+
+        for (const chunk of chunks) {
+            if (chunk.trim()) {
+                await message.reply(chunk.trim());
+                // Delay 1.5 giây để HornBot kịp xử lý hàng đợi[cite: 1]
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+        }
     } catch (error) {
         await message.reply('Mạng lag hay sao ấy, tao đang không load được, thử lại đi mày!');
     }
@@ -84,7 +89,7 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     if (oldChannel) {
         const connection = getVoiceConnection(oldChannel.guild.id);
         if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) {
-            if (!newChannel) connection.destroy(); // Thoát hẳn mới hủy
+            if (!newChannel) connection.destroy();
         }
     }
 
