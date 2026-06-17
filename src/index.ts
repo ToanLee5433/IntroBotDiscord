@@ -40,16 +40,19 @@ const client = new Client({
     ]
 });
 
-// ================= BIẾN TRẠNG THÁI VÒNG QUAY TƯỚNG =================
-const fullAgents = [
-    "Iso", "Jett", "Neon", "Phoenix", "Raze", "Reyna", "Waylay", "Yoru", "Clove",
-    "Breach", "Fade", "Gekko", "KAY/O", "Skye", "Sova", "Tejo",
-    "Astra", "Brimstone", "Harbor", "Miks", "Omen", "Viper",
-    "Chamber", "Cypher", "Deadlock", "Killjoy", "Sage", "Veto", "Vyse"
-];
-let pool = [...fullAgents];
+// ================= BIẾN TRẠNG THÁI VÒNG QUAY =================
+const fullAgentsByRole: { [key: string]: string[] } = {
+    "Duelist": ["Iso", "Jett", "Neon", "Phoenix", "Raze", "Reyna", "Waylay", "Yoru", "Clove"],
+    "Initiator": ["Breach", "Fade", "Gekko", "KAY/O", "Skye", "Sova", "Tejo"],
+    "Controller": ["Astra", "Brimstone", "Harbor", "Miks", "Omen", "Viper"],
+    "Sentinel": ["Chamber", "Cypher", "Deadlock", "Killjoy", "Sage", "Veto", "Vyse"]
+};
+
 let currentDraft: string[] = [];
+let agentPool: { [key: string]: string[] } = {};
 let isDrafting = false;
+let currentRole = "";
+let currentAgent = "";
 
 // ================= TÍNH NĂNG CHAT VÀ VÒNG QUAY =================
 client.on('messageCreate', async (message: Message) => {
@@ -59,74 +62,124 @@ client.on('messageCreate', async (message: Message) => {
     const userQuestion = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
     if (!userQuestion) return;
 
-    // ----------------- TÍNH NĂNG PICK TƯỚNG -----------------
-    if (userQuestion.toLowerCase().includes('quay tướng')) {
-        if (!isDrafting) {
-            isDrafting = true;
-            currentDraft = [];
-            pool = [...fullAgents];
-            await message.reply("Khởi động phiên Draft Team 5 người! Đang tải danh sách 29 Đặc vụ... 🌀");
-        } else {
-            await message.reply("Đang có phiên pick tướng dở dang rồi, lo chốt nốt đi mày!");
+    // ----------------- TÍNH NĂNG "CÂM" -----------------
+    const shutUpTriggers = ['câm', 'câm mồm', 'im đi', 'im mồm'];
+    if (shutUpTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
+        await message.reply("Biết rồi, tao câm đây!");
+        return; // Dừng lập tức, không cho Gemini chạy
+    }
+
+    // ----------------- TÍNH NĂNG PICK TƯỚNG (ROLE -> AGENT) -----------------
+    const draftTriggers = ['quay tướng', 'chọn tướng', 'random tướng', 'pick tướng'];
+    if (draftTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
+        if (isDrafting) {
+            await message.reply("Đang pick dở kìa, tập trung chốt đi mày!");
             return;
         }
 
-        // Hàm xử lý luồng pick tướng liên hoàn
-        const sendNextPick = async (targetMessage: Message) => {
-            if (pool.length === 0) pool = [...fullAgents]; // Reset nếu lỡ skip hết tướng
-            const randomIndex = Math.floor(Math.random() * pool.length);
-            const agent = pool[randomIndex];
-
-            const row = new ActionRowBuilder<ButtonBuilder>()
-                .addComponents(
-                    new ButtonBuilder().setCustomId('pick').setLabel('Chốt luôn').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('skip').setLabel('Chê, đổi con khác').setStyle(ButtonStyle.Danger),
-                );
-
-            const msg = await targetMessage.reply({ 
-                content: `Vị trí thứ ${currentDraft.length + 1} gọi tên: **${agent}**. Mày chốt không?`, 
-                components: [row] 
-            });
-
-            const collector = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
-
-            collector.on('collect', async i => {
-                if (i.customId === 'pick') {
-                    currentDraft.push(agent);
-                    pool.splice(randomIndex, 1); // Loại khỏi pool để không ra trùng nữa
-                    
-                    if (currentDraft.length === 5) {
-                        await i.update({ content: `✅ Đã chốt xong đội hình hủy diệt: **${currentDraft.join(' ⚔️ ')}**. Chúc team mày gánh được nhau!`, components: [] });
-                        isDrafting = false; // Đóng phiên draft
-                    } else {
-                        await i.update({ content: `✅ Chốt **${agent}**. Đội hình tạm thời: [${currentDraft.join(', ')}]. Đang lôi con tiếp theo ra...`, components: [] });
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                        await sendNextPick(message); // Gọi tiếp vòng lặp
-                    }
-                } else if (i.customId === 'skip') {
-                    pool.splice(randomIndex, 1); // Skip cũng loại con đó ra khỏi lượt này luôn
-                    await i.update({ content: `❌ Đã chê **${agent}**. Làm lại, đang xóc lọ mọ tìm con khác...`, components: [] });
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    await sendNextPick(message);
-                }
-            });
-
-            // Tự động đóng nếu ngâm quá lâu không ai bấm
-            collector.on('end', collected => {
-                if (collected.size === 0 && isDrafting) {
-                    isDrafting = false;
-                    // Đã sửa dòng này: Dùng message.reply thay vì message.channel.send để tránh lỗi TypeScript
-                    message.reply("Ngâm lâu quá đéo ai bấm, tao tự hủy phiên pick này nhé!").catch(() => {});
-                }
-            });
+        isDrafting = true;
+        currentDraft = [];
+        // Làm mới bể tướng
+        agentPool = {
+            "Duelist": [...fullAgentsByRole["Duelist"]],
+            "Initiator": [...fullAgentsByRole["Initiator"]],
+            "Controller": [...fullAgentsByRole["Controller"]],
+            "Sentinel": [...fullAgentsByRole["Sentinel"]]
         };
 
-        await sendNextPick(message);
-        return; // Dừng lại ở đây, không chuyển câu hỏi xuống cho Gemini
+        const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team!** Đang setup bàn quay...");
+
+        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); // 5 phút
+
+        // Hàm 1: Hiện bảng chọn Role
+        const showRoleMenu = async (interaction?: any) => {
+            const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('r_duelist').setLabel('⚔️ Duelist').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('r_initiator').setLabel('👁️ Initiator').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('r_controller').setLabel('💨 Controller').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('r_sentinel').setLabel('🛡️ Sentinel').setStyle(ButtonStyle.Primary)
+            );
+            const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('r_random').setLabel('🎲 Random Role').setStyle(ButtonStyle.Success)
+            );
+
+            const text = `🎯 **VỊ TRÍ THỨ ${currentDraft.length + 1}**: Mày muốn pick Role nào?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
+            
+            if (interaction) await interaction.update({ content: text, components: [row1, row2] }).catch(()=>{});
+            else await draftMsg.edit({ content: text, components: [row1, row2] }).catch(()=>{});
+        };
+
+        // Hàm 2: Xử lý Random Tướng sau khi có Role
+        const rollAgent = async (role: string, interaction: any) => {
+            if (!agentPool[role] || agentPool[role].length === 0) agentPool[role] = [...fullAgentsByRole[role]];
+            currentRole = role;
+            
+            const randomIndex = Math.floor(Math.random() * agentPool[role].length);
+            currentAgent = agentPool[role][randomIndex];
+
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('a_chot').setLabel('✅ Chốt luôn').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('a_doi').setLabel('🔄 Bốc con khác').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('a_back').setLabel('🔙 Quay lại Role').setStyle(ButtonStyle.Secondary)
+            );
+
+            const text = `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}): Bốc ra con **${currentAgent}**!\nChốt không hay chê?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
+            await interaction.update({ content: text, components: [row] }).catch(()=>{});
+        };
+
+        // Xử lý sự kiện bấm nút
+        collector.on('collect', async i => {
+            const id = i.customId;
+            
+            // Xử lý khi bấm nút Role
+            if (id.startsWith('r_')) {
+                let role = id.split('_')[1];
+                if (role === 'random') {
+                    const roles = ["Duelist", "Initiator", "Controller", "Sentinel"];
+                    role = roles[Math.floor(Math.random() * roles.length)];
+                } else {
+                    role = role.charAt(0).toUpperCase() + role.slice(1); // Đổi chữ cái đầu thành viết hoa (ví dụ: duelist -> Duelist)
+                }
+                await rollAgent(role, i);
+            } 
+            // Xử lý khi bấm chốt/đổi tướng
+            else if (id === 'a_chot') {
+                currentDraft.push(`${currentAgent} (${currentRole})`);
+                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); // Gạch tên con vừa pick
+                
+                if (currentDraft.length === 5) {
+                    await i.update({ 
+                        content: `🏆 **CHỐT XONG TEAM HỦY DIỆT** 🏆\n${currentDraft.map((v, idx) => `**${idx + 1}.** ${v}`).join('\n')}\n\n*Chuẩn bị vào game thôi!*`, 
+                        components: [] 
+                    }).catch(()=>{});
+                    isDrafting = false;
+                    collector.stop();
+                } else {
+                    await showRoleMenu(i); // Vòng lặp lại bước chọn Role cho vị trí tiếp theo
+                }
+            } 
+            else if (id === 'a_doi') {
+                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); // Chê là loại con đó ra
+                await rollAgent(currentRole, i); // Reroll lại tướng cùng Role
+            } 
+            else if (id === 'a_back') {
+                await showRoleMenu(i); // Back lại bảng chọn Role
+            }
+        });
+
+        collector.on('end', collected => {
+            if (isDrafting) {
+                isDrafting = false;
+                draftMsg.reply("Ngâm lâu quá đéo ai bấm, tao tự hủy bàn draft nhé!").catch(()=>{});
+            }
+        });
+
+        // Kích hoạt hiển thị Menu Role đầu tiên
+        await showRoleMenu();
+        return; 
     }
 
     // ----------------- TÍNH NĂNG CHAT VỚI GEMINI -----------------
-    // Đợi 2 giây cho HornBot đọc xong nếu có trigger
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     try {
@@ -147,17 +200,14 @@ client.on('messageCreate', async (message: Message) => {
         const result = await model.generateContent(userQuestion);
         const responseText = result.response.text();
         
-        // Loại bỏ hoàn toàn link nếu AI lỡ tay gửi
         const cleanText = responseText.replace(/https?:\/\/[^\s]+/g, "");
 
-        // Chia nhỏ tin nhắn (900 ký tự) cho HornBot đọc an toàn
         const maxLength = 900;
         const chunks = cleanText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [cleanText];
 
         for (const chunk of chunks) {
             if (chunk.trim()) {
                 await message.reply(chunk.trim());
-                // Delay 2 giây giữa các đoạn để HornBot đọc mượt
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
@@ -173,7 +223,6 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     const oldChannel = oldState.channel;
     const newChannel = newState.channel;
 
-    // Cơ chế dọn dẹp phòng trống
     if (oldChannel) {
         const connection = getVoiceConnection(oldChannel.guild.id);
         if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) {
@@ -192,7 +241,6 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
         await entersState(connection, VoiceConnectionStatus.Ready, 5000);
         
-        // Logic tìm nhạc theo ID người dùng
         const audioPath = path.join(__dirname, '../audio', `${newState.member?.id}.mp3`);
         const playPath = fs.existsSync(audioPath) ? audioPath : path.join(__dirname, '../audio', 'default.mp3');
 
