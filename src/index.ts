@@ -37,9 +37,12 @@ const client = new Client({
     ]
 });
 
-// ================= TÍNH NĂNG CHAT VỚI GEMINI (BỰA + GỌN) =================
+// ================= TÍNH NĂNG CHAT VỚI GEMINI (ĐÃ GIẢM TỐC ĐỘ) =================
 client.on('messageCreate', async (message: Message) => {
     if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
+
+    // THÊM ĐỘ TRỄ 2 GIÂY ĐỂ HORN BOT BẮT ĐẦU ĐỌC CÂU HỎI CỦA BẠN TRƯỚC[cite: 1]
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     const botId = client.user.id;
     const userQuestion = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
@@ -63,15 +66,15 @@ client.on('messageCreate', async (message: Message) => {
         const result = await model.generateContent(userQuestion);
         const responseText = result.response.text();
         
-        // Chia nhỏ tin nhắn (tối đa 900 ký tự) để HornBot đọc không bị cụt[cite: 1]
+        // Cắt gọn 900 ký tự để HornBot đọc an toàn nhất[cite: 1]
         const maxLength = 900;
         const chunks = responseText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [responseText];
 
         for (const chunk of chunks) {
             if (chunk.trim()) {
                 await message.reply(chunk.trim());
-                // Delay 1.5 giây để HornBot kịp xử lý hàng đợi[cite: 1]
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                // Khoảng nghỉ 2 giây giữa các đoạn để HornBot đọc mượt mà[cite: 1]
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
     } catch (error) {
