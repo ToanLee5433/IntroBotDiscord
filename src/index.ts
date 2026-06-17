@@ -76,7 +76,7 @@ client.on('messageCreate', async (message: Message) => {
         for (const chunk of chunks) {
             if (chunk.trim()) {
                 await message.reply(chunk.trim());
-                // Delay 2 giây để HornBot đọc mượt
+                // Delay 2 giây giữa các đoạn để HornBot đọc mượt
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
@@ -85,13 +85,14 @@ client.on('messageCreate', async (message: Message) => {
     }
 });
 
-// ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
+// ================= TÍNH NĂNG CHÀO MỪNG VOICE (TỰ NHẬN DIỆN ID) =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
     if (newState.member?.user.bot || oldState.channelId === newState.channelId) return;
 
     const oldChannel = oldState.channel;
     const newChannel = newState.channel;
 
+    // Cơ chế dọn dẹp phòng trống
     if (oldChannel) {
         const connection = getVoiceConnection(oldChannel.guild.id);
         if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) {
@@ -110,6 +111,7 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
         await entersState(connection, VoiceConnectionStatus.Ready, 5000);
         
+        // Logic tìm nhạc theo ID người dùng
         const audioPath = path.join(__dirname, '../audio', `${newState.member?.id}.mp3`);
         const playPath = fs.existsSync(audioPath) ? audioPath : path.join(__dirname, '../audio', 'default.mp3');
 
