@@ -56,7 +56,7 @@ let currentAgent = "";
 
 // ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA =================
 const playerBalances: { [userId: string]: number } = {};
-const playerDebts: { [userId: string]: number } = {}; // Sổ ghi nợ
+const playerDebts: { [userId: string]: number } = {}; 
 const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
 const bauCuaEmojis: { [key: string]: string } = {
     "Bầu": "🎃", "Cua": "🦀", "Tôm": "🦐", "Cá": "🐟", "Gà": "🐓", "Nai": "🦌"
@@ -88,7 +88,6 @@ client.on('messageCreate', async (message: Message) => {
     if (vayTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
         const uid = message.author.id;
         
-        // Cấp vốn tân thủ nếu chưa chơi bao giờ
         if (playerBalances[uid] === undefined) {
             playerBalances[uid] = 100;
             playerDebts[uid] = 0;
@@ -96,13 +95,11 @@ client.on('messageCreate', async (message: Message) => {
             return;
         }
 
-        // Đang còn tiền không cho vay
         if (playerBalances[uid] >= 10) {
             await message.reply(`Đĩ thõa, ví mày còn **${playerBalances[uid]}k** mà đòi vay thêm à? Bao giờ nhẵn túi tao mới cho vay!`);
             return;
         }
 
-        // Xử lý vay
         playerBalances[uid] += 100;
         playerDebts[uid] = (playerDebts[uid] || 0) + 100;
         await message.reply(`🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nĐã bơm cho mày **100k** vào ví.\n💸 Ghi sổ: Mày đang nợ tao tổng cộng **${playerDebts[uid]}k**. Vào sòng mà gỡ đi con trai!`);
@@ -166,15 +163,18 @@ client.on('messageCreate', async (message: Message) => {
             
             text += betSummary;
             
-            if (interaction) await interaction.update({ content: text, components: [row1, row2, row3] }).catch(()=>{});
-            else await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
+            if (interaction) {
+                if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row1, row2, row3] }).catch(()=>{});
+                else await interaction.update({ content: text, components: [row1, row2, row3] }).catch(()=>{});
+            } else {
+                await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
+            }
         };
 
         collector.on('collect', async i => {
             const uid = i.user.id;
             const uname = i.user.displayName || i.user.username;
 
-            // Xử lý nút Đóng Sòng
             if (i.customId === 'bc_dongsong') {
                 if (uid !== bauCuaHost) {
                     await i.reply({ content: "Mày đéo phải Host, xê ra để Host đóng cửa!", ephemeral: true }).catch(()=>{});
@@ -196,13 +196,27 @@ client.on('messageCreate', async (message: Message) => {
                 return;
             }
 
-            // Xử lý nút Mở Bát
             if (i.customId === 'bc_mobat') {
                 if (uid !== bauCuaHost) {
                     await i.reply({ content: "Chỉ Host mới được quyền Mở Bát!", ephemeral: true }).catch(()=>{});
                     return;
                 }
 
+                // --------- HIỆU ỨNG ANIMATION LẮC XÍ NGẦU ---------
+                await i.update({ content: "🎲 **CHỦ SÒNG ĐANG XÓC ĐĨA...** *Lạch cạch lạch cạch...*", components: [] }).catch(()=>{});
+                
+                for(let step = 0; step < 4; step++) {
+                    await new Promise(res => setTimeout(res, 600)); // Delay 0.6s mỗi nhịp
+                    const tempRes = [
+                        bauCuaSymbols[Math.floor(Math.random() * 6)],
+                        bauCuaSymbols[Math.floor(Math.random() * 6)],
+                        bauCuaSymbols[Math.floor(Math.random() * 6)]
+                    ];
+                    await i.editReply({ content: `🎲 **ĐANG LẮC...** [ ${tempRes.map(s => bauCuaEmojis[s]).join(' - ')} ]`, components: [] }).catch(()=>{});
+                }
+                await new Promise(res => setTimeout(res, 600));
+
+                // --------- TÍNH KẾT QUẢ THẬT ---------
                 const result = [
                     bauCuaSymbols[Math.floor(Math.random() * 6)],
                     bauCuaSymbols[Math.floor(Math.random() * 6)],
@@ -232,8 +246,6 @@ client.on('messageCreate', async (message: Message) => {
 
                         const balance = playerBalances[playerId];
                         const debt = playerDebts[playerId] || 0;
-                        
-                        // Hiển thị cả nợ
                         const info = `(Ví: ${balance}k | Nợ: ${debt}k)`;
 
                         if (totalWon > totalLost) {
@@ -248,27 +260,23 @@ client.on('messageCreate', async (message: Message) => {
 
                 bauCuaBets = {}; 
                 currentRound++;
-                await updateBoard(i);
+                await updateBoard(i); // Gọi lại bảng update với kết quả
                 return;
             }
 
-            // Xử lý nút Đặt Cược
             if (i.customId.startsWith('bc_')) {
                 const betSymbol = i.customId.split('_')[1];
                 
-                // Cấp vốn khởi nghiệp
                 if (playerBalances[uid] === undefined) {
                     playerBalances[uid] = 100;
                     playerDebts[uid] = 0;
                 }
 
-                // Báo hết tiền yêu cầu đi vay
                 if (playerBalances[uid] < 10) {
                     await i.reply({ content: "Mày cháy túi rồi con giời! Kêu Host mở bát xong ra ngoài chat `@BotToan vay ngân hàng` đi.", ephemeral: true }).catch(()=>{});
                     return;
                 }
 
-                // Giới hạn 3 lượt
                 if (bauCuaBets[uid] && bauCuaBets[uid].length >= 3) {
                     await i.reply({ content: "Mỗi vòng mày chỉ được đặt tối đa 3 nháy thôi con tham này! Đợi mở bát đi.", ephemeral: true }).catch(()=>{});
                     return;
@@ -295,7 +303,7 @@ client.on('messageCreate', async (message: Message) => {
         return; 
     }
 
-    // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT -----------------
+    // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT (CÓ ANIMATION QUAY) -----------------
     const draftTriggers = ['quay tướng', 'chọn tướng', 'random tướng', 'pick tướng'];
     if (draftTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
         if (isDrafting) {
@@ -328,14 +336,33 @@ client.on('messageCreate', async (message: Message) => {
 
             const text = `🎯 **VỊ TRÍ THỨ ${currentDraft.length + 1}**: Mày muốn pick Role nào?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
             
-            if (interaction) await interaction.update({ content: text, components: [row1, row2] }).catch(()=>{});
-            else await draftMsg.edit({ content: text, components: [row1, row2] }).catch(()=>{});
+            if (interaction) {
+                if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row1, row2] }).catch(()=>{});
+                else await interaction.update({ content: text, components: [row1, row2] }).catch(()=>{});
+            } else {
+                await draftMsg.edit({ content: text, components: [row1, row2] }).catch(()=>{});
+            }
         };
 
         const rollAgent = async (role: string, interaction: any) => {
             if (!agentPool[role] || agentPool[role].length === 0) agentPool[role] = [...fullAgentsByRole[role]];
             currentRole = role;
-            
+
+            // --------- HIỆU ỨNG ANIMATION QUAY TƯỚNG ---------
+            if (interaction.replied || interaction.deferred) {
+                await interaction.editReply({ content: `🌀 Đang lục lọi kho tướng hệ **${role}**...`, components: [] }).catch(()=>{});
+            } else {
+                await interaction.update({ content: `🌀 Đang lục lọi kho tướng hệ **${role}**...`, components: [] }).catch(()=>{});
+            }
+
+            for(let step = 0; step < 4; step++) {
+                await new Promise(res => setTimeout(res, 500)); // Delay 0.5s lướt tướng
+                const randomTemp = agentPool[role][Math.floor(Math.random() * agentPool[role].length)];
+                await interaction.editReply({ content: `🌀 Vòng quay đang lướt qua... **${randomTemp}** 🎲`, components: [] }).catch(()=>{});
+            }
+            await new Promise(res => setTimeout(res, 500));
+
+            // --------- CHỐT KẾT QUẢ ---------
             const randomIndex = Math.floor(Math.random() * agentPool[role].length);
             currentAgent = agentPool[role][randomIndex];
 
@@ -345,8 +372,8 @@ client.on('messageCreate', async (message: Message) => {
                 new ButtonBuilder().setCustomId('a_back').setLabel('🔙 Quay lại Role').setStyle(ButtonStyle.Secondary)
             );
 
-            const text = `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}): Bốc ra con **${currentAgent}**!\nChốt không hay chê?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
-            await interaction.update({ content: text, components: [row] }).catch(()=>{});
+            const text = `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}): Chốt hạ quay vào ô **${currentAgent}**!\nChốt không hay chê?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
+            await interaction.editReply({ content: text, components: [row] }).catch(()=>{});
         };
 
         collector.on('collect', async i => {
@@ -434,7 +461,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 });
 
-// ================= TÍNH NĂNG CHÀO MỪNG VOICE (CHỈ NHẬN DIỆN ID CÓ FILE) =================
+// ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
     if (newState.member?.user.bot || oldState.channelId === newState.channelId) return;
 
