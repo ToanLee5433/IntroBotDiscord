@@ -5,13 +5,14 @@ import {
     createAudioResource, 
     AudioPlayerStatus, 
     VoiceConnectionStatus,
-    entersState 
+    entersState,
+    getVoiceConnection
 } from '@discordjs/voice';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as http from 'http'; // Thêm thư viện http của Node.js
+import * as http from 'http';
 
-// 1. TẠO MÁY CHỦ WEB ẢO (Để lách luật Render)
+// 1. MÁY CHỦ WEB ẢO LÁCH LUẬT RENDER
 const port = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -21,7 +22,7 @@ http.createServer((req, res) => {
     console.log(`[WEB] Máy chủ ảo đang chạy trên port ${port}`);
 });
 
-// 2. KHỞI TẠO BOT DISCORD
+// 2. KHỞI TẠO BOT
 const TOKEN = process.env.DISCORD_TOKEN;
 
 if (!TOKEN) {
@@ -42,6 +43,26 @@ client.once('clientReady', () => {
 });
 
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
+    // Cơ chế 1: Tự động rời phòng nếu phòng TRỐNG (Không còn người dùng nào)
+    if (oldState.channelId) {
+        const oldChannel = oldState.channel;
+        if (oldChannel) {
+            // Đếm số người thực sự trong phòng (bỏ qua bot)
+            const realUsers = oldChannel.members.filter(m => !m.user.bot).size;
+            
+            // Nếu không còn người nào trong phòng cũ, tìm kết nối của bot trong server đó và ngắt kết nối
+            if (realUsers === 0) {
+                const connection = getVoiceConnection(oldChannel.guild.id);
+                if (connection && connection.joinConfig.channelId === oldChannel.id) {
+                    console.log(`[THÔNG TIN] Phòng ${oldChannel.name} trống. Bot đang rời phòng...`);
+                    connection.destroy();
+                    return; // Dừng xử lý tiếp
+                }
+            }
+        }
+    }
+
+    // Cơ chế 2: Phát nhạc chào mừng khi có người VÀO PHÒNG
     if (newState.member?.user.bot) return;
     if (oldState.channelId === newState.channelId) return;
     if (!newState.channelId) return;
@@ -79,14 +100,13 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         connection.subscribe(player);
 
         player.on(AudioPlayerStatus.Idle, () => {
-            console.log(`[THÀNH CÔNG] Đã phát xong intro... Đang rời phòng.`);
+            console.log(`[THÀNH CÔNG] Đã phát xong intro cho ${newState.member?.user.username}. Giữ bot ở lại phòng.`);
             player.stop();
-            connection.destroy();
+            // ĐÃ XÓA connection.destroy() tại đây để bot không bị out ra đột ngột nữa!
         });
 
         player.on('error', error => {
             console.error(`[LỖI] Không thể phát nhạc:`, error.message);
-            connection.destroy();
         });
 
     } catch (error) {
