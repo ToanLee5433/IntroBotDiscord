@@ -12,7 +12,7 @@ import * as http from 'http';
 const port = process.env.PORT || 8080;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.write('Bot dang hoat dong binh thuong!');
+    res.write('BotToan dang hoat dong binh thuong!');
     res.end();
 }).listen(port, () => {
     console.log(`[WEB] Máy chủ ảo đang chạy trên port ${port}`);
@@ -23,7 +23,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 
 if (!TOKEN || !GEMINI_KEY) {
-    console.error("[LỖI] Thiếu DISCORD_TOKEN hoặc GEMINI_API_KEY trong Environment Variables!");
+    console.error("[LỖI] Thiếu DISCORD_TOKEN hoặc GEMINI_API_KEY!");
     process.exit(1);
 }
 
@@ -41,33 +41,33 @@ const client = new Client({
 });
 
 client.once('clientReady', () => {
-    console.log(`[THÀNH CÔNG] Bot đã sẵn sàng với tư cách: ${client.user?.tag}`);
+    console.log(`[THÀNH CÔNG] Bot đã sẵn sàng: ${client.user?.tag}`);
 });
 
 // ================= TÍNH NĂNG CHAT VỚI GEMINI =================
 client.on('messageCreate', async (message: Message) => {
-    // Bỏ qua tin nhắn của bot
     if (message.author.bot) return;
-    
-    // Chỉ kích hoạt khi bắt đầu bằng "bot ơi" (không phân biệt hoa/thường)
-    if (!message.content.toLowerCase().startsWith('bot ơi')) return;
+    if (!client.user) return;
 
-    // Lọc lấy nội dung câu hỏi
-    const userQuestion = message.content.replace(/bot ơi/i, '').trim();
+    // CHỈ KÍCH HOẠT KHI BOT ĐƯỢC TAG (@BotToan)
+    if (!message.mentions.has(client.user)) return;
+
+    // Lọc bỏ tag ra khỏi tin nhắn để lấy nội dung câu hỏi
+    const botId = client.user.id;
+    const mentionRegex = new RegExp(`<@!?${botId}>`, 'g');
+    const userQuestion = message.content.replace(mentionRegex, '').trim();
+
     if (!userQuestion) return;
 
     try {
-        // Kiểm tra xem kênh có hỗ trợ gõ phím không để tránh lỗi TypeScript
         if (message.channel.isTextBased()) {
             await message.channel.sendTyping();
         }
 
-        // SỬ DỤNG MODEL GÓI FREE NGON NHẤT: gemini-3.1-flash-lite
         const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
         const result = await model.generateContent(userQuestion);
         const responseText = result.response.text();
 
-        // Discord giới hạn 2000 ký tự, xử lý tin nhắn quá dài
         if (responseText.length > 2000) {
             await message.reply(responseText.substring(0, 1995) + '...');
         } else {
@@ -81,57 +81,52 @@ client.on('messageCreate', async (message: Message) => {
 
 // ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
-    
-    // CƠ CHẾ 1: Tự động rời phòng nếu phòng cũ bị TRỐNG
-    if (oldState.channelId) {
-        const oldChannel = oldState.channel;
-        if (oldChannel) {
-            // Đếm số lượng user thật (không tính bot)
-            const realUsers = oldChannel.members.filter(m => !m.user.bot).size;
-            
-            if (realUsers === 0) {
-                const connection = getVoiceConnection(oldChannel.guild.id);
-                // Đảm bảo bot đang ở đúng cái phòng trống đó thì mới thoát
-                if (connection && connection.joinConfig.channelId === oldChannel.id) {
-                    console.log(`[THÔNG TIN] Phòng ${oldChannel.name} đã trống. Bot đang dọn dẹp và rời đi...`);
-                    connection.destroy();
-                    // KHÔNG DÙNG return ở đây để bot có thể chạy tiếp xuống dưới nếu user vừa nhảy sang phòng mới
-                }
+    if (newState.member?.user.bot) return;
+    if (oldState.channelId === newState.channelId) return;
+
+    const oldChannel = oldState.channel;
+    const newChannel = newState.channel;
+
+    // CƠ CHẾ 1: Dọn dẹp phòng cũ
+    if (oldChannel) {
+        const realUsers = oldChannel.members.filter(m => !m.user.bot).size;
+        const connection = getVoiceConnection(oldChannel.guild.id);
+        
+        if (connection && connection.joinConfig.channelId === oldChannel.id && realUsers === 0) {
+            // ĐÂY LÀ CHỖ FIX LỖI LỠ NHỊP!
+            // Chỉ ngắt kết nối khi người dùng THOÁT HẲN KHỎI VOICE (không có newChannel).
+            if (!newChannel) {
+                console.log(`[THÔNG TIN] Phòng ${oldChannel.name} trống. Bot ngắt kết nối.`);
+                connection.destroy();
+                return;
             }
         }
     }
 
-    // CƠ CHẾ 2: Phát nhạc độc quyền khi có người VÀO PHÒNG MỚI
-    if (newState.member?.user.bot) return; // Không chào bot khác
-    if (oldState.channelId === newState.channelId) return; // Không tính vụ bật/tắt mic
-    if (!newState.channelId) return; // Không tính vụ rời phòng (disconnect)
-
-    const channel = newState.channel;
-    if (!channel) return;
+    // CƠ CHẾ 2: Vào phòng mới và phát nhạc
+    if (!newChannel) return;
 
     const userId = newState.member?.id;
-    console.log(`[THÔNG TIN] Sếp ${newState.member?.user.username} vừa vào phòng: ${channel.name}`);
+    console.log(`[THÔNG TIN] ${newState.member?.user.username} vừa vào phòng: ${newChannel.name}`);
 
-    // Tìm nhạc riêng theo ID, nếu không có thì dùng default.mp3
     let audioPath = path.join(__dirname, '../audio', `${userId}.mp3`);
     if (!fs.existsSync(audioPath)) {
         audioPath = path.join(__dirname, '../audio', 'default.mp3');
     }
     
-    // Nếu vẫn không có file default thì báo lỗi và dừng lại
     if (!fs.existsSync(audioPath)) {
-        console.log(`[LỖI] Không tìm thấy bất kỳ file nhạc nào (kể cả default.mp3)!`);
+        console.log(`[LỖI] Không tìm thấy file nhạc.`);
         return;
     }
 
     try {
+        // Lệnh joinVoiceChannel này sẽ tự động mang bot sang phòng mới cực mượt
         const connection = joinVoiceChannel({
-            channelId: channel.id,
-            guildId: channel.guild.id,
-            adapterCreator: channel.guild.voiceAdapterCreator,
+            channelId: newChannel.id,
+            guildId: newChannel.guild.id,
+            adapterCreator: newChannel.guild.voiceAdapterCreator,
         });
 
-        // Đợi kết nối ổn định (tối đa 10s)
         await entersState(connection, VoiceConnectionStatus.Ready, 10000);
         
         const player = createAudioPlayer();
@@ -141,7 +136,6 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         connection.subscribe(player);
 
         player.on(AudioPlayerStatus.Idle, () => {
-            console.log(`[THÀNH CÔNG] Đã phát xong nhạc chào mừng cho ${newState.member?.user.username}. Bot sẽ ở lại chờ chỉ thị tiếp theo.`);
             player.stop();
         });
 
@@ -154,5 +148,4 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     }
 });
 
-// KÍCH HOẠT BOT
 client.login(TOKEN);
