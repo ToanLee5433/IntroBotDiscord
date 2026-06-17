@@ -37,11 +37,11 @@ const client = new Client({
     ]
 });
 
-// ================= TÍNH NĂNG CHAT VỚI GEMINI (ĐÃ GIẢM TỐC ĐỘ) =================
+// ================= TÍNH NĂNG CHAT VỚI GEMINI (VĂN BẢN THUẦN + CỰC GẮT) =================
 client.on('messageCreate', async (message: Message) => {
     if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
 
-    // THÊM ĐỘ TRỄ 2 GIÂY ĐỂ HORN BOT BẮT ĐẦU ĐỌC CÂU HỎI CỦA BẠN TRƯỚC[cite: 1]
+    // Đợi 2 giây cho HornBot nhận diện xong câu hỏi của bạn
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     const botId = client.user.id;
@@ -58,22 +58,25 @@ client.on('messageCreate', async (message: Message) => {
                 QUY TẮC: 
                 1. Dùng Tiếng Việt, xưng hô mày-tao cho thân thiết.
                 2. Phản hồi cực gắt, hài hước, bỗ bã nhưng không xúc phạm quá đà.
-                3. BẮT BUỘC: Nếu gợi ý nhạc/phim/tài liệu phải kèm Link URL thực tế.
-                4. ĐỘ DÀI: Câu trả lời ngắn gọn, tóm tắt ý chính.
+                3. TUYỆT ĐỐI KHÔNG GỬI LINK, URL. Chỉ trả lời bằng văn bản thuần túy.
+                4. Độ dài: Tóm tắt cực ngắn, dưới 900 ký tự.
             `
         });
 
         const result = await model.generateContent(userQuestion);
         const responseText = result.response.text();
         
-        // Cắt gọn 900 ký tự để HornBot đọc an toàn nhất[cite: 1]
+        // Loại bỏ hoàn toàn link nếu AI lỡ tay gửi
+        const cleanText = responseText.replace(/https?:\/\/[^\s]+/g, "");
+
+        // Chia nhỏ tin nhắn (900 ký tự) cho HornBot đọc an toàn
         const maxLength = 900;
-        const chunks = responseText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [responseText];
+        const chunks = cleanText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [cleanText];
 
         for (const chunk of chunks) {
             if (chunk.trim()) {
                 await message.reply(chunk.trim());
-                // Khoảng nghỉ 2 giây giữa các đoạn để HornBot đọc mượt mà[cite: 1]
+                // Delay 2 giây để HornBot đọc mượt
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
