@@ -66,7 +66,7 @@ client.on('messageCreate', async (message: Message) => {
     const shutUpTriggers = ['câm', 'câm mồm', 'im đi', 'im mồm'];
     if (shutUpTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
         await message.reply("Biết rồi, tao câm đây!");
-        return; // Dừng lập tức, không cho Gemini chạy
+        return; 
     }
 
     // ----------------- TÍNH NĂNG PICK TƯỚNG (ROLE -> AGENT) -----------------
@@ -79,7 +79,6 @@ client.on('messageCreate', async (message: Message) => {
 
         isDrafting = true;
         currentDraft = [];
-        // Làm mới bể tướng
         agentPool = {
             "Duelist": [...fullAgentsByRole["Duelist"]],
             "Initiator": [...fullAgentsByRole["Initiator"]],
@@ -89,9 +88,8 @@ client.on('messageCreate', async (message: Message) => {
 
         const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team!** Đang setup bàn quay...");
 
-        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); // 5 phút
+        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); 
 
-        // Hàm 1: Hiện bảng chọn Role
         const showRoleMenu = async (interaction?: any) => {
             const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('r_duelist').setLabel('⚔️ Duelist').setStyle(ButtonStyle.Danger),
@@ -109,7 +107,6 @@ client.on('messageCreate', async (message: Message) => {
             else await draftMsg.edit({ content: text, components: [row1, row2] }).catch(()=>{});
         };
 
-        // Hàm 2: Xử lý Random Tướng sau khi có Role
         const rollAgent = async (role: string, interaction: any) => {
             if (!agentPool[role] || agentPool[role].length === 0) agentPool[role] = [...fullAgentsByRole[role]];
             currentRole = role;
@@ -127,25 +124,22 @@ client.on('messageCreate', async (message: Message) => {
             await interaction.update({ content: text, components: [row] }).catch(()=>{});
         };
 
-        // Xử lý sự kiện bấm nút
         collector.on('collect', async i => {
             const id = i.customId;
             
-            // Xử lý khi bấm nút Role
             if (id.startsWith('r_')) {
                 let role = id.split('_')[1];
                 if (role === 'random') {
                     const roles = ["Duelist", "Initiator", "Controller", "Sentinel"];
                     role = roles[Math.floor(Math.random() * roles.length)];
                 } else {
-                    role = role.charAt(0).toUpperCase() + role.slice(1); // Đổi chữ cái đầu thành viết hoa (ví dụ: duelist -> Duelist)
+                    role = role.charAt(0).toUpperCase() + role.slice(1); 
                 }
                 await rollAgent(role, i);
             } 
-            // Xử lý khi bấm chốt/đổi tướng
             else if (id === 'a_chot') {
                 currentDraft.push(`${currentAgent} (${currentRole})`);
-                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); // Gạch tên con vừa pick
+                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); 
                 
                 if (currentDraft.length === 5) {
                     await i.update({ 
@@ -155,15 +149,15 @@ client.on('messageCreate', async (message: Message) => {
                     isDrafting = false;
                     collector.stop();
                 } else {
-                    await showRoleMenu(i); // Vòng lặp lại bước chọn Role cho vị trí tiếp theo
+                    await showRoleMenu(i); 
                 }
             } 
             else if (id === 'a_doi') {
-                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); // Chê là loại con đó ra
-                await rollAgent(currentRole, i); // Reroll lại tướng cùng Role
+                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); 
+                await rollAgent(currentRole, i); 
             } 
             else if (id === 'a_back') {
-                await showRoleMenu(i); // Back lại bảng chọn Role
+                await showRoleMenu(i); 
             }
         });
 
@@ -174,7 +168,6 @@ client.on('messageCreate', async (message: Message) => {
             }
         });
 
-        // Kích hoạt hiển thị Menu Role đầu tiên
         await showRoleMenu();
         return; 
     }
@@ -216,7 +209,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 });
 
-// ================= TÍNH NĂNG CHÀO MỪNG VOICE (TỰ NHẬN DIỆN ID) =================
+// ================= TÍNH NĂNG CHÀO MỪNG VOICE (CHỈ NHẬN DIỆN ID CÓ FILE) =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
     if (newState.member?.user.bot || oldState.channelId === newState.channelId) return;
 
@@ -232,6 +225,18 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
     if (!newChannel) return;
 
+    // Lấy ID người dùng vừa join
+    const userId = newState.member?.id;
+    if (!userId) return;
+
+    // Chỉ tìm file mang tên ID.mp3, bỏ đi file default.mp3
+    const audioPath = path.join(__dirname, '../audio', `${userId}.mp3`);
+
+    // NẾU KHÔNG CÓ FILE NHẠC TƯƠNG ỨNG VỚI ID ĐÓ -> BỎ QUA LUÔN (Không join vào phòng)
+    if (!fs.existsSync(audioPath)) {
+        return; 
+    }
+
     try {
         const connection = joinVoiceChannel({
             channelId: newChannel.id,
@@ -241,15 +246,11 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
         await entersState(connection, VoiceConnectionStatus.Ready, 5000);
         
-        const audioPath = path.join(__dirname, '../audio', `${newState.member?.id}.mp3`);
-        const playPath = fs.existsSync(audioPath) ? audioPath : path.join(__dirname, '../audio', 'default.mp3');
-
-        if (fs.existsSync(playPath)) {
-            const player = createAudioPlayer();
-            player.play(createAudioResource(playPath));
-            connection.subscribe(player);
-            player.on(AudioPlayerStatus.Idle, () => player.stop());
-        }
+        const player = createAudioPlayer();
+        player.play(createAudioResource(audioPath));
+        connection.subscribe(player);
+        player.on(AudioPlayerStatus.Idle, () => player.stop());
+        
     } catch (error) {
         console.error('Lỗi voice:', error);
     }
