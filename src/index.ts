@@ -10,6 +10,13 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
+import * as crypto from 'crypto';
+
+// --- HÀM RANDOM CHUẨN CASINO ---
+// Dùng Crypto để đảm bảo tỷ lệ ra ngẫu nhiên tuyệt đối, xóa bỏ quy luật lặp
+const trueRandom = (max: number) => crypto.randomInt(0, max);
+const pickRandom = <T>(arr: T[]): T => arr[trueRandom(arr.length)];
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 // 1. MÁY CHỦ WEB ẢO LÁCH LUẬT RENDER
 const port = process.env.PORT || 8080;
@@ -158,7 +165,7 @@ client.on('messageCreate', async (message: Message) => {
             let text = `🎲 **SÒNG BẦU CUA (Host: <@${bauCuaHost}>) - ĐANG Ở VÒNG ${currentRound}** 🎲\n👉 Bấm để đặt **10k/nháy**. Tối đa: **3 lượt đặt/người/vòng**.\n*(Cháy túi thì ra ngoài chat \`@BotToan vay ngân hàng\`)*\n\n`;
             
             if (lastRoundResult !== "") {
-                text += `🔥 **KẾT QUẢ VÒNG TRƯỚC:**\n${lastRoundResult}\n\n`;
+                text += `${lastRoundResult}\n\n`;
             }
             
             text += betSummary;
@@ -202,28 +209,26 @@ client.on('messageCreate', async (message: Message) => {
                     return;
                 }
 
-                // --------- HIỆU ỨNG ANIMATION LẮC XÍ NGẦU ---------
-                await i.update({ content: "🎲 **CHỦ SÒNG ĐANG XÓC ĐĨA...** *Lạch cạch lạch cạch...*", components: [] }).catch(()=>{});
+                // --------- HIỆU ỨNG ANIMATION XÓC ĐĨA CASINO ---------
+                await i.update({ content: "🎲 **CHỦ SÒNG ĐANG KÉO TAY LẮC XÍ NGẦU...**", components: [] }).catch(()=>{});
                 
+                let speed = 400; // Tốc độ delay ban đầu
                 for(let step = 0; step < 4; step++) {
-                    await new Promise(res => setTimeout(res, 600)); // Delay 0.6s mỗi nhịp
-                    const tempRes = [
-                        bauCuaSymbols[Math.floor(Math.random() * 6)],
-                        bauCuaSymbols[Math.floor(Math.random() * 6)],
-                        bauCuaSymbols[Math.floor(Math.random() * 6)]
-                    ];
-                    await i.editReply({ content: `🎲 **ĐANG LẮC...** [ ${tempRes.map(s => bauCuaEmojis[s]).join(' - ')} ]`, components: [] }).catch(()=>{});
+                    const tempRes = [pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols)];
+                    
+                    const box = `\`\`\`\n╔══════════════════════════════╗\n║    [ ${bauCuaEmojis[tempRes[0]]} ]    [ ${bauCuaEmojis[tempRes[1]]} ]    [ ${bauCuaEmojis[tempRes[2]]} ]    ║\n╚══════════════════════════════╝\n\`\`\``;
+                    
+                    await i.editReply({ content: `🎲 **CHỦ SÒNG ĐANG XÓC... LẠCH CẠCH...**\n${box}`, components: [] }).catch(()=>{});
+                    
+                    await sleep(speed);
+                    speed += 200; // Chậm dần đều tạo sự hồi hộp
                 }
-                await new Promise(res => setTimeout(res, 600));
 
-                // --------- TÍNH KẾT QUẢ THẬT ---------
-                const result = [
-                    bauCuaSymbols[Math.floor(Math.random() * 6)],
-                    bauCuaSymbols[Math.floor(Math.random() * 6)],
-                    bauCuaSymbols[Math.floor(Math.random() * 6)]
-                ];
+                // --------- KẾT QUẢ CUỐI CÙNG BẰNG CRYPTO RANDOM ---------
+                const result = [pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols)];
 
-                lastRoundResult = `Vừa lắc ra: **${result.map(s => bauCuaEmojis[s]).join(' - ')}** \n`;
+                const finalBox = `\`\`\`\n╔══════════════════════════════╗\n║  ✨  ${bauCuaEmojis[result[0]]}  ✨  ${bauCuaEmojis[result[1]]}  ✨  ${bauCuaEmojis[result[2]]}  ✨  ║\n╚══════════════════════════════╝\n\`\`\``;
+                lastRoundResult = `🔥 **MỞ BÁT KẾT QUẢ CHÍNH THỨC:**\n${finalBox}\n`;
                 
                 if (Object.keys(bauCuaBets).length === 0) {
                     lastRoundResult += "Vòng rồi đéo ai chơi, nhà cái bú trọn không khí!";
@@ -260,7 +265,7 @@ client.on('messageCreate', async (message: Message) => {
 
                 bauCuaBets = {}; 
                 currentRound++;
-                await updateBoard(i); // Gọi lại bảng update với kết quả
+                await updateBoard(i);
                 return;
             }
 
@@ -303,7 +308,7 @@ client.on('messageCreate', async (message: Message) => {
         return; 
     }
 
-    // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT (CÓ ANIMATION QUAY) -----------------
+    // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT (ANIMATION VÒNG QUAY) -----------------
     const draftTriggers = ['quay tướng', 'chọn tướng', 'random tướng', 'pick tướng'];
     if (draftTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
         if (isDrafting) {
@@ -348,23 +353,29 @@ client.on('messageCreate', async (message: Message) => {
             if (!agentPool[role] || agentPool[role].length === 0) agentPool[role] = [...fullAgentsByRole[role]];
             currentRole = role;
 
-            // --------- HIỆU ỨNG ANIMATION QUAY TƯỚNG ---------
+            // --------- HIỆU ỨNG ANIMATION VÒNG QUAY ĐỨNG ---------
             if (interaction.replied || interaction.deferred) {
-                await interaction.editReply({ content: `🌀 Đang lục lọi kho tướng hệ **${role}**...`, components: [] }).catch(()=>{});
+                await interaction.editReply({ content: `🌀 Đang khởi động máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
             } else {
-                await interaction.update({ content: `🌀 Đang lục lọi kho tướng hệ **${role}**...`, components: [] }).catch(()=>{});
+                await interaction.update({ content: `🌀 Đang khởi động máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
             }
 
+            const pool = agentPool[role];
+            let speed = 300;
             for(let step = 0; step < 4; step++) {
-                await new Promise(res => setTimeout(res, 500)); // Delay 0.5s lướt tướng
-                const randomTemp = agentPool[role][Math.floor(Math.random() * agentPool[role].length)];
-                await interaction.editReply({ content: `🌀 Vòng quay đang lướt qua... **${randomTemp}** 🎲`, components: [] }).catch(()=>{});
+                let p1 = pickRandom(pool);
+                let p2 = pickRandom(pool);
+                let p3 = pickRandom(pool);
+                
+                const slider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ ⏬ ĐANG QUAY MÁY CHỦ\n├───────────────────────┤\n│      ${p1}\n│ ➔  [ ${p2.toUpperCase()} ]  ✨\n│      ${p3}\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
+                await interaction.editReply({ content: `🌀 **VÒNG QUAY ĐANG LƯỚT (${role.toUpperCase()})...**\n${slider}`, components: [] }).catch(()=>{});
+                
+                await sleep(speed);
+                speed += 250; // Giảm tốc độ quay dần đều
             }
-            await new Promise(res => setTimeout(res, 500));
 
-            // --------- CHỐT KẾT QUẢ ---------
-            const randomIndex = Math.floor(Math.random() * agentPool[role].length);
-            currentAgent = agentPool[role][randomIndex];
+            // --------- CHỐT KẾT QUẢ BẰNG CRYPTO RANDOM ---------
+            currentAgent = pickRandom(pool);
 
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('a_chot').setLabel('✅ Chốt luôn').setStyle(ButtonStyle.Success),
@@ -372,7 +383,9 @@ client.on('messageCreate', async (message: Message) => {
                 new ButtonBuilder().setCustomId('a_back').setLabel('🔙 Quay lại Role').setStyle(ButtonStyle.Secondary)
             );
 
-            const text = `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}): Chốt hạ quay vào ô **${currentAgent}**!\nChốt không hay chê?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
+            const finalSlider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ 🎉 CHỐT KẾT QUẢ\n├───────────────────────┤\n│\n│ ⭐  ${currentAgent.toUpperCase()}  ⭐\n│\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
+            const text = `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}):\n${finalSlider}\nChốt không hay chê?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
+            
             await interaction.editReply({ content: text, components: [row] }).catch(()=>{});
         };
 
@@ -383,7 +396,7 @@ client.on('messageCreate', async (message: Message) => {
                 let role = id.split('_')[1];
                 if (role === 'random') {
                     const roles = ["Duelist", "Initiator", "Controller", "Sentinel"];
-                    role = roles[Math.floor(Math.random() * roles.length)];
+                    role = roles[trueRandom(roles.length)];
                 } else {
                     role = role.charAt(0).toUpperCase() + role.slice(1); 
                 }
