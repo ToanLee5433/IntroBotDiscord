@@ -1,4 +1,7 @@
-import { Client, GatewayIntentBits, VoiceState, Message } from 'discord.js';
+import { 
+    Client, GatewayIntentBits, VoiceState, Message, 
+    ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType 
+} from 'discord.js';
 import { 
     joinVoiceChannel, createAudioPlayer, createAudioResource, 
     AudioPlayerStatus, VoiceConnectionStatus, entersState, getVoiceConnection
@@ -37,16 +40,93 @@ const client = new Client({
     ]
 });
 
-// ================= TÍNH NĂNG CHAT VỚI GEMINI (VĂN BẢN THUẦN + CỰC GẮT) =================
+// ================= BIẾN TRẠNG THÁI VÒNG QUAY TƯỚNG =================
+const fullAgents = [
+    "Iso", "Jett", "Neon", "Phoenix", "Raze", "Reyna", "Waylay", "Yoru", "Clove",
+    "Breach", "Fade", "Gekko", "KAY/O", "Skye", "Sova", "Tejo",
+    "Astra", "Brimstone", "Harbor", "Miks", "Omen", "Viper",
+    "Chamber", "Cypher", "Deadlock", "Killjoy", "Sage", "Veto", "Vyse"
+];
+let pool = [...fullAgents];
+let currentDraft: string[] = [];
+let isDrafting = false;
+
+// ================= TÍNH NĂNG CHAT VÀ VÒNG QUAY =================
 client.on('messageCreate', async (message: Message) => {
     if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
-
-    // Đợi 2 giây cho HornBot nhận diện xong câu hỏi của bạn
-    await new Promise(resolve => setTimeout(resolve, 2000));
 
     const botId = client.user.id;
     const userQuestion = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
     if (!userQuestion) return;
+
+    // ----------------- TÍNH NĂNG PICK TƯỚNG -----------------
+    if (userQuestion.toLowerCase().includes('quay tướng')) {
+        if (!isDrafting) {
+            isDrafting = true;
+            currentDraft = [];
+            pool = [...fullAgents];
+            await message.reply("Khởi động phiên Draft Team 5 người! Đang tải danh sách 29 Đặc vụ... 🌀");
+        } else {
+            await message.reply("Đang có phiên pick tướng dở dang rồi, lo chốt nốt đi mày!");
+            return;
+        }
+
+        // Hàm xử lý luồng pick tướng liên hoàn
+        const sendNextPick = async (targetMessage: Message) => {
+            if (pool.length === 0) pool = [...fullAgents]; // Reset nếu lỡ skip hết tướng
+            const randomIndex = Math.floor(Math.random() * pool.length);
+            const agent = pool[randomIndex];
+
+            const row = new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(
+                    new ButtonBuilder().setCustomId('pick').setLabel('Chốt luôn').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('skip').setLabel('Chê, đổi con khác').setStyle(ButtonStyle.Danger),
+                );
+
+            const msg = await targetMessage.reply({ 
+                content: `Vị trí thứ ${currentDraft.length + 1} gọi tên: **${agent}**. Mày chốt không?`, 
+                components: [row] 
+            });
+
+            const collector = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
+
+            collector.on('collect', async i => {
+                if (i.customId === 'pick') {
+                    currentDraft.push(agent);
+                    pool.splice(randomIndex, 1); // Loại khỏi pool để không ra trùng nữa
+                    
+                    if (currentDraft.length === 5) {
+                        await i.update({ content: `✅ Đã chốt xong đội hình hủy diệt: **${currentDraft.join(' ⚔️ ')}**. Chúc team mày gánh được nhau!`, components: [] });
+                        isDrafting = false; // Đóng phiên draft
+                    } else {
+                        await i.update({ content: `✅ Chốt **${agent}**. Đội hình tạm thời: [${currentDraft.join(', ')}]. Đang lôi con tiếp theo ra...`, components: [] });
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await sendNextPick(message); // Gọi tiếp vòng lặp
+                    }
+                } else if (i.customId === 'skip') {
+                    pool.splice(randomIndex, 1); // Skip cũng loại con đó ra khỏi lượt này luôn
+                    await i.update({ content: `❌ Đã chê **${agent}**. Làm lại, đang xóc lọ mọ tìm con khác...`, components: [] });
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await sendNextPick(message);
+                }
+            });
+
+            // Tự động đóng nếu ngâm quá lâu không ai bấm
+            collector.on('end', collected => {
+                if (collected.size === 0 && isDrafting) {
+                    isDrafting = false;
+                    message.channel.send("Ngâm lâu quá đéo ai bấm, tao tự hủy phiên pick này nhé!");
+                }
+            });
+        };
+
+        await sendNextPick(message);
+        return; // Dừng lại ở đây, không chuyển câu hỏi xuống cho Gemini
+    }
+
+    // ----------------- TÍNH NĂNG CHAT VỚI GEMINI -----------------
+    // Đợi 2 giây cho HornBot đọc xong nếu có trigger
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     try {
         if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
