@@ -54,12 +54,15 @@ let isDrafting = false;
 let currentRole = "";
 let currentAgent = "";
 
-// ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA =================
+// ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA MULTIPLAYER =================
 const playerBalances: { [userId: string]: number } = {};
 const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
 const bauCuaEmojis: { [key: string]: string } = {
     "Bầu": "🎃", "Cua": "🦀", "Tôm": "🦐", "Cá": "🐟", "Gà": "🐓", "Nai": "🦌"
 };
+let isBauCuaActive = false;
+let bauCuaHost = "";
+let bauCuaBets: { [userId: string]: { name: string, symbol: string, amount: number }[] } = {};
 
 // ================= TÍNH NĂNG CHAT VÀ VÒNG QUAY =================
 client.on('messageCreate', async (message: Message) => {
@@ -76,30 +79,21 @@ client.on('messageCreate', async (message: Message) => {
         return; 
     }
 
-    // ----------------- TÍNH NĂNG GAME "BẦU CUA" -----------------
+    // ----------------- TÍNH NĂNG GAME "BẦU CUA MULTIPLAYER" -----------------
     if (userQuestion.toLowerCase().includes('bầu cua')) {
-        const userId = message.author.id;
-        
-        // Cấp vốn 100k nếu chưa có hoặc đã phá sản
-        if (!playerBalances[userId] || playerBalances[userId] <= 0) {
-            playerBalances[userId] = 100;
+        if (isBauCuaActive) {
+            await message.reply("Đang có một sòng mở rồi, vào đó mà theo đi con bạc!");
+            return;
         }
 
-        const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
-        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); // Sòng tồn tại 5 phút
+        isBauCuaActive = true;
+        bauCuaHost = message.author.id;
+        bauCuaBets = {}; // Xóa lịch sử cược ván cũ
 
-        const updateBoard = async (interaction?: any, extraMsg = "") => {
-            const balance = playerBalances[userId];
-            
-            // Xử lý khi phá sản
-            if (balance < 10) {
-                const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${balance}k, đéo đủ 1 ván cược. Cờ bạc bác thằng bần con ạ! (Gõ lệnh gọi tao lần nữa để xin nạp lại 100k).`;
-                if (interaction) await interaction.update({ content: text, components: [] }).catch(()=>{});
-                else await draftMsg.edit({ content: text, components: [] }).catch(()=>{});
-                collector.stop();
-                return;
-            }
+        const draftMsg = await message.reply("🎲 **SÒNG BẦU CUA CHÍNH THỨC MỞ!**\nAnh em bơi hết vào đây đặt cược. Đang trải chiếu...");
+        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 120000 }); // Sòng tồn tại tối đa 2 phút
 
+        const updateBoard = async (interaction?: any) => {
             const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('bc_Bầu').setLabel('🎃 Bầu').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('bc_Cua').setLabel('🦀 Cua').setStyle(ButtonStyle.Danger),
@@ -111,62 +105,132 @@ client.on('messageCreate', async (message: Message) => {
                 new ButtonBuilder().setCustomId('bc_Nai').setLabel('🦌 Nai').setStyle(ButtonStyle.Success)
             );
             const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('bc_nghi').setLabel('🏃 Chốt lãi / Nghỉ chơi').setStyle(ButtonStyle.Danger)
+                new ButtonBuilder().setCustomId('bc_mobat').setLabel('🎲 MỞ BÁT! (Chỉ Host bấm)').setStyle(ButtonStyle.Danger)
             );
 
-            const text = `${extraMsg}\n💰 Tài sản của mày: **${balance}k**\n👇 Chọn 1 con để cược **10k/ván**:`;
+            // Gom nhóm và hiển thị ai đặt gì
+            let betSummary = "📝 **TÌNH HÌNH GỬI GẠO:**\n";
+            if (Object.keys(bauCuaBets).length === 0) {
+                betSummary += "*Chưa có mống nào xuống tiền...*";
+            } else {
+                for (const uid in bauCuaBets) {
+                    const userBets = bauCuaBets[uid];
+                    const summary = userBets.reduce((acc, curr) => {
+                        acc[curr.symbol] = (acc[curr.symbol] || 0) + curr.amount;
+                        return acc;
+                    }, {} as any);
+                    
+                    const betStrings = Object.entries(summary).map(([sym, amt]) => `${bauCuaEmojis[sym]} ${sym} (**${amt}k**)`);
+                    // Hiển thị thêm số lượt đã đặt / tổng 3 lượt
+                    betSummary += `- **${userBets[0].name}** (${userBets.length}/3 lượt): ${betStrings.join(', ')}\n`;
+                }
+            }
+
+            const text = `🎲 **SÒNG BẦU CUA ĐANG MỞ!** 🎲\n👉 Bấm để đặt **10k/nháy**. Giới hạn: **3 lượt đặt/người** (có thể cược trùng 1 con).\n👑 Host <@${bauCuaHost}> chốt sổ thì bấm Mở Bát!\n\n${betSummary}`;
             
             if (interaction) await interaction.update({ content: text, components: [row1, row2, row3] }).catch(()=>{});
             else await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
         };
 
         collector.on('collect', async i => {
-            // Chặn người lạ bấm ké
-            if (i.user.id !== userId) {
-                await i.reply({ content: "Đứa nào chơi máy đứa nấy, đừng có bấm ké!", ephemeral: true }).catch(()=>{});
-                return;
-            }
+            const uid = i.user.id;
+            const uname = i.user.displayName || i.user.username;
 
-            // Xử lý nút Nghỉ
-            if (i.customId === 'bc_nghi') {
-                const finalBalance = playerBalances[userId];
-                let msg = `🏃 Mày đã xách quần bỏ chạy với **${finalBalance}k**. `;
-                msg += finalBalance > 100 ? "Khôn đấy, ăn được của ngoại rồi lủi!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
-                await i.update({ content: msg, components: [] }).catch(()=>{});
+            // Xử lý nút Mở Bát
+            if (i.customId === 'bc_mobat') {
+                if (uid !== bauCuaHost) {
+                    await i.reply({ content: "Mày đéo phải chủ sòng, xê ra cho Host mở bát!", ephemeral: true }).catch(()=>{});
+                    return;
+                }
+
+                // Lắc bầu cua
+                const result = [
+                    bauCuaSymbols[Math.floor(Math.random() * 6)],
+                    bauCuaSymbols[Math.floor(Math.random() * 6)],
+                    bauCuaSymbols[Math.floor(Math.random() * 6)]
+                ];
+
+                let resultText = `🎲 **KẾT QUẢ:** ${result.map(s => bauCuaEmojis[s]).join(' - ')} \n\n`;
+                
+                // Tính tiền
+                if (Object.keys(bauCuaBets).length === 0) {
+                    resultText += "Chả có mống nào chơi, sòng ế vc!";
+                } else {
+                    for (const playerId in bauCuaBets) {
+                        let totalWon = 0;
+                        let totalLost = 0;
+                        const userBets = bauCuaBets[playerId];
+                        
+                        userBets.forEach(bet => {
+                            let matches = result.filter(r => r === bet.symbol).length;
+                            if (matches > 0) {
+                                const winAmt = bet.amount + (bet.amount * matches); // Trả vốn + Tiền ăn
+                                playerBalances[playerId] += winAmt;
+                                totalWon += (bet.amount * matches);
+                            } else {
+                                totalLost += bet.amount;
+                            }
+                        });
+
+                        const balance = playerBalances[playerId];
+                        if (totalWon > totalLost) {
+                            resultText += `🤑 **${userBets[0].name}** húp được **${totalWon - totalLost}k** (Đang có ${balance}k)\n`;
+                        } else if (totalLost > totalWon) {
+                            resultText += `💸 **${userBets[0].name}** cúng cho cái **${totalLost - totalWon}k** (Đang có ${balance}k)\n`;
+                        } else {
+                            resultText += `⚖️ **${userBets[0].name}** hòa vốn! (Đang có ${balance}k)\n`;
+                        }
+                    }
+                }
+
+                resultText += `\n*Muốn gỡ? Tag tao gọi "bầu cua" ván mới!*`;
+                await i.update({ content: resultText, components: [] }).catch(()=>{});
+                
+                isBauCuaActive = false;
                 collector.stop();
                 return;
             }
 
-            // Xử lý cược
-            const betSymbol = i.customId.split('_')[1];
-            if (!bauCuaSymbols.includes(betSymbol)) return;
+            // Xử lý nút Đặt Cược
+            if (i.customId.startsWith('bc_')) {
+                const betSymbol = i.customId.split('_')[1];
+                
+                // Nạp vốn tự động nếu hết hoặc chưa có (Cho 100k)
+                if (!playerBalances[uid] || playerBalances[uid] <= 0) {
+                    playerBalances[uid] = 100; 
+                }
 
-            playerBalances[userId] -= 10; // Trừ tiền cược
+                // Hết sạch tiền thì báo lỗi riêng
+                if (playerBalances[uid] < 10) {
+                    await i.reply({ content: "Mày cháy túi rồi con giời, hóng thôi đừng bấm nữa!", ephemeral: true }).catch(()=>{});
+                    return;
+                }
 
-            // Lắc 3 viên xí ngầu
-            const result = [
-                bauCuaSymbols[Math.floor(Math.random() * 6)],
-                bauCuaSymbols[Math.floor(Math.random() * 6)],
-                bauCuaSymbols[Math.floor(Math.random() * 6)]
-            ];
+                // GIỚI HẠN: Mỗi người chỉ được đặt tối đa 3 ván (tương đương 30k)
+                if (bauCuaBets[uid] && bauCuaBets[uid].length >= 3) {
+                    await i.reply({ content: "Mỗi ván mày chỉ được đặt tối đa 3 phát (30k) thôi con tham này! Đợi mở bát đi.", ephemeral: true }).catch(()=>{});
+                    return;
+                }
 
-            // Tính tiền
-            let matchCount = result.filter(s => s === betSymbol).length;
-            let resultMsg = `🎲 Vừa lắc ra: **${result.map(s => bauCuaEmojis[s]).join(' - ')}** | `;
-            
-            if (matchCount > 0) {
-                const winAmount = 10 + (matchCount * 10); // Trả lại tiền cược + tiền ăn
-                playerBalances[userId] += winAmount;
-                resultMsg += `🎉 Trúng ${matchCount} nháy! Mày lụm **${matchCount * 10}k**.`;
-            } else {
-                resultMsg += `💀 Mất cmn **10k** cược con ${betSymbol}!`;
+                // Trừ tiền cược
+                playerBalances[uid] -= 10;
+                
+                if (!bauCuaBets[uid]) bauCuaBets[uid] = [];
+                bauCuaBets[uid].push({ name: uname, symbol: betSymbol, amount: 10 });
+
+                await updateBoard(i);
             }
+        });
 
-            await updateBoard(i, resultMsg);
+        collector.on('end', () => {
+            if (isBauCuaActive) {
+                isBauCuaActive = false;
+                draftMsg.reply("Sòng đóng cửa vì chủ sòng chạy trốn, hoàn lại tiền cho anh em!").catch(()=>{});
+            }
         });
 
         await updateBoard();
-        return; // Dừng lại, không cho nhắn với AI
+        return; 
     }
 
     // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT -----------------
