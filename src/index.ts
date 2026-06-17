@@ -40,7 +40,7 @@ const client = new Client({
     ]
 });
 
-// ================= BIẾN TRẠNG THÁI VÒNG QUAY =================
+// ================= BIẾN TRẠNG THÁI VÒNG QUAY VALORANT =================
 const fullAgentsByRole: { [key: string]: string[] } = {
     "Duelist": ["Iso", "Jett", "Neon", "Phoenix", "Raze", "Reyna", "Waylay", "Yoru", "Clove"],
     "Initiator": ["Breach", "Fade", "Gekko", "KAY/O", "Skye", "Sova", "Tejo"],
@@ -53,6 +53,13 @@ let agentPool: { [key: string]: string[] } = {};
 let isDrafting = false;
 let currentRole = "";
 let currentAgent = "";
+
+// ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA =================
+const playerBalances: { [userId: string]: number } = {};
+const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
+const bauCuaEmojis: { [key: string]: string } = {
+    "Bầu": "🎃", "Cua": "🦀", "Tôm": "🦐", "Cá": "🐟", "Gà": "🐓", "Nai": "🦌"
+};
 
 // ================= TÍNH NĂNG CHAT VÀ VÒNG QUAY =================
 client.on('messageCreate', async (message: Message) => {
@@ -69,7 +76,100 @@ client.on('messageCreate', async (message: Message) => {
         return; 
     }
 
-    // ----------------- TÍNH NĂNG PICK TƯỚNG (ROLE -> AGENT) -----------------
+    // ----------------- TÍNH NĂNG GAME "BẦU CUA" -----------------
+    if (userQuestion.toLowerCase().includes('bầu cua')) {
+        const userId = message.author.id;
+        
+        // Cấp vốn 100k nếu chưa có hoặc đã phá sản
+        if (!playerBalances[userId] || playerBalances[userId] <= 0) {
+            playerBalances[userId] = 100;
+        }
+
+        const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
+        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); // Sòng tồn tại 5 phút
+
+        const updateBoard = async (interaction?: any, extraMsg = "") => {
+            const balance = playerBalances[userId];
+            
+            // Xử lý khi phá sản
+            if (balance < 10) {
+                const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${balance}k, đéo đủ 1 ván cược. Cờ bạc bác thằng bần con ạ! (Gõ lệnh gọi tao lần nữa để xin nạp lại 100k).`;
+                if (interaction) await interaction.update({ content: text, components: [] }).catch(()=>{});
+                else await draftMsg.edit({ content: text, components: [] }).catch(()=>{});
+                collector.stop();
+                return;
+            }
+
+            const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('bc_Bầu').setLabel('🎃 Bầu').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('bc_Cua').setLabel('🦀 Cua').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('bc_Tôm').setLabel('🦐 Tôm').setStyle(ButtonStyle.Primary)
+            );
+            const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('bc_Cá').setLabel('🐟 Cá').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('bc_Gà').setLabel('🐓 Gà').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('bc_Nai').setLabel('🦌 Nai').setStyle(ButtonStyle.Success)
+            );
+            const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('bc_nghi').setLabel('🏃 Chốt lãi / Nghỉ chơi').setStyle(ButtonStyle.Danger)
+            );
+
+            const text = `${extraMsg}\n💰 Tài sản của mày: **${balance}k**\n👇 Chọn 1 con để cược **10k/ván**:`;
+            
+            if (interaction) await interaction.update({ content: text, components: [row1, row2, row3] }).catch(()=>{});
+            else await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
+        };
+
+        collector.on('collect', async i => {
+            // Chặn người lạ bấm ké
+            if (i.user.id !== userId) {
+                await i.reply({ content: "Đứa nào chơi máy đứa nấy, đừng có bấm ké!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+
+            // Xử lý nút Nghỉ
+            if (i.customId === 'bc_nghi') {
+                const finalBalance = playerBalances[userId];
+                let msg = `🏃 Mày đã xách quần bỏ chạy với **${finalBalance}k**. `;
+                msg += finalBalance > 100 ? "Khôn đấy, ăn được của ngoại rồi lủi!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
+                await i.update({ content: msg, components: [] }).catch(()=>{});
+                collector.stop();
+                return;
+            }
+
+            // Xử lý cược
+            const betSymbol = i.customId.split('_')[1];
+            if (!bauCuaSymbols.includes(betSymbol)) return;
+
+            playerBalances[userId] -= 10; // Trừ tiền cược
+
+            // Lắc 3 viên xí ngầu
+            const result = [
+                bauCuaSymbols[Math.floor(Math.random() * 6)],
+                bauCuaSymbols[Math.floor(Math.random() * 6)],
+                bauCuaSymbols[Math.floor(Math.random() * 6)]
+            ];
+
+            // Tính tiền
+            let matchCount = result.filter(s => s === betSymbol).length;
+            let resultMsg = `🎲 Vừa lắc ra: **${result.map(s => bauCuaEmojis[s]).join(' - ')}** | `;
+            
+            if (matchCount > 0) {
+                const winAmount = 10 + (matchCount * 10); // Trả lại tiền cược + tiền ăn
+                playerBalances[userId] += winAmount;
+                resultMsg += `🎉 Trúng ${matchCount} nháy! Mày lụm **${matchCount * 10}k**.`;
+            } else {
+                resultMsg += `💀 Mất cmn **10k** cược con ${betSymbol}!`;
+            }
+
+            await updateBoard(i, resultMsg);
+        });
+
+        await updateBoard();
+        return; // Dừng lại, không cho nhắn với AI
+    }
+
+    // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT -----------------
     const draftTriggers = ['quay tướng', 'chọn tướng', 'random tướng', 'pick tướng'];
     if (draftTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
         if (isDrafting) {
@@ -86,8 +186,7 @@ client.on('messageCreate', async (message: Message) => {
             "Sentinel": [...fullAgentsByRole["Sentinel"]]
         };
 
-        const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team!** Đang setup bàn quay...");
-
+        const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team Valorant!** Đang setup bàn quay...");
         const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); 
 
         const showRoleMenu = async (interaction?: any) => {
@@ -225,14 +324,11 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
     if (!newChannel) return;
 
-    // Lấy ID người dùng vừa join
     const userId = newState.member?.id;
     if (!userId) return;
 
-    // Chỉ tìm file mang tên ID.mp3, bỏ đi file default.mp3
     const audioPath = path.join(__dirname, '../audio', `${userId}.mp3`);
 
-    // NẾU KHÔNG CÓ FILE NHẠC TƯƠNG ỨNG VỚI ID ĐÓ -> BỎ QUA LUÔN (Không join vào phòng)
     if (!fs.existsSync(audioPath)) {
         return; 
     }
