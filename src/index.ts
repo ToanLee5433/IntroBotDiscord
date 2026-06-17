@@ -115,7 +115,8 @@ client.on('messageCreate', async (message: Message) => {
             collector.on('end', collected => {
                 if (collected.size === 0 && isDrafting) {
                     isDrafting = false;
-                    message.channel.send("Ngâm lâu quá đéo ai bấm, tao tự hủy phiên pick này nhé!");
+                    // Đã sửa dòng này: Dùng message.reply thay vì message.channel.send để tránh lỗi TypeScript
+                    message.reply("Ngâm lâu quá đéo ai bấm, tao tự hủy phiên pick này nhé!").catch(() => {});
                 }
             });
         };
