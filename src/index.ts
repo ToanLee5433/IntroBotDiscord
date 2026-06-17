@@ -60,8 +60,9 @@ client.on('messageCreate', async (message: Message) => {
     if (!userQuestion) return;
 
     try {
-        if (message.channel.isTextBased()) {
-            await message.channel.sendTyping();
+        // Dùng 'as any' để ép TypeScript bỏ qua việc kiểm tra lỗi này
+        if ('sendTyping' in message.channel) {
+            await (message.channel as any).sendTyping();
         }
 
         const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
