@@ -12,8 +12,15 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as crypto from 'crypto';
 
+// --- HÀM XỬ LÝ TEXT KHÔNG DẤU ---
+const removeAccents = (str: string) => {
+    return str.normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+              .toLowerCase();
+};
+
 // --- HÀM RANDOM CHUẨN CASINO ---
-// Dùng Crypto để đảm bảo tỷ lệ ra ngẫu nhiên tuyệt đối, xóa bỏ quy luật lặp
 const trueRandom = (max: number) => crypto.randomInt(0, max);
 const pickRandom = <T>(arr: T[]): T => arr[trueRandom(arr.length)];
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -47,6 +54,10 @@ const client = new Client({
     ]
 });
 
+// ================= BIẾN TÀI SẢN CHUNG =================
+const playerBalances: { [userId: string]: number } = {};
+const playerDebts: { [userId: string]: number } = {}; 
+
 // ================= BIẾN TRẠNG THÁI VÒNG QUAY VALORANT =================
 const fullAgentsByRole: { [key: string]: string[] } = {
     "Duelist": ["Iso", "Jett", "Neon", "Phoenix", "Raze", "Reyna", "Waylay", "Yoru", "Clove"],
@@ -54,16 +65,13 @@ const fullAgentsByRole: { [key: string]: string[] } = {
     "Controller": ["Astra", "Brimstone", "Harbor", "Miks", "Omen", "Viper"],
     "Sentinel": ["Chamber", "Cypher", "Deadlock", "Killjoy", "Sage", "Veto", "Vyse"]
 };
-
 let currentDraft: string[] = [];
 let agentPool: { [key: string]: string[] } = {};
 let isDrafting = false;
 let currentRole = "";
 let currentAgent = "";
 
-// ================= BIẾN TRẠNG THÁI MINI GAME BẦU CUA =================
-const playerBalances: { [userId: string]: number } = {};
-const playerDebts: { [userId: string]: number } = {}; 
+// ================= BIẾN TRẠNG THÁI BẦU CUA =================
 const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
 const bauCuaEmojis: { [key: string]: string } = {
     "Bầu": "🎃", "Cua": "🦀", "Tôm": "🦐", "Cá": "🐟", "Gà": "🐓", "Nai": "🦌"
@@ -71,66 +79,210 @@ const bauCuaEmojis: { [key: string]: string } = {
 let isBauCuaActive = false;
 let bauCuaHost = "";
 let bauCuaBets: { [userId: string]: { name: string, symbol: string, amount: number }[] } = {};
-let currentRound = 1;
-let lastRoundResult = "";
-let sessionPlayers = new Set<string>();
+let bcRound = 1;
+let lastBCResult = "";
+let bcPlayers = new Set<string>();
 
-// ================= TÍNH NĂNG CHAT VÀ VÒNG QUAY =================
+// ================= BIẾN TRẠNG THÁI XÓC ĐĨA =================
+let isXocDiaActive = false;
+let xdHost = "";
+let xdBets: { [userId: string]: { name: string, type: string, label: string, amount: number }[] } = {};
+let xdRound = 1;
+let lastXDResult = "";
+let xdPlayers = new Set<string>();
+
+// ================= TÍNH NĂNG CHAT VÀ GAME =================
 client.on('messageCreate', async (message: Message) => {
     if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
 
     const botId = client.user.id;
-    const userQuestion = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
-    if (!userQuestion) return;
+    const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
+    const cleanInput = removeAccents(rawInput); // Chuỗi đã bỏ dấu để check
+    if (!cleanInput) return;
 
-    // ----------------- TÍNH NĂNG "CÂM" -----------------
-    const shutUpTriggers = ['câm', 'câm mồm', 'im đi', 'im mồm'];
-    if (shutUpTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
+    // ----------------- 1. TÍNH NĂNG "CÂM" -----------------
+    if (['cam', 'cam mom', 'im di', 'im mom'].some(t => cleanInput.includes(t))) {
         await message.reply("Biết rồi, tao câm đây!");
         return; 
     }
 
-    // ----------------- TÍNH NĂNG VAY NGÂN HÀNG -----------------
-    const vayTriggers = ['vay ngân hàng', 'vay ngan hang', 'vay tiền', 'vay tien'];
-    if (vayTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
+    // ----------------- 2. TÍNH NĂNG VAY NGÂN HÀNG -----------------
+    if (['vay ngan hang', 'vay tien'].some(t => cleanInput.includes(t))) {
         const uid = message.author.id;
-        
         if (playerBalances[uid] === undefined) {
             playerBalances[uid] = 100;
             playerDebts[uid] = 0;
-            await message.reply("Mày chưa chơi bao giờ, tao cho 100k khởi nghiệp miễn phí không cần tính nợ. Gọi `@BotToan bầu cua` để vào sòng!");
+            await message.reply("Mày chưa chơi bao giờ, tao cho 100k khởi nghiệp miễn phí. Vào sòng đi!");
             return;
         }
-
         if (playerBalances[uid] >= 10) {
-            await message.reply(`Đĩ thõa, ví mày còn **${playerBalances[uid]}k** mà đòi vay thêm à? Bao giờ nhẵn túi tao mới cho vay!`);
+            await message.reply(`Đĩ thõa, ví mày còn **${playerBalances[uid]}k** mà đòi vay? Bao giờ nhẵn túi tao mới cho vay!`);
             return;
         }
-
         playerBalances[uid] += 100;
         playerDebts[uid] = (playerDebts[uid] || 0) + 100;
-        await message.reply(`🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nĐã bơm cho mày **100k** vào ví.\n💸 Ghi sổ: Mày đang nợ tao tổng cộng **${playerDebts[uid]}k**. Vào sòng mà gỡ đi con trai!`);
+        await message.reply(`🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nBơm **100k** vào ví. Mày đang nợ tao tổng **${playerDebts[uid]}k**. Gỡ lẹ đi!`);
         return;
     }
 
-    // ----------------- TÍNH NĂNG GAME "BẦU CUA MULTIPLAYER" -----------------
-    if (userQuestion.toLowerCase().includes('bầu cua')) {
-        if (isBauCuaActive) {
-            await message.reply("Đang có một sòng mở rồi, vào đó mà theo đi con bạc!");
+    // ----------------- 3. TÍNH NĂNG XÓC ĐĨA -----------------
+    if (['xoc dia', 'choi xoc dia'].some(t => cleanInput.includes(t))) {
+        if (isXocDiaActive) {
+            await message.reply("Đang có sòng Xóc Đĩa rồi, vào theo đi con bạc!");
             return;
         }
+        isXocDiaActive = true;
+        xdHost = message.author.id;
+        xdBets = {}; xdRound = 1; lastXDResult = ""; xdPlayers.clear();
 
-        isBauCuaActive = true;
-        bauCuaHost = message.author.id;
-        bauCuaBets = {}; 
-        currentRound = 1;
-        lastRoundResult = "";
-        sessionPlayers.clear();
-
-        const draftMsg = await message.reply("🎲 **SÒNG BẦU CUA CHÍNH THỨC MỞ CỬA!**\nAnh em bơi hết vào đây đặt cược. Đang trải chiếu...");
+        const draftMsg = await message.reply("⛩️ **SÒNG XÓC ĐĨA TRUYỀN THỐNG MỞ CỬA!**\nTrải chiếu, úp bát. Anh em xuống tiền!");
         const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 1800000 }); 
 
-        const updateBoard = async (interaction?: any) => {
+        const updateXDBoard = async (interaction?: any) => {
+            const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('xd_chan').setLabel('🔴 CHẴN (1:1)').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('xd_le').setLabel('⚪ LẺ (1:1)').setStyle(ButtonStyle.Secondary),
+            );
+            const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('xd_4do').setLabel('🔴🔴🔴🔴 (1:12)').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('xd_4trang').setLabel('⚪⚪⚪⚪ (1:12)').setStyle(ButtonStyle.Secondary),
+            );
+            const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('xd_3do1trang').setLabel('🔴🔴🔴⚪ (1:3.5)').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('xd_3trang1do').setLabel('⚪⚪⚪🔴 (1:3.5)').setStyle(ButtonStyle.Primary),
+            );
+            const row4 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('xd_mobat').setLabel('🎲 XÓC & MỞ BÁT!').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId('xd_dongsong').setLabel('🛑 Đóng Sòng').setStyle(ButtonStyle.Danger)
+            );
+
+            let betSummary = `📝 **TÌNH HÌNH XUỐNG XÁC VÒNG ${xdRound}:**\n`;
+            if (Object.keys(xdBets).length === 0) betSummary += "*Chưa ai thả đồng nào...*";
+            else {
+                for (const uid in xdBets) {
+                    const userBets = xdBets[uid];
+                    const summary = userBets.reduce((acc, curr) => {
+                        acc[curr.label] = (acc[curr.label] || 0) + curr.amount;
+                        return acc;
+                    }, {} as any);
+                    const betStrings = Object.entries(summary).map(([lbl, amt]) => `${lbl} (**${amt}k**)`);
+                    betSummary += `- **${userBets[0].name}** (${userBets.length}/3 lượt): ${betStrings.join(', ')}\n`;
+                }
+            }
+
+            let text = `⛩️ **SÒNG XÓC ĐĨA (Host: <@${xdHost}>) - VÒNG ${xdRound}** ⛩️\n👉 Cược **10k/nháy**. Tối đa: **3 lượt/người/vòng**.\n\n${lastXDResult ? lastXDResult + '\n' : ''}${betSummary}`;
+            
+            if (interaction) {
+                if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row1, row2, row3, row4] }).catch(()=>{});
+                else await interaction.update({ content: text, components: [row1, row2, row3, row4] }).catch(()=>{});
+            } else await draftMsg.edit({ content: text, components: [row1, row2, row3, row4] }).catch(()=>{});
+        };
+
+        collector.on('collect', async i => {
+            const uid = i.user.id;
+            const uname = i.user.displayName || i.user.username;
+
+            if (i.customId === 'xd_dongsong') {
+                if (uid !== xdHost) { await i.reply({ content: "Tránh ra cho Host dọn chiếu!", ephemeral: true }); return; }
+                let finalText = `🛑 **SÒNG ĐÃ DỌN DẸP! LÀNG VỀ QUÊ!** 🛑\n\n💰 **TỔNG KẾT TÀI SẢN:**\n`;
+                if (xdPlayers.size === 0) finalText += "*Sòng ế ẩm...*";
+                else xdPlayers.forEach(pId => finalText += `- <@${pId}> cầm: **${playerBalances[pId]}k** | Nợ: **${playerDebts[pId]||0}k**\n`);
+                await i.update({ content: finalText, components: [] }).catch(()=>{});
+                isXocDiaActive = false; collector.stop(); return;
+            }
+
+            if (i.customId === 'xd_mobat') {
+                if (uid !== xdHost) { await i.reply({ content: "Chỉ Host mới được xóc đĩa!", ephemeral: true }); return; }
+                
+                await i.update({ content: "⛩️ **CHỦ SÒNG BẮT ĐẦU XÓC...**", components: [] }).catch(()=>{});
+                
+                // Animation Xóc Đĩa
+                const shakeFrames = [
+                    `\`\`\`text\n      _______\n    /         \\\n   | LẠCH CẠCH |\n    \\_________/\n\`\`\``,
+                    `\`\`\`text\n     _______\n   /         \\\n  | CẠCH LẠCH |\n   \\_________/\n\`\`\``
+                ];
+                for (let step = 0; step < 6; step++) {
+                    await i.editReply({ content: `⛩️ **ĐANG XÓC ĐĨA...**\n${shakeFrames[step % 2]}`, components: [] }).catch(()=>{});
+                    await sleep(400);
+                }
+
+                // Random kết quả
+                let reds = 0, whites = 0;
+                let coins = [];
+                for(let c=0; c<4; c++) {
+                    const isRed = trueRandom(2) === 0;
+                    if (isRed) { reds++; coins.push('🔴'); }
+                    else { whites++; coins.push('⚪'); }
+                }
+                
+                let isChan = (reds === 0 || reds === 2 || reds === 4);
+                let chanLeStr = isChan ? "🔴 CHẴN" : "⚪ LẺ";
+
+                const resultFrame = `\`\`\`text\n    ( ĐÃ MỞ BÁT )\n\n     ${coins[0]}   ${coins[1]}\n     ${coins[2]}   ${coins[3]}\n\n    \\_________/\n\`\`\``;
+                lastXDResult = `🔥 **KẾT QUẢ: ${chanLeStr} (${reds} Đỏ - ${whites} Trắng)**\n${resultFrame}\n`;
+
+                if (Object.keys(xdBets).length === 0) lastXDResult += "Vòng rồi nhà cái múa đĩa cho vui, đéo ai chơi!";
+                else {
+                    for (const playerId in xdBets) {
+                        let totalWon = 0, totalLost = 0;
+                        xdBets[playerId].forEach(bet => {
+                            let multiplier = 0;
+                            if (bet.type === 'chan' && isChan) multiplier = 1;
+                            else if (bet.type === 'le' && !isChan) multiplier = 1;
+                            else if (bet.type === '4do' && reds === 4) multiplier = 12;
+                            else if (bet.type === '4trang' && whites === 4) multiplier = 12;
+                            else if (bet.type === '3do1trang' && reds === 3) multiplier = 3.5;
+                            else if (bet.type === '3trang1do' && whites === 3) multiplier = 3.5;
+
+                            if (multiplier > 0) {
+                                const winAmt = bet.amount + (bet.amount * multiplier);
+                                playerBalances[playerId] += winAmt;
+                                totalWon += (bet.amount * multiplier);
+                            } else {
+                                totalLost += bet.amount;
+                            }
+                        });
+
+                        const info = `(Ví: ${playerBalances[playerId]}k | Nợ: ${playerDebts[playerId]||0}k)`;
+                        if (totalWon > totalLost) lastXDResult += `🤑 **${xdBets[playerId][0].name}** húp **${totalWon - totalLost}k** ➡️ ${info}\n`;
+                        else if (totalLost > totalWon) lastXDResult += `💸 **${xdBets[playerId][0].name}** cháy **${totalLost - totalWon}k** ➡️ ${info}\n`;
+                        else lastXDResult += `⚖️ **${xdBets[playerId][0].name}** hòa vốn! ➡️ ${info}\n`;
+                    }
+                }
+                xdBets = {}; xdRound++; await updateXDBoard(i); return;
+            }
+
+            if (i.customId.startsWith('xd_')) {
+                const betType = i.customId.split('_')[1];
+                let label = betType.toUpperCase();
+                if (betType==='3do1trang') label = '🔴x3 ⚪x1';
+                if (betType==='3trang1do') label = '⚪x3 🔴x1';
+                
+                if (playerBalances[uid] === undefined) { playerBalances[uid] = 100; playerDebts[uid] = 0; }
+                if (playerBalances[uid] < 10) { await i.reply({ content: "Cháy túi rồi, xin xỏ Vay Ngân Hàng đi!", ephemeral: true }); return; }
+                if (xdBets[uid] && xdBets[uid].length >= 3) { await i.reply({ content: "Tối đa 3 lượt cược (30k) mỗi ván thôi!", ephemeral: true }); return; }
+
+                playerBalances[uid] -= 10; xdPlayers.add(uid);
+                if (!xdBets[uid]) xdBets[uid] = [];
+                xdBets[uid].push({ name: uname, type: betType, label: label, amount: 10 });
+                await updateXDBoard(i);
+            }
+        });
+
+        collector.on('end', () => {
+            if (isXocDiaActive) { isXocDiaActive = false; draftMsg.reply("Sòng đóng vì ngâm quá lâu!").catch(()=>{}); }
+        });
+        await updateXDBoard(); return;
+    }
+
+    // ----------------- 4. TÍNH NĂNG GAME BẦU CUA -----------------
+    if (['bau cua', 'choi bau cua'].some(t => cleanInput.includes(t))) {
+        if (isBauCuaActive) { await message.reply("Đang có sòng mở rồi!"); return; }
+        isBauCuaActive = true; bauCuaHost = message.author.id; bauCuaBets = {}; bcRound = 1; lastBCResult = ""; bcPlayers.clear();
+        const draftMsg = await message.reply("🎲 **SÒNG BẦU CUA MỞ CỬA!**");
+        const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 1800000 }); 
+
+        const updateBCBoard = async (interaction?: any) => {
             const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('bc_Bầu').setLabel('🎃 Bầu').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('bc_Cua').setLabel('🦀 Cua').setStyle(ButtonStyle.Danger),
@@ -146,376 +298,179 @@ client.on('messageCreate', async (message: Message) => {
                 new ButtonBuilder().setCustomId('bc_dongsong').setLabel('🛑 Đóng Sòng').setStyle(ButtonStyle.Danger)
             );
 
-            let betSummary = `📝 **TÌNH HÌNH GỬI GẠO VÒNG ${currentRound}:**\n`;
-            if (Object.keys(bauCuaBets).length === 0) {
-                betSummary += "*Chưa có mống nào xuống tiền...*";
-            } else {
+            let betSummary = `📝 **GỬI GẠO VÒNG ${bcRound}:**\n`;
+            if (Object.keys(bauCuaBets).length === 0) betSummary += "*Chưa ai xuống tiền...*";
+            else {
                 for (const uid in bauCuaBets) {
                     const userBets = bauCuaBets[uid];
-                    const summary = userBets.reduce((acc, curr) => {
-                        acc[curr.symbol] = (acc[curr.symbol] || 0) + curr.amount;
-                        return acc;
-                    }, {} as any);
-                    
+                    const summary = userBets.reduce((acc, curr) => { acc[curr.symbol] = (acc[curr.symbol] || 0) + curr.amount; return acc; }, {} as any);
                     const betStrings = Object.entries(summary).map(([sym, amt]) => `${bauCuaEmojis[sym]} ${sym} (**${amt}k**)`);
-                    betSummary += `- **${userBets[0].name}** (${userBets.length}/3 lượt): ${betStrings.join(', ')}\n`;
+                    betSummary += `- **${userBets[0].name}** (${userBets.length}/3): ${betStrings.join(', ')}\n`;
                 }
             }
 
-            let text = `🎲 **SÒNG BẦU CUA (Host: <@${bauCuaHost}>) - ĐANG Ở VÒNG ${currentRound}** 🎲\n👉 Bấm để đặt **10k/nháy**. Tối đa: **3 lượt đặt/người/vòng**.\n*(Cháy túi thì ra ngoài chat \`@BotToan vay ngân hàng\`)*\n\n`;
-            
-            if (lastRoundResult !== "") {
-                text += `${lastRoundResult}\n\n`;
-            }
-            
-            text += betSummary;
+            let text = `🎲 **BẦU CUA (Host: <@${bauCuaHost}>) - VÒNG ${bcRound}**\n👉 **10k/nháy**. Tối đa: 3 lượt/người.\n\n${lastBCResult ? lastBCResult + '\n' : ''}${betSummary}`;
             
             if (interaction) {
                 if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row1, row2, row3] }).catch(()=>{});
                 else await interaction.update({ content: text, components: [row1, row2, row3] }).catch(()=>{});
-            } else {
-                await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
-            }
+            } else await draftMsg.edit({ content: text, components: [row1, row2, row3] }).catch(()=>{});
         };
 
         collector.on('collect', async i => {
-            const uid = i.user.id;
-            const uname = i.user.displayName || i.user.username;
-
+            const uid = i.user.id; const uname = i.user.displayName || i.user.username;
             if (i.customId === 'bc_dongsong') {
-                if (uid !== bauCuaHost) {
-                    await i.reply({ content: "Mày đéo phải Host, xê ra để Host đóng cửa!", ephemeral: true }).catch(()=>{});
-                    return;
-                }
-
-                let finalText = `🛑 **SÒNG ĐÃ ĐÓNG CỬA! LÀNG GIẢI TÁN!** 🛑\n\n💰 **TỔNG KẾT TÀI SẢN:**\n`;
-                if (sessionPlayers.size === 0) finalText += "*Sòng ế quá không có ai chơi...*";
-                else {
-                    sessionPlayers.forEach(pId => {
-                        const debt = playerDebts[pId] || 0;
-                        finalText += `- <@${pId}> cầm: **${playerBalances[pId]}k** | Đang nợ: **${debt}k**\n`;
-                    });
-                }
-
-                await i.update({ content: finalText, components: [] }).catch(()=>{});
-                isBauCuaActive = false;
-                collector.stop();
-                return;
+                if (uid !== bauCuaHost) return;
+                isBauCuaActive = false; collector.stop();
+                await i.update({ content: `🛑 **SÒNG ĐÓNG!**`, components: [] }).catch(()=>{}); return;
             }
-
             if (i.customId === 'bc_mobat') {
-                if (uid !== bauCuaHost) {
-                    await i.reply({ content: "Chỉ Host mới được quyền Mở Bát!", ephemeral: true }).catch(()=>{});
-                    return;
-                }
-
-                // --------- HIỆU ỨNG ANIMATION XÓC ĐĨA CASINO ---------
-                await i.update({ content: "🎲 **CHỦ SÒNG ĐANG KÉO TAY LẮC XÍ NGẦU...**", components: [] }).catch(()=>{});
-                
-                let speed = 400; // Tốc độ delay ban đầu
+                if (uid !== bauCuaHost) return;
+                await i.update({ content: "🎲 **ĐANG XÓC ĐĨA...**", components: [] }).catch(()=>{});
+                let speed = 400;
                 for(let step = 0; step < 4; step++) {
-                    const tempRes = [pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols)];
-                    
-                    const box = `\`\`\`\n╔══════════════════════════════╗\n║    [ ${bauCuaEmojis[tempRes[0]]} ]    [ ${bauCuaEmojis[tempRes[1]]} ]    [ ${bauCuaEmojis[tempRes[2]]} ]    ║\n╚══════════════════════════════╝\n\`\`\``;
-                    
-                    await i.editReply({ content: `🎲 **CHỦ SÒNG ĐANG XÓC... LẠCH CẠCH...**\n${box}`, components: [] }).catch(()=>{});
-                    
-                    await sleep(speed);
-                    speed += 200; // Chậm dần đều tạo sự hồi hộp
+                    const t = [pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols)];
+                    const box = `\`\`\`\n╔══════════════════════════════╗\n║    [ ${bauCuaEmojis[t[0]]} ]    [ ${bauCuaEmojis[t[1]]} ]    [ ${bauCuaEmojis[t[2]]} ]    ║\n╚══════════════════════════════╝\n\`\`\``;
+                    await i.editReply({ content: `🎲 **CHỦ SÒNG ĐANG XÓC...**\n${box}`, components: [] }).catch(()=>{});
+                    await sleep(speed); speed += 200;
                 }
-
-                // --------- KẾT QUẢ CUỐI CÙNG BẰNG CRYPTO RANDOM ---------
-                const result = [pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols)];
-
-                const finalBox = `\`\`\`\n╔══════════════════════════════╗\n║  ✨  ${bauCuaEmojis[result[0]]}  ✨  ${bauCuaEmojis[result[1]]}  ✨  ${bauCuaEmojis[result[2]]}  ✨  ║\n╚══════════════════════════════╝\n\`\`\``;
-                lastRoundResult = `🔥 **MỞ BÁT KẾT QUẢ CHÍNH THỨC:**\n${finalBox}\n`;
-                
-                if (Object.keys(bauCuaBets).length === 0) {
-                    lastRoundResult += "Vòng rồi đéo ai chơi, nhà cái bú trọn không khí!";
-                } else {
-                    for (const playerId in bauCuaBets) {
-                        let totalWon = 0;
-                        let totalLost = 0;
-                        const userBets = bauCuaBets[playerId];
-                        
-                        userBets.forEach(bet => {
-                            let matches = result.filter(r => r === bet.symbol).length;
-                            if (matches > 0) {
-                                const winAmt = bet.amount + (bet.amount * matches); 
-                                playerBalances[playerId] += winAmt;
-                                totalWon += (bet.amount * matches);
-                            } else {
-                                totalLost += bet.amount;
-                            }
-                        });
-
-                        const balance = playerBalances[playerId];
-                        const debt = playerDebts[playerId] || 0;
-                        const info = `(Ví: ${balance}k | Nợ: ${debt}k)`;
-
-                        if (totalWon > totalLost) {
-                            lastRoundResult += `🤑 **${userBets[0].name}** húp **${totalWon - totalLost}k** ➡️ ${info}\n`;
-                        } else if (totalLost > totalWon) {
-                            lastRoundResult += `💸 **${userBets[0].name}** lỗ **${totalLost - totalWon}k** ➡️ ${info}\n`;
-                        } else {
-                            lastRoundResult += `⚖️ **${userBets[0].name}** hòa vốn! ➡️ ${info}\n`;
-                        }
-                    }
+                const res = [pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols), pickRandom(bauCuaSymbols)];
+                const finalBox = `\`\`\`\n╔══════════════════════════════╗\n║  ✨  ${bauCuaEmojis[res[0]]}  ✨  ${bauCuaEmojis[res[1]]}  ✨  ${bauCuaEmojis[res[2]]}  ✨  ║\n╚══════════════════════════════╝\n\`\`\``;
+                lastBCResult = `🔥 **KẾT QUẢ:**\n${finalBox}\n`;
+                for (const pId in bauCuaBets) {
+                    let w=0, l=0;
+                    bauCuaBets[pId].forEach(b => {
+                        let m = res.filter(r => r === b.symbol).length;
+                        if(m>0) { playerBalances[pId]+=b.amount+(b.amount*m); w+=b.amount*m; } else l+=b.amount;
+                    });
+                    const info = `(Ví: ${playerBalances[pId]}k)`;
+                    if(w>l) lastBCResult += `🤑 **${bauCuaBets[pId][0].name}** ăn **${w-l}k** ${info}\n`;
+                    else if (l>w) lastBCResult += `💸 **${bauCuaBets[pId][0].name}** thua **${l-w}k** ${info}\n`;
                 }
-
-                bauCuaBets = {}; 
-                currentRound++;
-                await updateBoard(i);
-                return;
+                bauCuaBets = {}; bcRound++; await updateBCBoard(i); return;
             }
-
             if (i.customId.startsWith('bc_')) {
-                const betSymbol = i.customId.split('_')[1];
-                
-                if (playerBalances[uid] === undefined) {
-                    playerBalances[uid] = 100;
-                    playerDebts[uid] = 0;
-                }
-
-                if (playerBalances[uid] < 10) {
-                    await i.reply({ content: "Mày cháy túi rồi con giời! Kêu Host mở bát xong ra ngoài chat `@BotToan vay ngân hàng` đi.", ephemeral: true }).catch(()=>{});
-                    return;
-                }
-
-                if (bauCuaBets[uid] && bauCuaBets[uid].length >= 3) {
-                    await i.reply({ content: "Mỗi vòng mày chỉ được đặt tối đa 3 nháy thôi con tham này! Đợi mở bát đi.", ephemeral: true }).catch(()=>{});
-                    return;
-                }
-
-                playerBalances[uid] -= 10;
-                sessionPlayers.add(uid); 
-                
+                const sym = i.customId.split('_')[1];
+                if (playerBalances[uid] === undefined) { playerBalances[uid] = 100; playerDebts[uid] = 0; }
+                if (playerBalances[uid] < 10 || (bauCuaBets[uid] && bauCuaBets[uid].length >= 3)) return;
+                playerBalances[uid] -= 10; bcPlayers.add(uid);
                 if (!bauCuaBets[uid]) bauCuaBets[uid] = [];
-                bauCuaBets[uid].push({ name: uname, symbol: betSymbol, amount: 10 });
-
-                await updateBoard(i);
+                bauCuaBets[uid].push({ name: uname, symbol: sym, amount: 10 });
+                await updateBCBoard(i);
             }
         });
-
-        collector.on('end', () => {
-            if (isBauCuaActive) {
-                isBauCuaActive = false;
-                draftMsg.reply("Sòng đóng cửa vì quá hạn 30 phút, hoàn lại tiền cho anh em đang kẹt cược!").catch(()=>{});
-            }
-        });
-
-        await updateBoard();
-        return; 
+        await updateBCBoard(); return;
     }
 
-    // ----------------- TÍNH NĂNG PICK TƯỚNG VALORANT (ANIMATION VÒNG QUAY) -----------------
-    const draftTriggers = ['quay tướng', 'chọn tướng', 'random tướng', 'pick tướng'];
-    if (draftTriggers.some(t => userQuestion.toLowerCase().includes(t))) {
-        if (isDrafting) {
-            await message.reply("Đang pick dở kìa, tập trung chốt đi mày!");
-            return;
-        }
-
-        isDrafting = true;
-        currentDraft = [];
+    // ----------------- 5. TÍNH NĂNG PICK TƯỚNG VALORANT -----------------
+    if (['quay tuong', 'chon tuong', 'random tuong', 'pick tuong'].some(t => cleanInput.includes(t))) {
+        if (isDrafting) { await message.reply("Đang pick dở kìa mày!"); return; }
+        isDrafting = true; currentDraft = [];
         agentPool = {
-            "Duelist": [...fullAgentsByRole["Duelist"]],
-            "Initiator": [...fullAgentsByRole["Initiator"]],
-            "Controller": [...fullAgentsByRole["Controller"]],
-            "Sentinel": [...fullAgentsByRole["Sentinel"]]
+            "Duelist": [...fullAgentsByRole["Duelist"]], "Initiator": [...fullAgentsByRole["Initiator"]],
+            "Controller": [...fullAgentsByRole["Controller"]], "Sentinel": [...fullAgentsByRole["Sentinel"]]
         };
-
-        const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team Valorant!** Đang setup bàn quay...");
+        const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team Valorant!**");
         const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); 
 
         const showRoleMenu = async (interaction?: any) => {
-            const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            const r1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('r_duelist').setLabel('⚔️ Duelist').setStyle(ButtonStyle.Danger),
                 new ButtonBuilder().setCustomId('r_initiator').setLabel('👁️ Initiator').setStyle(ButtonStyle.Success),
                 new ButtonBuilder().setCustomId('r_controller').setLabel('💨 Controller').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('r_sentinel').setLabel('🛡️ Sentinel').setStyle(ButtonStyle.Primary)
             );
-            const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('r_random').setLabel('🎲 Random Role').setStyle(ButtonStyle.Success)
-            );
-
+            const r2 = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('r_random').setLabel('🎲 Random Role').setStyle(ButtonStyle.Success));
             const text = `🎯 **VỊ TRÍ THỨ ${currentDraft.length + 1}**: Mày muốn pick Role nào?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
-            
             if (interaction) {
-                if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row1, row2] }).catch(()=>{});
-                else await interaction.update({ content: text, components: [row1, row2] }).catch(()=>{});
-            } else {
-                await draftMsg.edit({ content: text, components: [row1, row2] }).catch(()=>{});
-            }
+                if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [r1, r2] }).catch(()=>{});
+                else await interaction.update({ content: text, components: [r1, r2] }).catch(()=>{});
+            } else await draftMsg.edit({ content: text, components: [r1, r2] }).catch(()=>{});
         };
 
         const rollAgent = async (role: string, interaction: any) => {
             if (!agentPool[role] || agentPool[role].length === 0) agentPool[role] = [...fullAgentsByRole[role]];
             currentRole = role;
-
-            // --------- HIỆU ỨNG ANIMATION VÒNG QUAY ĐỨNG ---------
-            if (interaction.replied || interaction.deferred) {
-                await interaction.editReply({ content: `🌀 Đang khởi động máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
-            } else {
-                await interaction.update({ content: `🌀 Đang khởi động máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
-            }
+            if (interaction.replied || interaction.deferred) await interaction.editReply({ content: `🌀 Máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
+            else await interaction.update({ content: `🌀 Máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
 
             const pool = agentPool[role];
             let speed = 300;
             for(let step = 0; step < 4; step++) {
-                let p1 = pickRandom(pool);
                 let p2 = pickRandom(pool);
-                let p3 = pickRandom(pool);
-                
-                const slider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ ⏬ ĐANG QUAY MÁY CHỦ\n├───────────────────────┤\n│      ${p1}\n│ ➔  [ ${p2.toUpperCase()} ]  ✨\n│      ${p3}\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
-                await interaction.editReply({ content: `🌀 **VÒNG QUAY ĐANG LƯỚT (${role.toUpperCase()})...**\n${slider}`, components: [] }).catch(()=>{});
-                
-                await sleep(speed);
-                speed += 250; // Giảm tốc độ quay dần đều
+                const slider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ ⏬ ĐANG QUAY...\n├───────────────────────┤\n│ ➔  [ ${p2.toUpperCase()} ]  ✨\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
+                await interaction.editReply({ content: `🌀 **VÒNG QUAY ĐANG LƯỚT...**\n${slider}`, components: [] }).catch(()=>{});
+                await sleep(speed); speed += 250; 
             }
-
-            // --------- CHỐT KẾT QUẢ BẰNG CRYPTO RANDOM ---------
             currentAgent = pickRandom(pool);
-
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('a_chot').setLabel('✅ Chốt luôn').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('a_doi').setLabel('🔄 Bốc con khác').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('a_back').setLabel('🔙 Quay lại Role').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId('a_doi').setLabel('🔄 Đổi').setStyle(ButtonStyle.Danger),
             );
-
-            const finalSlider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ 🎉 CHỐT KẾT QUẢ\n├───────────────────────┤\n│\n│ ⭐  ${currentAgent.toUpperCase()}  ⭐\n│\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
-            const text = `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}):\n${finalSlider}\nChốt không hay chê?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
-            
-            await interaction.editReply({ content: text, components: [row] }).catch(()=>{});
+            const finalSlider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ 🎉 KẾT QUẢ\n├───────────────────────┤\n│ ⭐  ${currentAgent.toUpperCase()}  ⭐\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
+            await interaction.editReply({ content: `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}):\n${finalSlider}`, components: [row] }).catch(()=>{});
         };
 
         collector.on('collect', async i => {
             const id = i.customId;
-            
             if (id.startsWith('r_')) {
-                let role = id.split('_')[1];
-                if (role === 'random') {
-                    const roles = ["Duelist", "Initiator", "Controller", "Sentinel"];
-                    role = roles[trueRandom(roles.length)];
-                } else {
-                    role = role.charAt(0).toUpperCase() + role.slice(1); 
-                }
-                await rollAgent(role, i);
+                let r = id.split('_')[1];
+                if (r === 'random') r = ["Duelist", "Initiator", "Controller", "Sentinel"][trueRandom(4)];
+                else r = r.charAt(0).toUpperCase() + r.slice(1); 
+                await rollAgent(r, i);
             } 
             else if (id === 'a_chot') {
                 currentDraft.push(`${currentAgent} (${currentRole})`);
                 agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); 
-                
                 if (currentDraft.length === 5) {
-                    await i.update({ 
-                        content: `🏆 **CHỐT XONG TEAM HỦY DIỆT** 🏆\n${currentDraft.map((v, idx) => `**${idx + 1}.** ${v}`).join('\n')}\n\n*Chuẩn bị vào game thôi!*`, 
-                        components: [] 
-                    }).catch(()=>{});
-                    isDrafting = false;
-                    collector.stop();
-                } else {
-                    await showRoleMenu(i); 
-                }
+                    await i.update({ content: `🏆 **CHỐT XONG TEAM:**\n${currentDraft.join(' ⚔️ ')}`, components: [] }).catch(()=>{});
+                    isDrafting = false; collector.stop();
+                } else await showRoleMenu(i); 
             } 
             else if (id === 'a_doi') {
                 agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); 
                 await rollAgent(currentRole, i); 
             } 
-            else if (id === 'a_back') {
-                await showRoleMenu(i); 
-            }
         });
-
-        collector.on('end', collected => {
-            if (isDrafting) {
-                isDrafting = false;
-                draftMsg.reply("Ngâm lâu quá đéo ai bấm, tao tự hủy bàn draft nhé!").catch(()=>{});
-            }
-        });
-
-        await showRoleMenu();
-        return; 
+        await showRoleMenu(); return; 
     }
 
-    // ----------------- TÍNH NĂNG CHAT VỚI GEMINI -----------------
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
+    // ----------------- 6. TÍNH NĂNG CHAT GEMINI -----------------
+    await sleep(2000);
     try {
         if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
-
         const model = genAI.getGenerativeModel({ 
             model: "gemini-3.1-flash-lite",
-            systemInstruction: `
-                Bạn là BotToan, trợ lý Discord "bựa", hài hước, dùng từ lóng, cà khịa bạn bè.
-                QUY TẮC: 
-                1. Dùng Tiếng Việt, xưng hô mày-tao cho thân thiết.
-                2. Phản hồi cực gắt, hài hước, bỗ bã nhưng không xúc phạm quá đà.
-                3. TUYỆT ĐỐI KHÔNG GỬI LINK, URL. Chỉ trả lời bằng văn bản thuần túy.
-                4. Độ dài: Tóm tắt cực ngắn, dưới 900 ký tự.
-            `
+            systemInstruction: `Bạn là BotToan, trợ lý "bựa", dùng từ lóng, xưng hô mày-tao. Cực gắt, không xúc phạm. Dưới 900 ký tự. Không gửi link.`
         });
-
         const result = await model.generateContent(userQuestion);
-        const responseText = result.response.text();
-        
-        const cleanText = responseText.replace(/https?:\/\/[^\s]+/g, "");
-
-        const maxLength = 900;
-        const chunks = cleanText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [cleanText];
-
-        for (const chunk of chunks) {
-            if (chunk.trim()) {
-                await message.reply(chunk.trim());
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-    } catch (error) {
-        await message.reply('Mạng lag hay sao ấy, tao đang không load được, thử lại đi mày!');
-    }
+        const chunks = result.response.text().replace(/https?:\/\/[^\s]+/g, "").match(/.{1,900}(\s|$)/g) || [];
+        for (const chunk of chunks) { if (chunk.trim()) { await message.reply(chunk.trim()); await sleep(2000); } }
+    } catch (e) { await message.reply('Mạng lag đéo load được!'); }
 });
 
-// ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
+// ================= TÍNH NĂNG VOICE =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
     if (newState.member?.user.bot || oldState.channelId === newState.channelId) return;
-
-    const oldChannel = oldState.channel;
-    const newChannel = newState.channel;
+    const oldChannel = oldState.channel; const newChannel = newState.channel;
 
     if (oldChannel) {
         const connection = getVoiceConnection(oldChannel.guild.id);
-        if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) {
-            if (!newChannel) connection.destroy();
-        }
+        if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) connection.destroy();
     }
-
     if (!newChannel) return;
 
-    const userId = newState.member?.id;
-    if (!userId) return;
-
-    const audioPath = path.join(__dirname, '../audio', `${userId}.mp3`);
-
-    if (!fs.existsSync(audioPath)) {
-        return; 
-    }
+    const audioPath = path.join(__dirname, '../audio', `${newState.member?.id}.mp3`);
+    if (!fs.existsSync(audioPath)) return; 
 
     try {
-        const connection = joinVoiceChannel({
-            channelId: newChannel.id,
-            guildId: newChannel.guild.id,
-            adapterCreator: newChannel.guild.voiceAdapterCreator,
-        });
-
+        const connection = joinVoiceChannel({ channelId: newChannel.id, guildId: newChannel.guild.id, adapterCreator: newChannel.guild.voiceAdapterCreator });
         await entersState(connection, VoiceConnectionStatus.Ready, 5000);
-        
         const player = createAudioPlayer();
         player.play(createAudioResource(audioPath));
         connection.subscribe(player);
         player.on(AudioPlayerStatus.Idle, () => player.stop());
-        
-    } catch (error) {
-        console.error('Lỗi voice:', error);
-    }
+    } catch (e) {}
 });
 
 client.login(TOKEN);
