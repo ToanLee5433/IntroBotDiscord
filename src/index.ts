@@ -56,7 +56,7 @@ const client = new Client({
 });
 
 // ================= CẤU HÌNH VỐN KHỞI NGHIỆP TRÒ CHƠI =================
-const STARTING_BALANCE = 100;
+const STARTING_BALANCE = 100; // Tiền mặc định chung cho mọi người (100k)
 
 const playerBalances: { [userId: string]: number } = {};
 const playerDebts: { [userId: string]: number } = {}; 
@@ -125,13 +125,11 @@ const buildDeck = () => {
     const suits = ['♠', '♣', '♦', '♥'];
     const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
     const deck: string[] = [];
-    // Gộp 4 bộ bài để chống đếm bài và không bao giờ lo hết bài
     for (let d = 0; d < 4; d++) {
         for (const suit of suits) {
             for (const rank of ranks) deck.push(rank + suit);
         }
     }
-    // Trộn bài ngẫu nhiên chuẩn Crypto
     for (let i = deck.length - 1; i > 0; i--) {
         const j = trueRandom(i + 1);
         [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -164,32 +162,32 @@ client.on('messageCreate', async (message: Message) => {
         }
         playerBalances[uid] += STARTING_BALANCE;
         playerDebts[uid] = (playerDebts[uid] || 0) + STARTING_BALANCE;
-        await message.reply(`🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nBơm thêm **${STARTING_BALANCE}k** vào ví. Mày đang nợ tao tổng **${playerDebts[uid]}k**. Gỡ lẹ đi!`);
+        await message.reply(`🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nBơm thêm **${STARTING_BALANCE}k** vào ví chung. Mày đang nợ tao tổng **${playerDebts[uid]}k**. Gỡ lẹ đi!`);
         return;
     }
 
     // ----------------- 3. TÍNH NĂNG ĐIỂM DANH TÀI SẢN -----------------
     if (['tai san', 'vi tien', 'check tien', 'bop tien'].some(t => cleanInput.includes(t))) {
         const voiceChannel = message.member?.voice.channel;
-        let outputText = "💰 **BẢNG PHONG THẦN TÀI SẢN CON BẠC** 💰\n\n";
+        let outputText = "💰 **BẢNG PHONG THẦN TÀI SẢN CHUNG** 💰\n*(Tiền này dùng chung cho mọi sòng: Xóc Đĩa, Bầu Cua, Blackjack)*\n\n";
 
         if (voiceChannel) {
-            outputText += `👥 **Đang quét những con giời trong phòng thoại <#${voiceChannel.id}>:**\n`;
+            outputText += `👥 **Đang quét phòng thoại <#${voiceChannel.id}>:**\n`;
             voiceChannel.members.forEach(member => {
                 if (member.user.bot) return; 
                 const uid = member.id;
                 checkAndInitWallet(uid);
-                outputText += `- **${member.displayName}**: Số dư: **${playerBalances[uid]}k** | Nợ: **${playerDebts[uid] || 0}k**\n`;
+                outputText += `- **${member.displayName}**: Ví: **${playerBalances[uid]}k** | Nợ: **${playerDebts[uid] || 0}k**\n`;
             });
         } else {
-            outputText += `🌍 **Danh sách tổng hợp:**\n`;
+            outputText += `🌍 **Danh sách tổng hợp toàn server:**\n`;
             const allUsers = Object.keys(playerBalances);
-            if (allUsers.length === 0) outputText += "*Chưa có mống nào mở ví khởi nghiệp cả!*";
+            if (allUsers.length === 0) outputText += "*Chưa có ai mở ví cả!*";
             else {
                 allUsers.forEach(uid => {
                     const member = message.guild?.members.cache.get(uid);
                     const name = member ? member.displayName : `<@${uid}>`;
-                    outputText += `- **${name}**: Số dư: **${playerBalances[uid]}k** | Nợ: **${playerDebts[uid] || 0}k**\n`;
+                    outputText += `- **${name}**: Ví: **${playerBalances[uid]}k** | Nợ: **${playerDebts[uid] || 0}k**\n`;
                 });
             }
         }
@@ -197,7 +195,7 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
-    // ----------------- 4. TÍNH NĂNG XÓC ĐĨA (GIAO DIỆN SIÊU THỰC) -----------------
+    // ----------------- 4. TÍNH NĂNG XÓC ĐĨA -----------------
     if (['xoc dia', 'choi xoc dia'].some(t => cleanInput.includes(t))) {
         if (isXocDiaActive) { await message.reply("Đang có sòng Xóc Đĩa rồi!"); return; }
         isXocDiaActive = true; xdHost = message.author.id; xdBets = {}; xdRound = 1; lastXDResult = "";
@@ -240,11 +238,12 @@ client.on('messageCreate', async (message: Message) => {
                     const ub = xdBets[uid];
                     const summary = ub.reduce((acc, curr) => { acc[curr.label] = (acc[curr.label] || 0) + curr.amount; return acc; }, {} as any);
                     const betStrings = Object.entries(summary).map(([lbl, amt]) => `${lbl} (**${amt}k**)`);
-                    betSummary += `- **${ub[0].name}**: ${betStrings.join(', ')}\n`;
+                    // THÊM HIỂN THỊ VÍ TIỀN Ở ĐÂY
+                    betSummary += `- **${ub[0].name}** *(Ví còn: ${playerBalances[uid]}k)*: ${betStrings.join(', ')}\n`;
                 }
             }
 
-            let text = `⛩️ **SÒNG XÓC ĐĨA (Host: <@${xdHost}>) - VÒNG ${xdRound}**\n👉 **LUẬT:** Chỉ được đặt 1 cửa / ván.\n\n${lastXDResult ? lastXDResult + '\n' : ''}${betSummary}`;
+            let text = `⛩️ **SÒNG XÓC ĐĨA (Host: <@${xdHost}>) - VÒNG ${xdRound}**\n👉 **LUẬT:** Chọn mức cược (10-50k) ở Menu dưới trước khi bấm. Đặt duy nhất 1 cửa.\n\n${lastXDResult ? lastXDResult + '\n' : ''}${betSummary}`;
             if (interaction) {
                 if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row0, row1, row2, row3, row4] }).catch(()=>{});
                 else await interaction.update({ content: text, components: [row0, row1, row2, row3, row4] }).catch(()=>{});
@@ -254,11 +253,13 @@ client.on('messageCreate', async (message: Message) => {
         collector.on('collect', async (i: any) => {
             const uid = i.user.id; const uname = i.user.displayName || i.user.username;
             
+            // XỬ LÝ MENU: KHÔNG DÙNG REPLY NỮA ĐỂ TRÁNH SPAM TIN NHẮN ẨN
             if (i.isStringSelectMenu() && i.customId === 'xd_bet_size') {
                 currentBetSizes[uid] = parseInt(i.values[0]);
-                await i.reply({ content: `💸 Chỉnh phỉnh cược thành **${currentBetSizes[uid]}k**. Chọn cửa đi!`, ephemeral: true }).catch(()=>{}); 
+                await i.deferUpdate().catch(()=>{}); // Báo Discord đã nhận lệnh mà không sinh ra dòng chữ nào
                 return;
             }
+
             if (!i.isButton()) return;
             
             if (i.customId === 'xd_dongsong') {
@@ -271,7 +272,6 @@ client.on('messageCreate', async (message: Message) => {
                 if (uid !== xdHost) return;
                 await i.update({ content: "⛩️ **CHỦ SÒNG ĐANG KÉO BÁT...**", components: [] }).catch(()=>{});
                 
-                // Hiệu ứng lắc bát ASCII
                 const shakeFrames = [
 `\`\`\`text
       ___/^^\\___ 
@@ -296,10 +296,8 @@ client.on('messageCreate', async (message: Message) => {
                 for(let c=0; c<4; c++) { 
                     if (trueRandom(2) === 0) { reds++; coins.push('🔴'); } else { whites++; coins.push('⚪'); } 
                 }
-                
                 let isChan = (reds === 0 || reds === 2 || reds === 4);
                 
-                // Hiệu ứng mở bát bổng lên
                 const resultFrame = `\`\`\`text
          (NHẤC BÁT)
         ___/^^\\___ 
@@ -321,12 +319,12 @@ client.on('messageCreate', async (message: Message) => {
                         else if (b.type === '3do1trang' && reds === 3) mul = 3; else if (b.type === '3trang1do' && whites === 3) mul = 3;
                         
                         if (mul > 0) { 
-                            playerBalances[pId] += b.amount + (b.amount * mul); // Trả lại gốc + lãi nhân lên
+                            playerBalances[pId] += b.amount + (b.amount * mul); 
                             w += b.amount * mul; 
                         } else l += b.amount;
                     });
-                    if (w>l) lastXDResult += `🤑 **${xdBets[pId][0].name}** ăn **${w}k** (Lãi ròng)\n`; 
-                    else if (l>w) lastXDResult += `💸 **${xdBets[pId][0].name}** cháy **${l}k**\n`;
+                    if (w>l) lastXDResult += `🤑 **${xdBets[pId][0].name}** húp lãi **${w}k** (Ví: ${playerBalances[pId]}k)\n`; 
+                    else if (l>w) lastXDResult += `💸 **${xdBets[pId][0].name}** mất **${l}k** (Ví: ${playerBalances[pId]}k)\n`;
                 }
                 xdBets = {}; xdRound++; await updateXDBoard(i); return;
             }
@@ -341,13 +339,11 @@ client.on('messageCreate', async (message: Message) => {
                 
                 const bAmt = currentBetSizes[uid] || 10;
                 if (playerBalances[uid] < bAmt) { 
-                    await i.reply({ content: `Ví còn có ${playerBalances[uid]}k mà đòi cược ${bAmt}k!`, ephemeral: true }); return; 
+                    await i.reply({ content: `Ví còn có ${playerBalances[uid]}k mà đòi cược ${bAmt}k! Ra chat gọi Vay Tiền đi.`, ephemeral: true }); return; 
                 }
                 
                 playerBalances[uid] -= bAmt; 
                 if (!xdBets[uid]) xdBets[uid] = []; 
-                
-                // ĐÃ FIX LỖI HARDCODE 10K (Lưu chuẩn bAmt)
                 xdBets[uid].push({ name: uname, type: bType, label: lbl, amount: bAmt });
                 await updateXDBoard(i);
             }
@@ -385,9 +381,13 @@ client.on('messageCreate', async (message: Message) => {
                     new ButtonBuilder().setCustomId('bj_close').setLabel('🛑 Đóng Sòng').setStyle(ButtonStyle.Danger)
                 );
                 components = [row0, row1];
-                text += `👉 **Giai đoạn Đặt Cược.** (Mỗi người cược 1 lần)\n\n📝 **Danh sách đã xuống tiền:**\n`;
+                text += `👉 **Giai đoạn Đặt Cược.** (Mỗi người cược 1 lần. Chỉnh mức tiền ở Menu trước khi Vào Bàn)\n\n📝 **Danh sách đã xuống tiền:**\n`;
                 if (Object.keys(bjPlayers).length === 0) text += "*Chưa ai vào bàn...*";
-                else for (const uid in bjPlayers) text += `- **${bjPlayers[uid].name}**: Đã cược **${bjPlayers[uid].bet}k**\n`;
+                else {
+                    for (const uid in bjPlayers) {
+                        text += `- **${bjPlayers[uid].name}** *(Ví còn: ${playerBalances[uid]}k)*: Đã cược **${bjPlayers[uid].bet}k**\n`;
+                    }
+                }
             } 
             else if (bjPhase === 'playing' || bjPhase === 'ended') {
                 if (bjPhase === 'playing') {
@@ -401,7 +401,6 @@ client.on('messageCreate', async (message: Message) => {
 
                 const dealerVal = getHandValue(bjDealerHand);
                 const isHidden = bjDealerHand.includes('?');
-                // NÂNG CẤP BÀI ÚP CỦA NHÀ CÁI
                 const dealerDisplay = bjDealerHand.map(c => c === '?' ? '🂠 Úp' : c).join(' ] [ ');
                 
                 text += `🕴️ **NHÀ CÁI:** [ ${dealerDisplay} ] (Điểm: ${isHidden ? '?' : dealerVal})\n`;
@@ -427,9 +426,10 @@ client.on('messageCreate', async (message: Message) => {
         collector.on('collect', async (i: any) => {
             const uid = i.user.id; const uname = i.user.displayName || i.user.username;
 
+            // XỬ LÝ MENU: deferUpdate ĐỂ KHÔNG SPAM
             if (i.isStringSelectMenu() && i.customId === 'bj_bet_size') {
                 currentBetSizes[uid] = parseInt(i.values[0]);
-                await i.reply({ content: `💸 Chỉnh mức cược thành **${currentBetSizes[uid]}k**. Bấm [Vào Bàn] đi!`, ephemeral: true }).catch(()=>{});
+                await i.deferUpdate().catch(()=>{});
                 return;
             }
 
@@ -450,10 +450,9 @@ client.on('messageCreate', async (message: Message) => {
                 if (bjPlayers[uid]) { await i.reply({ content: "Đã ngồi trong bàn rồi!", ephemeral: true }); return; }
                 
                 const bAmt = currentBetSizes[uid] || 10;
-                if (playerBalances[uid] < bAmt) { await i.reply({ content: `Không đủ ${bAmt}k!`, ephemeral: true }); return; }
+                if (playerBalances[uid] < bAmt) { await i.reply({ content: `Ví mày còn có ${playerBalances[uid]}k thôi, không đủ cược ${bAmt}k!`, ephemeral: true }); return; }
 
                 playerBalances[uid] -= bAmt;
-                // ĐÃ FIX LỖI LƯU MỨC CƯỢC CHUẨN
                 bjPlayers[uid] = { name: uname, bet: bAmt, hand: [], state: 'playing', value: 0 };
                 await updateBJBoard(i);
             }
@@ -481,7 +480,7 @@ client.on('messageCreate', async (message: Message) => {
 
             if (i.customId === 'bj_hit' || i.customId === 'bj_stand') {
                 if (bjPhase !== 'playing' || !bjPlayers[uid] || bjPlayers[uid].state !== 'playing') {
-                    await i.reply({ content: "Chưa tới lượt hoặc đã dừng rồi!", ephemeral: true }); return;
+                    await i.reply({ content: "Chưa tới lượt hoặc đã chốt rồi!", ephemeral: true }); return;
                 }
 
                 if (i.customId === 'bj_hit') {
@@ -577,10 +576,11 @@ client.on('messageCreate', async (message: Message) => {
                     const ub = bauCuaBets[uid];
                     const summary = ub.reduce((acc, curr) => { acc[curr.symbol] = (acc[curr.symbol] || 0) + curr.amount; return acc; }, {} as any);
                     const betStrings = Object.entries(summary).map(([sym, amt]) => `${bauCuaEmojis[sym]} ${sym} (**${amt}k**)`);
-                    betSummary += `- **${ub[0].name}**: ${betStrings.join(', ')}\n`;
+                    // THÊM HIỂN THỊ VÍ TIỀN Ở ĐÂY
+                    betSummary += `- **${ub[0].name}** *(Ví còn: ${playerBalances[uid]}k)*: ${betStrings.join(', ')}\n`;
                 }
             }
-            let text = `🎲 **BẦU CUA (Host: <@${bauCuaHost}>) - VÒNG ${bcRound}**\n👉 **LUẬT:** Chỉ được đặt 1 cửa / ván.\n\n${lastBCResult ? lastBCResult + '\n' : ''}${betSummary}`;
+            let text = `🎲 **BẦU CUA (Host: <@${bauCuaHost}>) - VÒNG ${bcRound}**\n👉 **LUẬT:** Chọn mức cược dưới ⬇️. **Chỉ được đặt 1 cửa / ván**.\n\n${lastBCResult ? lastBCResult + '\n' : ''}${betSummary}`;
             if (interaction) {
                 if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [row0, row1, row2, row3] }).catch(()=>{});
                 else await interaction.update({ content: text, components: [row0, row1, row2, row3] }).catch(()=>{});
@@ -589,11 +589,16 @@ client.on('messageCreate', async (message: Message) => {
 
         collector.on('collect', async (i: any) => {
             const uid = i.user.id; const uname = i.user.displayName || i.user.username;
+            
+            // XỬ LÝ MENU: deferUpdate ĐỂ KHÔNG SPAM
             if (i.isStringSelectMenu() && i.customId === 'bc_bet_size') {
                 currentBetSizes[uid] = parseInt(i.values[0]);
-                await i.reply({ content: `💸 Chỉnh phỉnh cược thành **${currentBetSizes[uid]}k**. Chọn cửa đi!`, ephemeral: true }).catch(()=>{}); return;
+                await i.deferUpdate().catch(()=>{}); 
+                return;
             }
+
             if (!i.isButton()) return;
+            
             if (i.customId === 'bc_dongsong') {
                 if (uid !== bauCuaHost) return;
                 isBauCuaActive = false; collector.stop();
@@ -617,8 +622,8 @@ client.on('messageCreate', async (message: Message) => {
                         let m = res.filter(r => r === b.symbol).length;
                         if(m>0) { playerBalances[pId]+=b.amount+(b.amount*m); w+=b.amount*m; } else l+=b.amount;
                     });
-                    if(w>l) lastBCResult += `🤑 **${bauCuaBets[pId][0].name}** ăn lãi **${w}k**\n`;
-                    else if (l>w) lastBCResult += `💸 **${bauCuaBets[pId][0].name}** thua **${l}k**\n`;
+                    if(w>l) lastBCResult += `🤑 **${bauCuaBets[pId][0].name}** ăn lãi **${w}k** (Ví: ${playerBalances[pId]}k)\n`;
+                    else if (l>w) lastBCResult += `💸 **${bauCuaBets[pId][0].name}** mất **${l}k** (Ví: ${playerBalances[pId]}k)\n`;
                 }
                 bauCuaBets = {}; bcRound++; await updateBCBoard(i); return;
             }
@@ -627,11 +632,10 @@ client.on('messageCreate', async (message: Message) => {
                 checkAndInitWallet(uid);
                 if (bauCuaBets[uid] && bauCuaBets[uid].length >= 1) { await i.reply({ content: "Đã cược rồi, chờ mở bát!", ephemeral: true }); return; }
                 const bAmt = currentBetSizes[uid] || 10;
-                if (playerBalances[uid] < bAmt) { await i.reply({ content: `Không đủ ${bAmt}k!`, ephemeral: true }); return; }
+                if (playerBalances[uid] < bAmt) { await i.reply({ content: `Ví mày còn có ${playerBalances[uid]}k mà đòi cược ${bAmt}k!`, ephemeral: true }); return; }
                 
                 playerBalances[uid] -= bAmt; 
                 if (!bauCuaBets[uid]) bauCuaBets[uid] = []; 
-                // ĐÃ FIX LỖI HARDCODE 10K
                 bauCuaBets[uid].push({ name: uname, symbol: sym, amount: bAmt });
                 await updateBCBoard(i);
             }
@@ -640,115 +644,4 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- 7. TÍNH NĂNG PICK TƯỚNG VALORANT -----------------
-    if (['quay tuong', 'chon tuong', 'random tuong', 'pick tuong'].some(t => cleanInput.includes(t))) {
-        if (isDrafting) { await message.reply("Đang pick dở kìa mày!"); return; }
-        isDrafting = true; currentDraft = [];
-        agentPool = {
-            "Duelist": [...fullAgentsByRole["Duelist"]], "Initiator": [...fullAgentsByRole["Initiator"]],
-            "Controller": [...fullAgentsByRole["Controller"]], "Sentinel": [...fullAgentsByRole["Sentinel"]]
-        };
-        const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team Valorant!**");
-        const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); 
-
-        const showRoleMenu = async (interaction?: any) => {
-            const r1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('r_duelist').setLabel('⚔️ Duelist').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('r_initiator').setLabel('👁️ Initiator').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('r_controller').setLabel('💨 Controller').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('r_sentinel').setLabel('🛡️ Sentinel').setStyle(ButtonStyle.Primary)
-            );
-            const r2 = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('r_random').setLabel('🎲 Random Role').setStyle(ButtonStyle.Success));
-            const text = `🎯 **VỊ TRÍ THỨ ${currentDraft.length + 1}**: Mày muốn pick Role nào?\n*Đội hình: [ ${currentDraft.length > 0 ? currentDraft.join(' | ') : 'Chưa có ai'} ]*`;
-            if (interaction) {
-                if (interaction.replied || interaction.deferred) await interaction.editReply({ content: text, components: [r1, r2] }).catch(()=>{});
-                else await interaction.update({ content: text, components: [r1, r2] }).catch(()=>{});
-            } else await draftMsg.edit({ content: text, components: [r1, r2] }).catch(()=>{});
-        };
-
-        const rollAgent = async (role: string, interaction: any) => {
-            if (!agentPool[role] || agentPool[role].length === 0) agentPool[role] = [...fullAgentsByRole[role]];
-            currentRole = role;
-            if (interaction.replied || interaction.deferred) await interaction.editReply({ content: `🌀 Máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
-            else await interaction.update({ content: `🌀 Máy quay hệ **${role.toUpperCase()}**...`, components: [] }).catch(()=>{});
-
-            const pool = agentPool[role];
-            let speed = 300;
-            for(let step = 0; step < 4; step++) {
-                let p2 = pickRandom(pool);
-                const slider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ ⏬ ĐANG QUAY...\n├───────────────────────┤\n│ ➔  [ ${p2.toUpperCase()} ]  ✨\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
-                await interaction.editReply({ content: `🌀 **VÒNG QUAY ĐANG LƯỚT...**\n${slider}`, components: [] }).catch(()=>{});
-                await sleep(speed); speed += 250; 
-            }
-            currentAgent = pickRandom(pool);
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('a_chot').setLabel('✅ Chốt luôn').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId('a_doi').setLabel('🔄 Đổi').setStyle(ButtonStyle.Danger),
-            );
-            const finalSlider = `\`\`\`\n╭━━━━━━━━━━━━━━━━━━━━━━━╮\n│ 🎉 KẾT QUẢ\n├───────────────────────┤\n│ ⭐  ${currentAgent.toUpperCase()}  ⭐\n╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\`\`\``;
-            await interaction.editReply({ content: `🎭 **VỊ TRÍ THỨ ${currentDraft.length + 1}** (${currentRole}):\n${finalSlider}`, components: [row] }).catch(()=>{});
-        };
-
-        collector.on('collect', async i => {
-            if (!i.isButton()) return;
-            const id = i.customId;
-            if (id.startsWith('r_')) {
-                let r = id.split('_')[1];
-                if (r === 'random') r = ["Duelist", "Initiator", "Controller", "Sentinel"][trueRandom(4)];
-                else r = r.charAt(0).toUpperCase() + r.slice(1); 
-                await rollAgent(r, i);
-            } 
-            else if (id === 'a_chot') {
-                currentDraft.push(`${currentAgent} (${currentRole})`);
-                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); 
-                if (currentDraft.length === 5) {
-                    await i.update({ content: `🏆 **CHỐT XONG TEAM:**\n${currentDraft.join(' ⚔️ ')}`, components: [] }).catch(()=>{});
-                    isDrafting = false; collector.stop();
-                } else await showRoleMenu(i); 
-            } 
-            else if (id === 'a_doi') {
-                agentPool[currentRole] = agentPool[currentRole].filter(a => a !== currentAgent); 
-                await rollAgent(currentRole, i); 
-            } 
-        });
-        await showRoleMenu(); return; 
-    }
-
-    // ----------------- 8. TÍNH NĂNG CHAT GEMINI -----------------
-    await sleep(2000);
-    try {
-        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
-        const model = genAI.getGenerativeModel({ 
-            model: "gemini-3.1-flash-lite",
-            systemInstruction: `Bạn là BotToan, trợ lý "bựa", dùng từ lóng, xưng hô mày-tao. Cực gắt, không xúc phạm. Dưới 900 ký tự. Không gửi link.`
-        });
-        const result = await model.generateContent(rawInput); 
-        const chunks = result.response.text().replace(/https?:\/\/[^\s]+/g, "").match(/.{1,900}(\s|$)/g) || [];
-        for (const chunk of chunks) { if (chunk.trim()) { await message.reply(chunk.trim()); await sleep(2000); } }
-    } catch (e) { await message.reply('Mạng lag đéo load được!'); }
-});
-
-// ================= TÍNH NĂNG VOICE =================
-client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
-    if (newState.member?.user.bot || oldState.channelId === newState.channelId) return;
-    const oldChannel = oldState.channel; const newChannel = newState.channel;
-
-    if (oldChannel) {
-        const connection = getVoiceConnection(oldChannel.guild.id);
-        if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) connection.destroy();
-    }
-    if (!newChannel) return;
-
-    const audioPath = path.join(__dirname, '../audio', `${newState.member?.id}.mp3`);
-    if (!fs.existsSync(audioPath)) return; 
-
-    try {
-        const connection = joinVoiceChannel({ channelId: newChannel.id, guildId: newChannel.guild.id, adapterCreator: newChannel.guild.voiceAdapterCreator });
-        await entersState(connection, VoiceConnectionStatus.Ready, 5000);
-        const player = createAudioPlayer();
-        player.play(createAudioResource(audioPath));
-        connection.subscribe(player);
-        player.on(AudioPlayerStatus.Idle, () => player.stop());
-    } catch (e) {}
-});
-
-client.login(TOKEN);
+    if (['quay tuong', 'chon tuong', 'random tuong', 'pick tuong
