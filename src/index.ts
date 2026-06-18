@@ -20,7 +20,7 @@ const removeAccents = (str: string) => {
               .toLowerCase();
 };
 
-// --- HÀM RANDOM CHUẨN CASINO ---
+// --- HÀM RANDOM CHUẨN CASINO BẰNG MÃ HÓA ---
 const trueRandom = (max: number) => crypto.randomInt(0, max);
 const pickRandom = <T>(arr: T[]): T => arr[trueRandom(arr.length)];
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -96,8 +96,10 @@ client.on('messageCreate', async (message: Message) => {
     if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
 
     const botId = client.user.id;
+    // rawInput là chuỗi gốc giữ nguyên dấu để gửi cho AI chat
     const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
-    const cleanInput = removeAccents(rawInput); // Chuỗi đã bỏ dấu để check
+    // cleanInput là chuỗi đã lột sạch dấu và viết thường để check lệnh game
+    const cleanInput = removeAccents(rawInput); 
     if (!cleanInput) return;
 
     // ----------------- 1. TÍNH NĂNG "CÂM" -----------------
@@ -112,7 +114,7 @@ client.on('messageCreate', async (message: Message) => {
         if (playerBalances[uid] === undefined) {
             playerBalances[uid] = 100;
             playerDebts[uid] = 0;
-            await message.reply("Mày chưa chơi bao giờ, tao cho 100k khởi nghiệp miễn phí. Vào sòng đi!");
+            await message.reply("Mày chưa chơi bao giờ, tao cho 100k khởi nghiệp miễn phí. Gọi lệnh game để vào sòng đi!");
             return;
         }
         if (playerBalances[uid] >= 10) {
@@ -140,16 +142,16 @@ client.on('messageCreate', async (message: Message) => {
 
         const updateXDBoard = async (interaction?: any) => {
             const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('xd_chan').setLabel('🔴 CHẴN (1:1)').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('xd_le').setLabel('⚪ LẺ (1:1)').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('xd_chan').setLabel('🔴 CHẴN (1 ăn 1)').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('xd_le').setLabel('⚪ LẺ (1 ăn 1)').setStyle(ButtonStyle.Secondary),
             );
             const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('xd_4do').setLabel('🔴🔴🔴🔴 (1:12)').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId('xd_4trang').setLabel('⚪⚪⚪⚪ (1:12)').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('xd_4do').setLabel('🔴🔴🔴🔴 (1 ăn 12)').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId('xd_4trang').setLabel('⚪⚪⚪⚪ (1 ăn 12)').setStyle(ButtonStyle.Secondary),
             );
             const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('xd_3do1trang').setLabel('🔴🔴🔴⚪ (1:3.5)').setStyle(ButtonStyle.Primary),
-                new ButtonBuilder().setCustomId('xd_3trang1do').setLabel('⚪⚪⚪🔴 (1:3.5)').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('xd_3do1trang').setLabel('🔴🔴🔴⚪ (1 ăn 3.5)').setStyle(ButtonStyle.Primary),
+                new ButtonBuilder().setCustomId('xd_3trang1do').setLabel('⚪⚪⚪🔴 (1 ăn 3.5)').setStyle(ButtonStyle.Primary),
             );
             const row4 = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId('xd_mobat').setLabel('🎲 XÓC & MỞ BÁT!').setStyle(ButtonStyle.Success),
@@ -196,17 +198,17 @@ client.on('messageCreate', async (message: Message) => {
                 
                 await i.update({ content: "⛩️ **CHỦ SÒNG BẮT ĐẦU XÓC...**", components: [] }).catch(()=>{});
                 
-                // Animation Xóc Đĩa
+                // Hiệu ứng Xóc Đĩa 3D ASCII
                 const shakeFrames = [
-                    `\`\`\`text\n      _______\n    /         \\\n   | LẠCH CẠCH |\n    \\_________/\n\`\`\``,
-                    `\`\`\`text\n     _______\n   /         \\\n  | CẠCH LẠCH |\n   \\_________/\n\`\`\``
+                    `\`\`\`text\n       _______ \n     /         \\ \n    | LẠCH CẠCH |\n     \\_________/ \n\`\`\``,
+                    `\`\`\`text\n      _______ \n    /         \\ \n   | CẠCH LẠCH | \n    \\_________/ \n\`\`\``
                 ];
                 for (let step = 0; step < 6; step++) {
                     await i.editReply({ content: `⛩️ **ĐANG XÓC ĐĨA...**\n${shakeFrames[step % 2]}`, components: [] }).catch(()=>{});
                     await sleep(400);
                 }
 
-                // Random kết quả
+                // Random mã hóa đích thực
                 let reds = 0, whites = 0;
                 let coins = [];
                 for(let c=0; c<4; c++) {
@@ -218,10 +220,10 @@ client.on('messageCreate', async (message: Message) => {
                 let isChan = (reds === 0 || reds === 2 || reds === 4);
                 let chanLeStr = isChan ? "🔴 CHẴN" : "⚪ LẺ";
 
-                const resultFrame = `\`\`\`text\n    ( ĐÃ MỞ BÁT )\n\n     ${coins[0]}   ${coins[1]}\n     ${coins[2]}   ${coins[3]}\n\n    \\_________/\n\`\`\``;
+                const resultFrame = `\`\`\`text\n     ( ĐÃ MỞ BÁT )\n\n      ${coins[0]}   ${coins[1]}\n      ${coins[2]}   ${coins[3]}\n\n     \\_________/\n\`\`\``;
                 lastXDResult = `🔥 **KẾT QUẢ: ${chanLeStr} (${reds} Đỏ - ${whites} Trắng)**\n${resultFrame}\n`;
 
-                if (Object.keys(xdBets).length === 0) lastXDResult += "Vòng rồi nhà cái múa đĩa cho vui, đéo ai chơi!";
+                if (Object.keys(xdBets).length === 0) lastXDResult += "Vòng rồi nhà cái múa đĩa cho vui, đéo ai chơi!\n";
                 else {
                     for (const playerId in xdBets) {
                         let totalWon = 0, totalLost = 0;
@@ -257,6 +259,10 @@ client.on('messageCreate', async (message: Message) => {
                 let label = betType.toUpperCase();
                 if (betType==='3do1trang') label = '🔴x3 ⚪x1';
                 if (betType==='3trang1do') label = '⚪x3 🔴x1';
+                if (betType==='4do') label = '🔴x4';
+                if (betType==='4trang') label = '⚪x4';
+                if (betType==='chan') label = '🔴 CHẴN';
+                if (betType==='le') label = '⚪ LẺ';
                 
                 if (playerBalances[uid] === undefined) { playerBalances[uid] = 100; playerDebts[uid] = 0; }
                 if (playerBalances[uid] < 10) { await i.reply({ content: "Cháy túi rồi, xin xỏ Vay Ngân Hàng đi!", ephemeral: true }); return; }
@@ -443,7 +449,10 @@ client.on('messageCreate', async (message: Message) => {
             model: "gemini-3.1-flash-lite",
             systemInstruction: `Bạn là BotToan, trợ lý "bựa", dùng từ lóng, xưng hô mày-tao. Cực gắt, không xúc phạm. Dưới 900 ký tự. Không gửi link.`
         });
-        const result = await model.generateContent(userQuestion);
+        
+        // SỬ DỤNG LẠI BIẾN rawInput Ở ĐÂY ĐỂ TRÁNH LỖI TSERROR VÀ GIỮ NGUYÊN DẤU CHO AI ĐỌC
+        const result = await model.generateContent(rawInput); 
+        
         const chunks = result.response.text().replace(/https?:\/\/[^\s]+/g, "").match(/.{1,900}(\s|$)/g) || [];
         for (const chunk of chunks) { if (chunk.trim()) { await message.reply(chunk.trim()); await sleep(2000); } }
     } catch (e) { await message.reply('Mạng lag đéo load được!'); }
