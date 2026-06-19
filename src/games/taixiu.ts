@@ -27,7 +27,7 @@ export async function playTaiXiu(message: Message) {
     // Tự động cấp vốn 100k nếu chưa có hoặc phá sản
     await getBalance(userId);
 
-        const draftMsg = await message.reply("🎲 **ĐANG LẮC BÁT TÀI XỈU... BẤM CỬA ĐI CÁC CON GIỜI!**");
+    const draftMsg = await message.reply("🎲 **ĐANG LẮC BÁT TÀI XỈU... BẤM CỬA ĐI CÁC CON GIỜI!**");
     // Chỉ add vào Set SAU khi draftMsg tồn tại — đảm bảo luôn được xoá trong collector.on('end')
     activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
@@ -143,18 +143,18 @@ export async function playTaiXiu(message: Message) {
                 return;
             }
 
+            // Defer NGAY sau khi check balance xong (trước khi trừ tiền) — chống Discord interaction timeout
+            await i.deferUpdate().catch(()=>{});
+
             // Trừ tiền cược
             balance -= currentBetSize;
             await updateBalance(userId, balance);
 
-            // Giai đoạn hiệu ứng lắc bát ASCII Terminal (3 giây, 1s/khung hình)
             const shakeFrames = [
                 "┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│       [ ⚀ ]  [ ⚂ ]  [ ⚄ ]       │\n│    👉 LẠCH CẠCH LẠCH CẠCH...  │\n└──────────────────────────────┘",
                 "┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│       [ ⚁ ]  [ ⚃ ]  [ ⚅ ]       │\n│    👉 XOAY XOAY XOAY XOAY...  │\n└──────────────────────────────┘",
                 "┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│       [ ⚄ ]  [ ⚅ ]  [ ⚁ ]       │\n│    🎲 CHUẨN BỊ MỞ BÁT!!!      │\n└──────────────────────────────┘"
             ];
-
-            await i.deferUpdate().catch(()=>{});
 
             for (let step = 0; step < 3; step++) {
                 const animEmbed = new EmbedBuilder()

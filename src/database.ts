@@ -754,12 +754,9 @@ export async function getBalancesAndDebts(userIds: string[]): Promise<{ userId: 
 
     // Fallback to In-Memory
     return userIds.map(id => {
-        if (playerBalancesInMemory[id] === undefined) {
-            playerBalancesInMemory[id] = 100;
-        }
         return {
             userId: id,
-            balance: playerBalancesInMemory[id],
+            balance: playerBalancesInMemory[id] ?? 0, // 0 nếu chưa từng tương tác với bot
             debt: playerDebtsInMemory[id] || 0
         };
     });

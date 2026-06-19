@@ -54,7 +54,6 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
 
     // Sinh các phần lì xì
     const cuts = generateLixiCuts(amount, maxPeople);
-    const originalCutsLength = cuts.length;
     
     // Lưu vết người đã giật
     const grabbedUsers: { userId: string; amount: number }[] = [];

@@ -196,7 +196,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- TÍNH NĂNG ĐIỂM DANH HÀNG NGÀY -----------------
-    if (cleanInput === 'diem danh' || cleanInput === 'daily') {
+    if (cleanInput.includes('diem danh') || cleanInput === 'daily') {
         const result = await claimDaily(message.author.id);
         const avatarUrl = message.author.displayAvatarURL();
         const embed = new EmbedBuilder()
@@ -403,7 +403,8 @@ client.on('messageCreate', async (message: Message) => {
         } else {
             // Thất bại: Phạt người báo án láo 15k, cấm chat 2 phút và đi tù
             let reporterBal = await getBalance(reporterId);
-            reporterBal = Math.max(0, reporterBal - 15);
+            // Phạt 15k trực tiếp (không dùng Math.max — để bư con sành bỏ sành không thể phạt âm rồi reset về 0)
+            reporterBal = reporterBal - 15;
             await updateBalance(reporterId, reporterBal);
 
             await banChat(reporterId, 120000);

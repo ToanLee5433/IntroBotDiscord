@@ -32,7 +32,7 @@ export async function playBauCua(message: Message) {
     // Tự động cấp vốn 100k nếu chưa có hoặc phá sản
     await getBalance(userId);
 
-        const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
+    const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
     // Chỉ add vào Set SAU khi draftMsg tồn tại — đảm bảo luôn được xoá trong collector.on('end')
     activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
@@ -293,6 +293,12 @@ export async function playBauCua(message: Message) {
         // Xử lý khi nhấn nút đặt cược các cửa Bầu, Cua, Tôm, Cá, Gà, Nai
         const betSymbol = i.customId.split('_')[1];
         if (bauCuaSymbols.includes(betSymbol)) {
+            // Guard chống double-click: không xử lý nếu đang trong lượt mở bát
+            if (isProcessing) {
+                await i.reply({ content: "Từ từ thôi mày, đang xóc chưa mở bát!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+
             if (selectedCount >= 3) {
                 await i.reply({ content: "Mày chỉ được cược tối đa 3 lượt (lần click) mỗi ván thôi!", ephemeral: true }).catch(()=>{});
                 return;
