@@ -18,10 +18,10 @@ import { playTaiXiu } from './games/taixiu';
 import { handleLixi } from './games/lixi';
 import { playRussianRoulette } from './games/russianroulette';
 import { chatWithGemini } from './services/gemini';
-
+import { fetchValorantRank } from './services/valorant';
 
 import { sleep, removeAccents, formatMoney, parseMoneyInput } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt } from './database';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId } from './database';
 
 
 
@@ -268,6 +268,86 @@ client.on('messageCreate', async (message: Message) => {
     // ----------------- TÍNH NĂNG GAME "XÌ DÁCH / BLACKJACK" -----------------
     if (cleanInput.includes('xi dach') || cleanInput.includes('blackjack')) {
         await playBlackjack(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG ĐĂNG KÝ RIOT ID VALORANT -----------------
+    const regValMatch = rawInput.match(/^reg\s+val\s+(.+)$/i);
+    if (regValMatch) {
+        const valId = regValMatch[1].trim();
+        if (!valId.includes('#')) {
+            await message.reply("❌ **Sai cú pháp!** Riot ID phải có định dạng `Tên#Tag` (Ví dụ: `ToanLee#5433`).");
+            return;
+        }
+        
+        await registerValorantId(message.author.id, valId);
+        
+        const embed = new EmbedBuilder()
+            .setTitle("🎮 ĐĂNG KÝ RIOT ID VALORANT")
+            .setDescription(`✅ Đăng ký thành công Riot ID **${valId}** cho <@${message.author.id}>.\nBây giờ mày có thể gõ \`@BotToan rank val\` để xem rank của mình!`)
+            .setColor(0x00FF00)
+            .setFooter({ text: "BotToan - Valorant Tracker", iconURL: client.user?.displayAvatarURL() });
+
+        await message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG XEM RANK VALORANT -----------------
+    const rankValMatch = rawInput.match(/^(rank\s+val|rank\s+valorant)(?:\s+(.+))?$/i);
+    if (rankValMatch) {
+        let valId = rankValMatch[2]?.trim();
+        
+        if (!valId) {
+            // Lấy ID đã đăng ký của user
+            valId = await getValorantId(message.author.id);
+            if (!valId) {
+                await message.reply("❌ **Mày chưa đăng ký Riot ID!**\n👉 Hãy gõ `@BotToan reg val Tên#Tag` để đăng ký trước, hoặc gõ `@BotToan rank val Tên#Tag` để xem rank trực tiếp.");
+                return;
+            }
+        } else if (!valId.includes('#')) {
+            await message.reply("❌ **Sai cú pháp!** Riot ID phải có định dạng `Tên#Tag` (Ví dụ: `ToanLee#5433`).");
+            return;
+        }
+
+        const parts = valId.split('#');
+        const tag = parts.pop() || "";
+        const name = parts.join('#');
+
+        // Gửi tin nhắn chờ
+        const statusMsg = await message.reply("⏳ Đang cào dữ liệu rank Valorant từ API, đợi tí tao check...");
+        
+        const rankInfo = await fetchValorantRank(name, tag);
+        
+        if (!rankInfo.success) {
+            await statusMsg.edit(`❌ **Lỗi:** ${rankInfo.message || "Không thể lấy thông tin rank."}`).catch(() => {});
+            return;
+        }
+
+        // Tạo Embed hiển thị thông tin cực xịn
+        const isWin = rankInfo.mmrChange !== undefined && rankInfo.mmrChange >= 0;
+        const changeSign = isWin ? "+" : "";
+        const color = isWin ? 0x2ECC71 : 0xE74C3C; // Xanh lá nếu thắng, đỏ nếu thua
+        
+        const embed = new EmbedBuilder()
+            .setTitle(`🎮 THÔNG TIN RANK: ${rankInfo.name}#${rankInfo.tag}`)
+            .setColor(color)
+            .setDescription(`Dưới đây là thông số xếp hạng mùa hiện tại của chiến thần **${rankInfo.name}**.`)
+            .addFields(
+                { name: "🏆 Xếp Hạng Hiện Tại", value: `**${rankInfo.currentRank}** (${rankInfo.rr} RR)`, inline: true },
+                { name: "⭐ Tổng ELO", value: `**${rankInfo.elo}**`, inline: true },
+                { name: "📈 Trận Gần Nhất", value: `**${changeSign}${rankInfo.mmrChange} RR**`, inline: true },
+                { name: "👑 Rank Cao Nhất", value: `**${rankInfo.highestRank}**`, inline: false }
+            );
+
+        if (rankInfo.rankIcon) {
+            embed.setThumbnail(rankInfo.rankIcon);
+        }
+
+        embed.setFooter({ text: "BotToan - HenrikDev Valorant API Integration", iconURL: client.user?.displayAvatarURL() })
+             .setTimestamp();
+
+        await statusMsg.delete().catch(() => {});
+        await message.reply({ embeds: [embed] });
         return;
     }
 

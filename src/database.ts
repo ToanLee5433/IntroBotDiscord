@@ -7,6 +7,7 @@ const playerBalancesInMemory: { [userId: string]: number } = {};
 const playerLastDailyInMemory: { [userId: string]: number } = {};
 const playerDebtsInMemory: { [userId: string]: number } = {};
 const playerStreaksInMemory: { [userId: string]: number } = {};
+const playerValorantIdsInMemory: { [userId: string]: string } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -15,6 +16,7 @@ interface IUser {
     lastDaily: number;
     debt: number;
     streak: number;
+    valorantId: string;
 }
 
 const userSchema = new Schema<IUser>({
@@ -22,7 +24,8 @@ const userSchema = new Schema<IUser>({
     balance: { type: Number, default: 100 },
     lastDaily: { type: Number, default: 0 },
     debt: { type: Number, default: 0 },
-    streak: { type: Number, default: 0 }
+    streak: { type: Number, default: 0 },
+    valorantId: { type: String, default: "" }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -555,4 +558,38 @@ export async function getAllBalancesAndDebts(): Promise<{ userId: string; balanc
         balance: playerBalancesInMemory[id],
         debt: playerDebtsInMemory[id] || 0
     }));
+}
+
+/**
+ * Đăng ký Riot ID (Valorant) cho người dùng
+ */
+export async function registerValorantId(userId: string, valorantId: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { valorantId },
+                { upsert: true, new: true }
+            );
+            return;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi đăng ký Riot ID trên MongoDB:", error);
+        }
+    }
+    playerValorantIdsInMemory[userId] = valorantId;
+}
+
+/**
+ * Lấy Riot ID (Valorant) đã đăng ký của người dùng
+ */
+export async function getValorantId(userId: string): Promise<string> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user && user.valorantId ? user.valorantId : "";
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy Riot ID từ MongoDB:", error);
+        }
+    }
+    return playerValorantIdsInMemory[userId] || "";
 }
