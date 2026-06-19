@@ -152,26 +152,33 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- TÍNH NĂNG CHUYỂN TIỀN -----------------
-    const transferRegex = /^(chuyen|pay)\s+(\d+)(k)?\s+(?:cho\s+)?<@!?(\d+)>/i;
-    const match = cleanInput.match(transferRegex);
-    if (match) {
-        const amount = parseInt(match[2]);
-        const receiverId = match[4];
-        const senderId = message.author.id;
+    const isTransfer = cleanInput.startsWith('chuyen') || cleanInput.startsWith('pay');
+    if (isTransfer) {
+        // Tìm ID người nhận: <@!?(\d+)>
+        const userMentionMatch = cleanInput.match(/<@!?(\d+)>/);
+        // Tìm số lượng tiền chuyển: số nguyên (bỏ qua số trong ID người nhận)
+        const cleanInputWithoutMention = cleanInput.replace(/<@!?\d+>/g, '');
+        const amountMatch = cleanInputWithoutMention.match(/\b(\d+)(?:k)?\b/);
 
-        const result = await transferMoney(senderId, receiverId, amount);
-        const embed = new EmbedBuilder()
-            .setTitle("💸 GIAO DỊCH CHUYỂN TIỀN")
-            .setDescription(result.message)
-            .setColor(result.success ? 0x00FF00 : 0xFF0000)
-            .addFields(
-                { name: "Người gửi", value: `<@${senderId}>`, inline: true },
-                { name: "Người nhận", value: `<@${receiverId}>`, inline: true }
-            )
-            .setFooter({ text: "BotToan - Sòng bạc hoàng gia", iconURL: client.user?.displayAvatarURL() });
+        if (userMentionMatch && amountMatch) {
+            const amount = parseInt(amountMatch[1]);
+            const receiverId = userMentionMatch[1];
+            const senderId = message.author.id;
 
-        await message.reply({ embeds: [embed] });
-        return;
+            const result = await transferMoney(senderId, receiverId, amount);
+            const embed = new EmbedBuilder()
+                .setTitle("💸 GIAO DỊCH CHUYỂN TIỀN")
+                .setDescription(result.message)
+                .setColor(result.success ? 0x00FF00 : 0xFF0000)
+                .addFields(
+                    { name: "Người gửi", value: `<@${senderId}>`, inline: true },
+                    { name: "Người nhận", value: `<@${receiverId}>`, inline: true }
+                )
+                .setFooter({ text: "BotToan - Sòng bạc hoàng gia", iconURL: client.user?.displayAvatarURL() });
+
+            await message.reply({ embeds: [embed] });
+            return;
+        }
     }
 
     // ----------------- TÍNH NĂNG PHÁT LÌ XÌ CƯỚP GIẬT -----------------
