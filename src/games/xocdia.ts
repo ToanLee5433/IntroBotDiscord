@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
-import { sleep } from '../utils';
+import { sleep, formatMoney } from '../utils';
 
 /**
  * Bắt đầu sòng Xóc Đĩa cho một người dùng
@@ -20,7 +20,7 @@ export async function playXocDia(message: Message) {
         const balance = await getBalance(userId);
 
         if (balance < 10) {
-            const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${balance}k, đéo đủ cược ván tối thiểu 10k. Cờ bạc bác thằng bần con ạ!`;
+            const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${formatMoney(balance)}, đéo đủ cược ván tối thiểu ${formatMoney(10)}. Cờ bạc bác thằng bần con ạ!`;
             const embed = new EmbedBuilder()
                 .setTitle("🎰 SÒNG XÓC ĐĨA - CHÁY TÚI")
                 .setDescription(text)
@@ -37,7 +37,7 @@ export async function playXocDia(message: Message) {
         const row0 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId('xd_bet_size')
-                .setPlaceholder(`💵 Mức cược: ${currentBetSize}k (Bấm để chọn)`)
+                .setPlaceholder(`💵 Mức cược: ${formatMoney(currentBetSize)} (Bấm để chọn)`)
                 .addOptions(
                     new StringSelectMenuOptionBuilder().setLabel('10k (Min)').setValue('10').setEmoji('🪙'),
                     new StringSelectMenuOptionBuilder().setLabel('20k').setValue('20').setEmoji('💵'),
@@ -55,7 +55,7 @@ export async function playXocDia(message: Message) {
 
         const embed = new EmbedBuilder()
             .setTitle("🎰 SÒNG XÓC ĐĨA - BOTTOAN")
-            .setDescription(`${extraMsg}\n💰 Tài sản của mày: **${balance}k**\n👇 Chọn mức cược ở menu trên, sau đó chọn **Chẵn** hoặc **Lẻ** bên dưới để đặt:`)
+            .setDescription(`${extraMsg}\n💰 Tài sản của mày: **${formatMoney(balance)}**\n👇 Chọn mức cược ở menu trên, sau đó chọn **Chẵn** hoặc **Lẻ** bên dưới để đặt:`)
             .setColor(colorHex)
             .setThumbnail(message.author.displayAvatarURL())
             .setFooter({ text: "Chẵn: 2 đỏ 2 trắng, 4 đỏ hoặc 4 trắng | Lẻ: 3 đỏ 1 trắng hoặc 3 trắng 1 đỏ." });
@@ -94,7 +94,7 @@ export async function playXocDia(message: Message) {
 
         if (i.customId === 'xd_nghi') {
             const finalBalance = await getBalance(userId);
-            let msg = `🏃 Mày đã xách quần bỏ chạy khỏi sòng xóc đĩa với **${finalBalance}k**. `;
+            let msg = `🏃 Mày đã xách quần bỏ chạy khỏi sòng xóc đĩa với **${formatMoney(finalBalance)}**. `;
             msg += finalBalance > 100 ? "Ăn non thế là tốt đấy con trai!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
             
             const embed = new EmbedBuilder()
@@ -115,7 +115,7 @@ export async function playXocDia(message: Message) {
             let balance = await getBalance(userId);
 
             if (balance < currentBetSize) {
-                await i.reply({ content: `Ví còn có ${balance}k mà đòi cược ${currentBetSize}k! Hạ mức cược hoặc đi vay tiền đi.`, ephemeral: true }).catch(()=>{});
+                await i.reply({ content: `Ví còn có ${formatMoney(balance)} mà đòi cược ${formatMoney(currentBetSize)}! Hạ mức cược hoặc đi vay tiền đi.`, ephemeral: true }).catch(()=>{});
                 isProcessing = false;
                 return;
             }
@@ -165,10 +165,10 @@ export async function playXocDia(message: Message) {
                 const winAmount = currentBetSize * 2; // Hoàn cược + ăn lãi 1:1
                 balance += winAmount;
                 await updateBalance(userId, balance);
-                resultMsg += `🎉 **Mày đã thắng!** Húp về **${currentBetSize}k**.`;
+                resultMsg += `🎉 **Mày đã thắng!** Húp về **${formatMoney(currentBetSize)}**.`;
                 finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
-                resultMsg += `💀 **Mày đã thua!** Mất cmn **${currentBetSize}k** cược con ${userBet === "chan" ? "Chẵn" : "Lẻ"}.`;
+                resultMsg += `💀 **Mày đã thua!** Mất cmn **${formatMoney(currentBetSize)}** cược con ${userBet === "chan" ? "Chẵn" : "Lẻ"}.`;
             }
 
             await updateBoard(null, resultMsg, finalColor);

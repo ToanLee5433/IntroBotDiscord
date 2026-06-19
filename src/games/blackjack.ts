@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
-import { sleep } from '../utils';
+import { sleep, formatMoney } from '../utils';
 
 interface Card {
     suit: string;
@@ -56,7 +56,7 @@ export async function playBlackjack(message: Message) {
     if (balance < 20) {
         const embed = new EmbedBuilder()
             .setTitle("🃏 SÒNG BÀI BLACKJACK - CHÁY TÚI")
-            .setDescription(`💸 **ĐÉO ĐỦ TIỀN VÀO BÀN!** Mày chỉ còn **${balance}k**.\nLệ phí cược Blackjack tối thiểu là **20k**. Đi điểm danh hoặc vay tiền đi con ạ!`)
+            .setDescription(`💸 **ĐÉO ĐỦ TIỀN VÀO BÀN!** Mày chỉ còn **${formatMoney(balance)}**.\nLệ phí cược Blackjack tối thiểu là **${formatMoney(20)}**. Đi điểm danh hoặc vay tiền đi con ạ!`)
             .setColor(0xFF0000)
             .setThumbnail(message.author.displayAvatarURL());
         await message.reply({ embeds: [embed] });
@@ -103,7 +103,7 @@ export async function playBlackjack(message: Message) {
             .setTitle("🃏 BÀN CHƠI BLACKJACK - BOTTOAN")
             .setColor(colorHex)
             .setThumbnail(message.author.displayAvatarURL())
-            .setDescription(`\`\`\`text\n${boardASCII}\n\`\`\`\n${extraMsg || `💰 Tài sản còn lại: **${currentBalance}k**\nLệ phí cược ván này: **20k**`}`)
+            .setDescription(`\`\`\`text\n${boardASCII}\n\`\`\`\n${extraMsg || `💰 Tài sản còn lại: **${formatMoney(currentBalance)}**\nLệ phí cược ván này: **${formatMoney(20)}**`}`)
             .setFooter({ text: isEnded ? "Trận đấu kết thúc" : "Rút thêm bài (Hit) hoặc Dằn bài (Stand)" });
 
         if (isEnded) {
@@ -151,7 +151,7 @@ export async function playBlackjack(message: Message) {
             if (playerScore > 21) {
                 // Người chơi bị QUẮC (Bust)
                 isProcessing = false;
-                await updateBoard(i, "💀 **MÀY BỊ QUẮC RỒI!** Điểm vượt quá 21. Nhà cái lụm cmn **20k** cược.", true, 0xE74C3C);
+                await updateBoard(i, `💀 **MÀY BỊ QUẮC RỒI!** Điểm vượt quá 21. Nhà cái lụm cmn **${formatMoney(20)}** cược.`, true, 0xE74C3C);
                 return;
             }
 
@@ -175,23 +175,23 @@ export async function playBlackjack(message: Message) {
                 // Nhà cái bị Quắc
                 currentBal += 40; // Trả cược + thắng 20k
                 await updateBalance(userId, currentBal);
-                finalMsg = "🎉 **NHÀ CÁI BỊ QUẮC!** Mày đã thắng và ăn **20k**.";
+                finalMsg = `🎉 **NHÀ CÁI BỊ QUẮC!** Mày đã thắng và ăn **${formatMoney(20)}**.`;
                 colorHex = 0x2ECC71;
             } else if (playerScore > dealerScore) {
                 // Người chơi điểm cao hơn
                 currentBal += 40;
                 await updateBalance(userId, currentBal);
-                finalMsg = `🎉 **MÀY THẮNG!** Điểm của mày (${playerScore}) cao hơn nhà cái (${dealerScore}). Húp **20k**.`;
+                finalMsg = `🎉 **MÀY THẮNG!** Điểm của mày (${playerScore}) cao hơn nhà cái (${dealerScore}). Húp **${formatMoney(20)}**.`;
                 colorHex = 0x2ECC71;
             } else if (playerScore < dealerScore) {
                 // Nhà cái điểm cao hơn
-                finalMsg = `💀 **MÀY THUA!** Điểm nhà cái (${dealerScore}) cao hơn mày (${playerScore}). Mất **20k**.`;
+                finalMsg = `💀 **MÀY THUA!** Điểm nhà cái (${dealerScore}) cao hơn mày (${playerScore}). Mất **${formatMoney(20)}**.`;
                 colorHex = 0xE74C3C;
             } else {
                 // Hòa (Push)
                 currentBal += 20; // Hoàn tiền cược
                 await updateBalance(userId, currentBal);
-                finalMsg = `🤝 **HÒA NHAU!** Cả hai cùng đạt **${playerScore}** điểm. Hoàn trả **20k** cược.`;
+                finalMsg = `🤝 **HÒA NHAU!** Cả hai cùng đạt **${playerScore}** điểm. Hoàn trả **${formatMoney(20)}** cược.`;
                 colorHex = 0xFFA500;
             }
 
@@ -210,7 +210,7 @@ export async function playBlackjack(message: Message) {
         let currentBal = await getBalance(userId);
         currentBal += 40; // Trả cược + thắng 20k
         await updateBalance(userId, currentBal);
-        await updateBoard(null, "🎉 **BLACKJACK 21 ĐIỂM!** Mày trúng độc đắc ăn luôn **20k**!", true, 0x2ECC71);
+        await updateBoard(null, `🎉 **BLACKJACK 21 ĐIỂM!** Mày trúng độc đắc ăn luôn **${formatMoney(20)}**!`, true, 0x2ECC71);
         return;
     }
 

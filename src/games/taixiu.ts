@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
-import { sleep } from '../utils';
+import { sleep, formatMoney } from '../utils';
 
 const diceEmojis = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
@@ -22,7 +22,7 @@ export async function playTaiXiu(message: Message) {
         const balance = await getBalance(userId);
 
         if (balance < 10) {
-            const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${balance}k, đéo đủ cược ván tối thiểu 10k. Cờ bạc bác thằng bần con ạ!`;
+            const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${formatMoney(balance)}, đéo đủ cược ván tối thiểu ${formatMoney(10)}. Cờ bạc bác thằng bần con ạ!`;
             const embed = new EmbedBuilder()
                 .setTitle("🎲 SÒNG TÀI XỈU - CHÁY TÚI")
                 .setDescription(text)
@@ -39,7 +39,7 @@ export async function playTaiXiu(message: Message) {
         const row0 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId('tx_bet_size')
-                .setPlaceholder(`💵 Mức cược: ${currentBetSize}k (Bấm để chọn)`)
+                .setPlaceholder(`💵 Mức cược: ${formatMoney(currentBetSize)} (Bấm để chọn)`)
                 .addOptions(
                     new StringSelectMenuOptionBuilder().setLabel('10k (Min)').setValue('10').setEmoji('🪙'),
                     new StringSelectMenuOptionBuilder().setLabel('20k').setValue('20').setEmoji('💵'),
@@ -57,7 +57,7 @@ export async function playTaiXiu(message: Message) {
 
         const embed = new EmbedBuilder()
             .setTitle("🎲 SÒNG TÀI XỈU - BOTTOAN")
-            .setDescription(`${extraMsg}\n💰 Tài sản của mày: **${balance}k**\n👇 Chọn mức tiền cược ở menu trên, sau đó chọn **Tài** hoặc **Xỉu** bên dưới:`)
+            .setDescription(`${extraMsg}\n💰 Tài sản của mày: **${formatMoney(balance)}**\n👇 Chọn mức tiền cược ở menu trên, sau đó chọn **Tài** hoặc **Xỉu** bên dưới:`)
             .setColor(colorHex)
             .setThumbnail(message.author.displayAvatarURL())
             .setFooter({ text: "Lắc 3 xí ngầu. Bộ ba đồng nhất (3 con giống nhau) nhà cái ăn hết." });
@@ -96,7 +96,7 @@ export async function playTaiXiu(message: Message) {
 
         if (i.customId === 'tx_nghi') {
             const finalBalance = await getBalance(userId);
-            let msg = `🏃 Mày đã xách quần bỏ chạy khỏi sòng Tài Xỉu với **${finalBalance}k**. `;
+            let msg = `🏃 Mày đã xách quần bỏ chạy khỏi sòng Tài Xỉu với **${formatMoney(finalBalance)}**. `;
             msg += finalBalance > 100 ? "Khôn đấy, ăn được tí của ngoại là lủi!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
             
             const embed = new EmbedBuilder()
@@ -117,7 +117,7 @@ export async function playTaiXiu(message: Message) {
             let balance = await getBalance(userId);
 
             if (balance < currentBetSize) {
-                await i.reply({ content: `Ví còn có ${balance}k mà đòi cược ${currentBetSize}k! Hạ mức cược hoặc đi vay tiền đi con trai.`, ephemeral: true }).catch(()=>{});
+                await i.reply({ content: `Ví còn có ${formatMoney(balance)} mà đòi cược ${formatMoney(currentBetSize)}! Hạ mức cược hoặc đi vay tiền đi con trai.`, ephemeral: true }).catch(()=>{});
                 isProcessing = false;
                 return;
             }
@@ -175,15 +175,15 @@ export async function playTaiXiu(message: Message) {
             let finalColor = 0xE74C3C; // Đỏ Ruby
 
             if (isTriple) {
-                resultMsg += `💀 **BÃO RỒI!** Bộ ba đồng nhất xuất hiện. Nhà cái ăn sạch sành sanh! Mày mất **${currentBetSize}k**.`;
+                resultMsg += `💀 **BÃO RỒI!** Bộ ba đồng nhất xuất hiện. Nhà cái ăn sạch sành sanh! Mày mất **${formatMoney(currentBetSize)}**.`;
             } else if (isWin) {
                 const winAmount = currentBetSize * 2; // Hoàn cược + ăn lãi 1:1
                 balance += winAmount;
                 await updateBalance(userId, balance);
-                resultMsg += `🎉 **Mày đã thắng!** Húp về **${currentBetSize}k**.`;
+                resultMsg += `🎉 **Mày đã thắng!** Húp về **${formatMoney(currentBetSize)}**.`;
                 finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
-                resultMsg += `💀 **Mày đã thua!** Mất cmn **${currentBetSize}k** cược con ${userBet === "tai" ? "Tài" : "Xỉu"}.`;
+                resultMsg += `💀 **Mày đã thua!** Mất cmn **${formatMoney(currentBetSize)}** cược con ${userBet === "tai" ? "Tài" : "Xỉu"}.`;
             }
 
             await updateBoard(null, resultMsg, finalColor);

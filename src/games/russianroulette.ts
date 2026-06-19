@@ -1,5 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
+import { formatMoney } from '../utils';
 
 interface RouletteSession {
     betAmount: number;
@@ -15,14 +16,14 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
     const creatorId = message.author.id;
 
     if (betAmount < 10) {
-        await message.reply("❌ Tiền cược tối thiểu để chơi Vòng Quay Tử Thần là **10k**!");
+        await message.reply(`❌ Tiền cược tối thiểu để chơi Vòng Quay Tử Thần là **${formatMoney(10)}**!`);
         return;
     }
 
     // Kiểm tra ví tiền của người tạo phòng
     let creatorBalance = await getBalance(creatorId);
     if (creatorBalance < betAmount) {
-        await message.reply(`❌ **ĐÉO ĐỦ TIỀN LẬP SÒNG!** Mày chỉ còn **${creatorBalance}k**, đéo đủ cược **${betAmount}k**.`);
+        await message.reply(`❌ **ĐÉO ĐỦ TIỀN LẬP SÒNG!** Mày chỉ còn **${formatMoney(creatorBalance)}**, đéo đủ cược **${formatMoney(betAmount)}**.`);
         return;
     }
 
@@ -38,7 +39,7 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
     };
 
     const lobbyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('rr_join').setLabel(`🤝 Tham gia cược ${betAmount}k`).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('rr_join').setLabel(`🤝 Tham gia cược ${formatMoney(betAmount)}`).setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('rr_start').setLabel('🔫 Bắt đầu bắn').setStyle(ButtonStyle.Danger)
     );
 
@@ -46,7 +47,7 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
         const playersList = session.players.map((id, idx) => `**${idx + 1}.** <@${id}>`).join("\n");
         return new EmbedBuilder()
             .setTitle("🔫 SÒNG VÒNG QUAY TỬ THẦN")
-            .setDescription(`Chủ phòng <@${creatorId}> đã lập sòng Roulette tử thần!\n\n💰 **Mức cược:** **${betAmount}k/người**\n👥 **Thành viên tham gia (${session.players.length}/6):**\n${playersList}\n\n*Yêu cầu tối thiểu 2 người. Chủ phòng nhấn Bắt đầu để tiến hành lên đạn.*`)
+            .setDescription(`Chủ phòng <@${creatorId}> đã lập sòng Roulette tử thần!\n\n💰 **Mức cược:** **${formatMoney(betAmount)}/người**\n👥 **Thành viên tham gia (${session.players.length}/6):**\n${playersList}\n\n*Yêu cầu tối thiểu 2 người. Chủ phòng nhấn Bắt đầu để tiến hành lên đạn.*`)
             .setColor(0xFF4654)
             .setFooter({ text: "Sòng chờ sẽ tự hủy sau 2 phút nếu không bắt đầu" });
     };
@@ -81,7 +82,7 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
             // Kiểm tra ví tiền của người muốn tham gia
             let userBalance = await getBalance(userId);
             if (userBalance < betAmount) {
-                await i.reply({ content: `Ví mày còn đúng **${userBalance}k**, đéo đủ tiền cược vào sòng!`, ephemeral: true }).catch(()=>{});
+                await i.reply({ content: `Ví mày còn đúng **${formatMoney(userBalance)}**, đéo đủ tiền cược vào sòng!`, ephemeral: true }).catch(()=>{});
                 return;
             }
 
@@ -90,7 +91,7 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
             await updateBalance(userId, userBalance);
 
             session.players.push(userId);
-            await i.reply({ content: `🤝 Mày đã tham gia sòng cược **${betAmount}k**!`, ephemeral: true }).catch(()=>{});
+            await i.reply({ content: `🤝 Mày đã tham gia sòng cược **${formatMoney(betAmount)}**!`, ephemeral: true }).catch(()=>{});
             
             await lobbyMsg.edit({ embeds: [await updateLobbyEmbed()] }).catch(()=>{});
         } 
@@ -123,7 +124,7 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
 
             const cancelEmbed = new EmbedBuilder()
                 .setTitle("🔫 SÒNG VÒNG QUAY TỬ THẦN - ĐÃ HỦY")
-                .setDescription(`Sòng cược của <@${creatorId}> đã tự động hủy do quá 2 phút không bắt đầu.\nHệ thống đã hoàn trả lại **${betAmount}k** cược cho tất cả mọi người.`)
+                .setDescription(`Sòng cược của <@${creatorId}> đã tự động hủy do quá 2 phút không bắt đầu.\nHệ thống đã hoàn trả lại **${formatMoney(betAmount)}** cược cho tất cả mọi người.`)
                 .setColor(0x7F8C8D);
 
             await lobbyMsg.edit({ embeds: [cancelEmbed], components: [] }).catch(()=>{});
@@ -153,7 +154,7 @@ async function startGame(lobbyMsg: Message, session: RouletteSession) {
         const activePlayer = gameOrder[turnIndex];
         const statusText = isEnded 
             ? `💥 **BOOM!** Phát súng định mệnh đã nổ ở ổ đạn thứ **${currentChamber + 1}**.\nNạn nhân xấu số: <@${victimId}>.\n\n${extraMsg}`
-            : `Súng lục ổ xoay có **6 ổ đạn (1 viên đạn thật)**.\nTổng hũ tiền cược: **${totalPot}k**\n\n👉 Lượt bóp cò của: <@${activePlayer}>\n*Ổ đạn hiện tại: ổ thứ ${currentChamber + 1}/6 (chưa bắn)*\n\n${extraMsg}`;
+            : `Súng lục ổ xoay có **6 ổ đạn (1 viên đạn thật)**.\nTổng hũ tiền cược: **${formatMoney(totalPot)}**\n\n👉 Lượt bóp cò của: <@${activePlayer}>\n*Ổ đạn hiện tại: ổ thứ ${currentChamber + 1}/6 (chưa bắn)*\n\n${extraMsg}`;
 
         return new EmbedBuilder()
             .setTitle(isEnded ? "☠️ KẾT QUẢ VÒNG QUAY TỬ THẦN" : "🔫 GAME BẮT ĐẦU: VÒNG QUAY TỬ THẦN")
@@ -227,7 +228,7 @@ async function startGame(lobbyMsg: Message, session: RouletteSession) {
                 punishmentText = `*(Bot thiếu quyền quản trị nên không thực hiện được hình phạt Kick voice/Timeout đối với nạn nhân)*`;
             }
 
-            const finalMsg = `🏆 **Nhóm sống sót:** ${survivors.map(id => `<@${id}>`).join(", ")} chia nhau mỗi người nhận **${winShare}k** từ hũ.\n\n⚡ **Hình phạt:** ${punishmentText}`;
+            const finalMsg = `🏆 **Nhóm sống sót:** ${survivors.map(id => `<@${id}>`).join(", ")} chia nhau mỗi người nhận **${formatMoney(winShare)}** từ hũ.\n\n⚡ **Hình phạt:** ${punishmentText}`;
             
             await lobbyMsg.edit({ 
                 embeds: [await updateGameEmbed(finalMsg, true, userId)], 

@@ -20,7 +20,7 @@ import { playRussianRoulette } from './games/russianroulette';
 import { chatWithGemini } from './services/gemini';
 
 
-import { sleep, removeAccents } from './utils';
+import { sleep, removeAccents, formatMoney, parseMoneyInput } from './utils';
 import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts } from './database';
 
 
@@ -88,7 +88,7 @@ client.on('messageCreate', async (message: Message) => {
             for (const r of results) {
                 const member = memberMap.get(r.userId);
                 const name = member ? member.displayName : `<@${r.userId}>`;
-                outputText += `- **${name}**: Ví: **${r.balance}k** | Nợ: **${r.debt}k**\n`;
+                outputText += `- **${name}**: Ví: **${formatMoney(r.balance)}** | Nợ: **${formatMoney(r.debt)}**\n`;
             }
         } else {
             outputText += `🌍 **Danh sách tổng hợp toàn server:**\n`;
@@ -99,7 +99,7 @@ client.on('messageCreate', async (message: Message) => {
                 for (const r of results) {
                     const member = message.guild?.members.cache.get(r.userId);
                     const name = member ? member.displayName : `<@${r.userId}>`;
-                    outputText += `- **${name}**: Ví: **${r.balance}k** | Nợ: **${r.debt}k**\n`;
+                    outputText += `- **${name}**: Ví: **${formatMoney(r.balance)}** | Nợ: **${formatMoney(r.debt)}**\n`;
                 }
             }
         }
@@ -128,13 +128,13 @@ client.on('messageCreate', async (message: Message) => {
         
         let richText = "";
         for (let i = 0; i < rich.length; i++) {
-            richText += `**${i + 1}.** <@${rich[i].userId}>: **${rich[i].balance}k**\n`;
+            richText += `**${i + 1}.** <@${rich[i].userId}>: **${formatMoney(rich[i].balance)}**\n`;
         }
         if (!richText) richText = "*Chưa có dữ liệu người chơi.*";
 
         let poorText = "";
         for (let i = 0; i < poor.length; i++) {
-            poorText += `**${i + 1}.** <@${poor[i].userId}>: **${poor[i].balance}k**\n`;
+            poorText += `**${i + 1}.** <@${poor[i].userId}>: **${formatMoney(poor[i].balance)}**\n`;
         }
         if (!poorText) poorText = "*Chưa có dữ liệu người chơi.*";
 
@@ -156,46 +156,47 @@ client.on('messageCreate', async (message: Message) => {
     if (isTransfer) {
         // Tìm ID người nhận: <@!?(\d+)>
         const userMentionMatch = cleanInput.match(/<@!?(\d+)>/);
-        // Tìm số lượng tiền chuyển: số nguyên (bỏ qua số trong ID người nhận)
-        const cleanInputWithoutMention = cleanInput.replace(/<@!?\d+>/g, '');
-        const amountMatch = cleanInputWithoutMention.match(/\b(\d+)(?:k)?\b/);
-
-        if (userMentionMatch && amountMatch) {
-            const amount = parseInt(amountMatch[1]);
+        if (userMentionMatch) {
+            const cleanInputWithoutMention = cleanInput.replace(/<@!?\d+>/g, '');
+            const amount = parseMoneyInput(cleanInputWithoutMention);
             const receiverId = userMentionMatch[1];
             const senderId = message.author.id;
 
-            const result = await transferMoney(senderId, receiverId, amount);
-            const embed = new EmbedBuilder()
-                .setTitle("💸 GIAO DỊCH CHUYỂN TIỀN")
-                .setDescription(result.message)
-                .setColor(result.success ? 0x00FF00 : 0xFF0000)
-                .addFields(
-                    { name: "Người gửi", value: `<@${senderId}>`, inline: true },
-                    { name: "Người nhận", value: `<@${receiverId}>`, inline: true }
-                )
-                .setFooter({ text: "BotToan - Sòng bạc hoàng gia", iconURL: client.user?.displayAvatarURL() });
+            if (amount !== null && amount > 0) {
+                const result = await transferMoney(senderId, receiverId, amount);
+                const embed = new EmbedBuilder()
+                    .setTitle("💸 GIAO DỊCH CHUYỂN TIỀN")
+                    .setDescription(result.message)
+                    .setColor(result.success ? 0x00FF00 : 0xFF0000)
+                    .addFields(
+                        { name: "Người gửi", value: `<@${senderId}>`, inline: true },
+                        { name: "Người nhận", value: `<@${receiverId}>`, inline: true }
+                    )
+                    .setFooter({ text: "BotToan - Sòng bạc hoàng gia", iconURL: client.user?.displayAvatarURL() });
 
-            await message.reply({ embeds: [embed] });
-            return;
+                await message.reply({ embeds: [embed] });
+                return;
+            }
         }
     }
 
     // ----------------- TÍNH NĂNG PHÁT LÌ XÌ CƯỚP GIẬT -----------------
-    const lixiRegex = /^(lixi|li xi)\s+(\d+)(k)?\s+(?:cho\s+)?(\d+)\s*(?:dua|nguoi|thang|em|con)?/i;
+    const lixiRegex = /^(lixi|li xi)\s+(\d+(?:\.\d+)?(?:k|tr|trieu|ty|b)?)\s+(?:cho\s+)?(\d+)/i;
     const lixiMatch = cleanInput.match(lixiRegex);
     if (lixiMatch) {
-        const amount = parseInt(lixiMatch[2]);
-        const maxPeople = parseInt(lixiMatch[4]);
-        await handleLixi(message, amount, maxPeople);
-        return;
+        const amount = parseMoneyInput(lixiMatch[2]);
+        const maxPeople = parseInt(lixiMatch[3]);
+        if (amount !== null && amount > 0 && maxPeople > 0) {
+            await handleLixi(message, amount, maxPeople);
+            return;
+        }
     }
 
     // ----------------- TÍNH NĂNG GAME VÒNG QUAY TỬ THẦN -----------------
-    const rrRegex = /^(roulette|tu than)(?:\s+(\d+)(k)?)?/i;
+    const rrRegex = /^(roulette|tu than)(?:\s+(\d+(?:\.\d+)?(?:k|tr|trieu|ty|b)?))?/i;
     const rrMatch = cleanInput.match(rrRegex);
     if (rrMatch) {
-        const betAmount = rrMatch[2] ? parseInt(rrMatch[2]) : 20; // mặc định 20k
+        const betAmount = rrMatch[2] ? (parseMoneyInput(rrMatch[2]) || 20) : 20; // mặc định 20k
         await playRussianRoulette(message, betAmount);
         return;
     }

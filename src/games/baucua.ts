@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
-import { sleep } from '../utils';
+import { sleep, formatMoney } from '../utils';
 
 const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
 const bauCuaEmojis: { [key: string]: string } = {
@@ -26,7 +26,7 @@ export async function playBauCua(message: Message) {
         
         // Xử lý khi phá sản (dưới 10k không đủ cược)
         if (balance < 10) {
-            const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${balance}k, đéo đủ cược mức tối thiểu. Đi vay tiền đi con ạ!`;
+            const text = `${extraMsg}\n💸 **CHÁY TÚI!** Mày còn đúng ${formatMoney(balance)}, đéo đủ cược mức tối thiểu. Đi vay tiền đi con ạ!`;
             const embed = new EmbedBuilder()
                 .setTitle("🎃 BẦU CUA HOÀNG GIA - CHÁY TÚI")
                 .setDescription(text)
@@ -43,7 +43,7 @@ export async function playBauCua(message: Message) {
         const row0 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder()
                 .setCustomId('bc_bet_size')
-                .setPlaceholder(`💵 Mức cược: ${currentBetSize}k (Bấm để chọn)`)
+                .setPlaceholder(`💵 Mức cược: ${formatMoney(currentBetSize)} (Bấm để chọn)`)
                 .addOptions(
                     new StringSelectMenuOptionBuilder().setLabel('10k (Min)').setValue('10').setEmoji('🪙'),
                     new StringSelectMenuOptionBuilder().setLabel('20k').setValue('20').setEmoji('💵'),
@@ -69,7 +69,7 @@ export async function playBauCua(message: Message) {
 
         const embed = new EmbedBuilder()
             .setTitle("🎃 BẦU CUA HOÀNG GIA - BOTTOAN")
-            .setDescription(`${extraMsg}\n💰 Tài sản của mày: **${balance}k**\n👇 Chọn mức cược ở menu trên, sau đó chọn 1 linh vật bên dưới để cược:`)
+            .setDescription(`${extraMsg}\n💰 Tài sản của mày: **${formatMoney(balance)}**\n👇 Chọn mức cược ở menu trên, sau đó chọn 1 linh vật bên dưới để cược:`)
             .setColor(colorHex)
             .setThumbnail(message.author.displayAvatarURL())
             .setFooter({ text: "Chọn linh vật để bắt đầu vòng quay." });
@@ -108,7 +108,7 @@ export async function playBauCua(message: Message) {
 
         if (i.customId === 'bc_nghi') {
             const finalBalance = await getBalance(userId);
-            let msg = `🏃 Mày đã xách quần bỏ chạy với **${finalBalance}k**. `;
+            let msg = `🏃 Mày đã xách quần bỏ chạy với **${formatMoney(finalBalance)}**. `;
             msg += finalBalance > 100 ? "Khôn đấy, ăn được của ngoại rồi lủi!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
             
             const embed = new EmbedBuilder()
@@ -133,7 +133,7 @@ export async function playBauCua(message: Message) {
 
             let balance = await getBalance(userId);
             if (balance < currentBetSize) {
-                await i.reply({ content: `Ví còn có ${balance}k mà đòi cược ${currentBetSize}k! Hạ mức cược hoặc đi vay tiền đi.`, ephemeral: true }).catch(()=>{});
+                await i.reply({ content: `Ví còn có ${formatMoney(balance)} mà đòi cược ${formatMoney(currentBetSize)}! Hạ mức cược hoặc đi vay tiền đi.`, ephemeral: true }).catch(()=>{});
                 isProcessing = false;
                 return;
             }
@@ -179,10 +179,10 @@ export async function playBauCua(message: Message) {
                 const winAmount = currentBetSize + (matchCount * currentBetSize); // Hoàn cược + tiền thắng
                 balance += winAmount;
                 await updateBalance(userId, balance);
-                resultMsg += `🎉 **Trúng ${matchCount} nháy!** Mày lụm lãi **${matchCount * currentBetSize}k**.`;
+                resultMsg += `🎉 **Trúng ${matchCount} nháy!** Mày lụm lãi **${formatMoney(matchCount * currentBetSize)}**.`;
                 finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
-                resultMsg += `💀 **Mất cmn ${currentBetSize}k** cược con ${betSymbol}!`;
+                resultMsg += `💀 **Mất cmn ${formatMoney(currentBetSize)}** cược con ${betSymbol}!`;
             }
 
             await updateBoard(null, resultMsg, finalColor);

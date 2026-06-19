@@ -1,10 +1,12 @@
 import mongoose, { Schema, model } from 'mongoose';
 import { MONGO_URI } from './config';
+import { formatMoney } from './utils';
 
 // Fallback in-memory store in case MONGO_URI is missing or connection fails
 const playerBalancesInMemory: { [userId: string]: number } = {};
 const playerLastDailyInMemory: { [userId: string]: number } = {};
 const playerDebtsInMemory: { [userId: string]: number } = {};
+const playerStreaksInMemory: { [userId: string]: number } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -12,13 +14,15 @@ interface IUser {
     balance: number;
     lastDaily: number;
     debt: number;
+    streak: number;
 }
 
 const userSchema = new Schema<IUser>({
     userId: { type: String, required: true, unique: true },
     balance: { type: Number, default: 100 },
     lastDaily: { type: Number, default: 0 },
-    debt: { type: Number, default: 0 }
+    debt: { type: Number, default: 0 },
+    streak: { type: Number, default: 0 }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -94,41 +98,78 @@ export async function updateBalance(userId: string, amount: number): Promise<num
 }
 
 /**
- * Điểm danh nhận tiền hàng ngày (24 giờ một lần). Cộng ngẫu nhiên từ 10k đến 50k.
+ * Tạo thanh tiến trình chuỗi điểm danh hàng ngày bằng emojis sinh động
+ */
+function getStreakProgressBar(streak: number): string {
+    const maxTrack = 5;
+    let track = "";
+    for (let i = 1; i <= maxTrack; i++) {
+        if (i < streak) {
+            track += "🔥 ";
+        } else if (i === streak) {
+            track += streak >= 5 ? "👑 " : "🟠 ";
+        } else {
+            track += "⚪ ";
+        }
+    }
+    if (streak >= 5) {
+        return `🔥 **Chuỗi:** ${track} *(Chuỗi đỉnh cao: **${streak} ngày**!)*`;
+    }
+    return `🔥 **Chuỗi:** ${track} *(${streak}/${maxTrack} ngày)*`;
+}
+
+/**
+ * Điểm danh nhận tiền hàng ngày (24 giờ một lần). Có chuỗi đăng nhập liên tiếp nhận thêm bonus.
  */
 export async function claimDaily(userId: string): Promise<{ success: boolean; amount: number; balance: number; message: string }> {
     const now = Date.now();
     const cooldown = 24 * 60 * 60 * 1000; // 24 giờ
-    const reward = Math.floor(Math.random() * (50 - 10 + 1)) + 10; // Ngẫu nhiên 10k - 50k
+    const consecutiveLimit = 48 * 60 * 60 * 1000; // 48 giờ để giữ chuỗi
+
+    const baseReward = Math.floor(Math.random() * (50 - 10 + 1)) + 10; // Ngẫu nhiên 10k - 50k
 
     if (useMongoDB) {
         try {
             let user = await UserModel.findOne({ userId });
             if (!user) {
-                user = await UserModel.create({ userId, balance: 100, lastDaily: 0 });
+                user = await UserModel.create({ userId, balance: 100, lastDaily: 0, streak: 0 });
             }
 
             if (now - user.lastDaily < cooldown) {
                 const timeLeft = cooldown - (now - user.lastDaily);
                 const hoursLeft = Math.floor(timeLeft / (60 * 60 * 1000));
                 const minsLeft = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
+                const progress = getStreakProgressBar(user.streak || 0);
                 return {
                     success: false,
                     amount: 0,
                     balance: user.balance,
-                    message: `Mày tham lam quá! Chờ thêm **${hoursLeft} giờ ${minsLeft} phút** nữa mới được điểm danh tiếp nhé!`
+                    message: `Mày tham lam quá! Chờ thêm **${hoursLeft} giờ ${minsLeft} phút** nữa mới được điểm danh tiếp nhé!\n\n${progress}`
                 };
             }
 
-            user.balance += reward;
+            // Tính chuỗi liên tiếp (streak)
+            let currentStreak = user.streak || 0;
+            if (now - user.lastDaily < consecutiveLimit) {
+                currentStreak += 1;
+            } else {
+                currentStreak = 1; // Quá 48h, reset chuỗi về 1
+            }
+
+            const streakBonus = Math.min(25, currentStreak * 5); // Tối đa bonus 25k ở ngày thứ 5+
+            const totalReward = baseReward + streakBonus;
+
+            user.balance += totalReward;
             user.lastDaily = now;
+            user.streak = currentStreak;
             await user.save();
 
+            const progress = getStreakProgressBar(currentStreak);
             return {
                 success: true,
-                amount: reward,
+                amount: totalReward,
                 balance: user.balance,
-                message: `🎉 **Điểm danh thành công!** Mày được cấp thêm **${reward}k**. Số dư hiện tại: **${user.balance}k**.`
+                message: `🎉 **Điểm danh thành công!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(user.balance)}**`
             };
         } catch (error) {
             console.error("[DB LỖI] Lỗi điểm danh trên MongoDB:", error);
@@ -142,24 +183,37 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
         const hoursLeft = Math.floor(timeLeft / (60 * 60 * 1000));
         const minsLeft = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
         const currentBalance = await getBalance(userId);
+        const progress = getStreakProgressBar(playerStreaksInMemory[userId] || 0);
         return {
             success: false,
             amount: 0,
             balance: currentBalance,
-            message: `Mày tham lam quá! Chờ thêm **${hoursLeft} giờ ${minsLeft} phút** nữa mới được điểm danh tiếp nhé!`
+            message: `Mày tham lam quá! Chờ thêm **${hoursLeft} giờ ${minsLeft} phút** nữa mới được điểm danh tiếp nhé!\n\n${progress}`
         };
     }
 
+    let currentStreak = playerStreaksInMemory[userId] || 0;
+    if (now - lastDaily < consecutiveLimit) {
+        currentStreak += 1;
+    } else {
+        currentStreak = 1;
+    }
+
+    const streakBonus = Math.min(25, currentStreak * 5);
+    const totalReward = baseReward + streakBonus;
+
     let balance = await getBalance(userId);
-    balance += reward;
+    balance += totalReward;
     playerBalancesInMemory[userId] = balance;
     playerLastDailyInMemory[userId] = now;
+    playerStreaksInMemory[userId] = currentStreak;
 
+    const progress = getStreakProgressBar(currentStreak);
     return {
         success: true,
-        amount: reward,
+        amount: totalReward,
         balance,
-        message: `🎉 **Điểm danh thành công (RAM DB)!** Mày được cấp thêm **${reward}k**. Số dư hiện tại: **${balance}k**.`
+        message: `🎉 **Điểm danh thành công (RAM DB)!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(balance)}**`
     };
 }
 
@@ -186,7 +240,6 @@ export async function getLeaderboard(): Promise<{ rich: { userId: string; balanc
         balance: playerBalancesInMemory[userId]
     }));
 
-    // Sắp xếp
     const rich = [...userArray].sort((a, b) => b.balance - a.balance).slice(0, 5);
     const poor = [...userArray].sort((a, b) => a.balance - b.balance).slice(0, 5);
 
@@ -203,7 +256,7 @@ export async function transferMoney(
 ): Promise<{ success: boolean; message: string; senderBalance: number }> {
     if (amount <= 0) {
         const senderBal = await getBalance(senderId);
-        return { success: false, message: "Số tiền chuyển phải lớn hơn 0k chứ mày!", senderBalance: senderBal };
+        return { success: false, message: "Số tiền chuyển phải lớn hơn 0 chứ mày!", senderBalance: senderBal };
     }
 
     if (senderId === receiverId) {
@@ -219,7 +272,7 @@ export async function transferMoney(
             if (sender.balance < amount) {
                 return { 
                     success: false, 
-                    message: `Số dư không đủ! Mày chỉ còn **${sender.balance}k**, đéo đủ để chuyển **${amount}k**.`, 
+                    message: `Số dư không đủ! Mày chỉ còn **${formatMoney(sender.balance)}**, đéo đủ để chuyển **${formatMoney(amount)}**.`, 
                     senderBalance: sender.balance 
                 };
             }
@@ -235,7 +288,7 @@ export async function transferMoney(
 
             return {
                 success: true,
-                message: `💸 Chuyển tiền thành công! Mày đã gửi **${amount}k** cho <@${receiverId}>.`,
+                message: `💸 Chuyển tiền thành công! Mày đã gửi **${formatMoney(amount)}** cho <@${receiverId}>.`,
                 senderBalance: sender.balance
             };
         } catch (error) {
@@ -248,7 +301,7 @@ export async function transferMoney(
     if (senderBal < amount) {
         return { 
             success: false, 
-            message: `Số dư không đủ! Mày chỉ còn **${senderBal}k**, đéo đủ để chuyển **${amount}k**.`, 
+            message: `Số dư không đủ! Mày chỉ còn **${formatMoney(senderBal)}**, đéo đủ để chuyển **${formatMoney(amount)}**.`, 
             senderBalance: senderBal 
         };
     }
@@ -262,7 +315,7 @@ export async function transferMoney(
 
     return {
         success: true,
-        message: `💸 Chuyển tiền thành công (RAM DB)! Mày đã gửi **${amount}k** cho <@${receiverId}>.`,
+        message: `💸 Chuyển tiền thành công (RAM DB)! Mày đã gửi **${formatMoney(amount)}** cho <@${receiverId}>.`,
         senderBalance: senderBal
     };
 }
@@ -294,7 +347,7 @@ export async function borrowMoney(userId: string): Promise<{ success: boolean; b
             success: false,
             balance: currentBalance,
             debt: debt,
-            message: `Đĩ thõa, ví mày còn **${currentBalance}k** mà đòi vay? Bao giờ nhẵn túi tao mới cho vay!`
+            message: `Đĩ thõa, ví mày còn **${formatMoney(currentBalance)}** mà đòi vay? Bao giờ nhẵn túi tao mới cho vay!`
         };
     }
 
@@ -313,7 +366,7 @@ export async function borrowMoney(userId: string): Promise<{ success: boolean; b
                 success: true,
                 balance: user.balance,
                 debt: user.debt,
-                message: `🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nBơm thêm **${borrowAmount}k** vào ví chung. Mày đang nợ tao tổng **${user.debt}k**. Gỡ lẹ đi!`
+                message: `🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN:**\nBơm thêm **${formatMoney(borrowAmount)}** vào ví chung. Mày đang nợ tao tổng **${formatMoney(user.debt)}**. Gỡ lẹ đi!`
             };
         } catch (error) {
             console.error("[DB LỖI] Lỗi vay tiền trên MongoDB:", error);
@@ -329,7 +382,7 @@ export async function borrowMoney(userId: string): Promise<{ success: boolean; b
         success: true,
         balance: playerBalancesInMemory[userId],
         debt: debt,
-        message: `🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN (RAM DB):**\nBơm thêm **${borrowAmount}k** vào ví chung. Mày đang nợ tao tổng **${debt}k**. Gỡ lẹ đi!`
+        message: `🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN (RAM DB):**\nBơm thêm **${formatMoney(borrowAmount)}** vào ví chung. Mày đang nợ tao tổng **${formatMoney(debt)}**. Gỡ lẹ đi!`
     };
 }
 
@@ -390,6 +443,3 @@ export async function getAllBalancesAndDebts(): Promise<{ userId: string; balanc
         debt: playerDebtsInMemory[id] || 0
     }));
 }
-
-
-

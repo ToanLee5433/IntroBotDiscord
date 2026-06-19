@@ -1,5 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
+import { formatMoney } from '../utils';
 
 function generateLixiCuts(totalAmount: number, peopleCount: number): number[] {
     const cuts: number[] = [];
@@ -43,7 +44,7 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
     // Kiểm tra ví người phát
     let senderBalance = await getBalance(senderId);
     if (senderBalance < amount) {
-        await message.reply(`❌ **ĐÉO ĐỦ TIỀN SĨ DIỆN!** Mày chỉ còn **${senderBalance}k**, đéo đủ để phát lì xì **${amount}k**.`);
+        await message.reply(`❌ **ĐÉO ĐỦ TIỀN SĨ DIỆN!** Mày chỉ còn **${formatMoney(senderBalance)}**, đéo đủ để phát lì xì **${formatMoney(amount)}**.`);
         return;
     }
 
@@ -64,10 +65,10 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
 
     const embed = new EmbedBuilder()
         .setTitle("🧧 BAO LÌ XÌ MAY MẮN CỦA ĐẠI GIA")
-        .setDescription(`Đại gia <@${senderId}> vừa thả một bao lì xì trị giá **${amount}k** cho **${maxPeople} người** giật nhanh nhất!\n\n👇 Bấm nút màu đỏ bên dưới để giật lì xì!`)
+        .setDescription(`Đại gia <@${senderId}> vừa thả một bao lì xì trị giá **${formatMoney(amount)}** cho **${maxPeople} người** giật nhanh nhất!\n\n👇 Bấm nút màu đỏ bên dưới để giật lì xì!`)
         .setColor(0xFF4500)
         .setThumbnail("https://images.unsplash.com/photo-1590073844006-33379778ae09?auto=format&fit=crop&q=80&w=200") // Ảnh đỏ tượng trưng lì xì
-        .setFooter({ text: `Tổng số tiền: ${amount}k | Tổng số phần: ${maxPeople}` });
+        .setFooter({ text: `Tổng số tiền: ${formatMoney(amount)} | Tổng số phần: ${maxPeople}` });
 
     if (!('send' in message.channel)) return;
     const lixiMsg = await (message.channel as any).send({ embeds: [embed], components: [row] });
@@ -106,11 +107,11 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
         grabbedUsers.push({ userId, amount: grabAmount });
 
         // Cập nhật Embed danh sách người đã giật
-        const listText = grabbedUsers.map((u, idx) => `**${idx + 1}.** <@${u.userId}> đã cướp được **${u.amount}k**`).join("\n");
+        const listText = grabbedUsers.map((u, idx) => `**${idx + 1}.** <@${u.userId}> đã cướp được **${formatMoney(u.amount)}**`).join("\n");
         const updatedEmbed = EmbedBuilder.from(embed)
-            .setDescription(`Đại gia <@${senderId}> vừa thả bao lì xì trị giá **${amount}k**!\nSố phần còn lại: **${cuts.length} / ${maxPeople}**\n\n👥 **Danh sách cướp được:**\n${listText}`);
+            .setDescription(`Đại gia <@${senderId}> vừa thả bao lì xì trị giá **${formatMoney(amount)}**!\nSố phần còn lại: **${cuts.length} / ${maxPeople}**\n\n👥 **Danh sách cướp được:**\n${listText}`);
 
-        await i.reply({ content: `🧧 Mày đã giật được **${grabAmount}k**!`, ephemeral: true }).catch(()=>{});
+        await i.reply({ content: `🧧 Mày đã giật được **${formatMoney(grabAmount)}**!`, ephemeral: true }).catch(()=>{});
 
         if (cuts.length === 0) {
             collector.stop();
@@ -124,7 +125,7 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
         await lixiMsg.edit({ components: [] }).catch(()=>{});
 
         const listText = grabbedUsers.length > 0 
-            ? grabbedUsers.map((u, idx) => `**${idx + 1}.** <@${u.userId}> đã cướp được **${u.amount}k**`).join("\n")
+            ? grabbedUsers.map((u, idx) => `**${idx + 1}.** <@${u.userId}> đã cướp được **${formatMoney(u.amount)}**`).join("\n")
             : "*Không có ai giật lì xì.*";
 
         let finalDesc = `💰 **Bao lì xì đã kết thúc!**\n\n👥 **Kết quả cướp giật:**\n${listText}`;
@@ -136,7 +137,7 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
             currentSenderBal += refundAmount;
             await updateBalance(senderId, currentSenderBal);
 
-            finalDesc += `\n\n🔄 **Hoàn trả:** Do hết thời gian 3 phút nhưng còn dư **${cuts.length} phần**, hệ thống đã hoàn trả lại **${refundAmount}k** vào ví của đại gia <@${senderId}>.`;
+            finalDesc += `\n\n🔄 **Hoàn trả:** Do hết thời gian 3 phút nhưng còn dư **${cuts.length} phần**, hệ thống đã hoàn trả lại **${formatMoney(refundAmount)}** vào ví của đại gia <@${senderId}>.`;
         }
 
         // Tìm người cướp được nhiều nhất và ít nhất để vinh danh/chia buồn
@@ -145,7 +146,7 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
             const luckyUser = sortedUsers[0];
             const unluckyUser = sortedUsers[sortedUsers.length - 1];
 
-            finalDesc += `\n\n🏆 **Bàn tay vàng:** <@${luckyUser.userId}> húp nhiều nhất với **${luckyUser.amount}k**.\n💩 **Bàn tay thối:** <@${unluckyUser.userId}> ăn quả tạ nhặt được ít nhất chỉ **${unluckyUser.amount}k**.`;
+            finalDesc += `\n\n🏆 **Bàn tay vàng:** <@${luckyUser.userId}> húp nhiều nhất với **${formatMoney(luckyUser.amount)}**.\n💩 **Bàn tay thối:** <@${unluckyUser.userId}> ăn quả tạ nhặt được ít nhất chỉ **${formatMoney(unluckyUser.amount)}**.`;
         }
 
         const finalEmbed = new EmbedBuilder()
