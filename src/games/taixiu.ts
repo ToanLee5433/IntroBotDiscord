@@ -28,6 +28,7 @@ export async function playTaiXiu(message: Message) {
     await getBalance(userId);
 
         const draftMsg = await message.reply("🎲 **ĐANG LẮC BÁT TÀI XỈU... BẤM CỬA ĐI CÁC CON GIỜI!**");
+    // Chỉ add vào Set SAU khi draftMsg tồn tại — đảm bảo luôn được xoá trong collector.on('end')
     activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
 

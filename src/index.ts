@@ -158,7 +158,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- TÍNH NĂNG ĐIỂM DANH TÀI SẢN -----------------
-    const checkWalletTriggers = ['tai san', 'vi tien', 'check tien', 'bop tien', 'vi', 'tai san'];
+    const checkWalletTriggers = ['tai san', 'vi tien', 'check tien', 'bop tien', 'vi'];
     if (checkWalletTriggers.some(t => cleanInput.includes(t))) {
         const voiceChannel = message.member?.voice.channel;
         let outputText = "💰 **BẢNG PHONG THẦN TÀI SẢN CHUNG** 💰\n*(Tiền này dùng chung cho mọi sòng: Xóc Đĩa, Bầu Cua, Blackjack)*\n\n";

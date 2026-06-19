@@ -33,6 +33,7 @@ export async function playBauCua(message: Message) {
     await getBalance(userId);
 
         const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
+    // Chỉ add vào Set SAU khi draftMsg tồn tại — đảm bảo luôn được xoá trong collector.on('end')
     activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
 

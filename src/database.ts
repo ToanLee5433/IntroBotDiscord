@@ -131,16 +131,18 @@ export async function connectDB(): Promise<void> {
 }
 
 /**
- * Lấy số dư ví tiền của người dùng. Tự động cấp vốn 100k nếu chưa chơi hoặc đã cháy túi.
+ * Lấy số dư ví tiền của người dùng. Tự động cấp vốn 100k nếu là người chơi mới (chưa có bản ghi).
+ * LƯU Ý: KHÔNG tự động reset ví về 100k nếu balance = 0 — người chơi cháy túi phải tự vay tiền.
  */
 export async function getBalance(userId: string): Promise<number> {
     if (useMongoDB) {
         try {
             let user = await UserModel.findOne({ userId });
-            if (!user || user.balance <= 0) {
+            if (!user) {
+                // Người chơi mới lần đầu → cấp vốn ban đầu 100k
                 user = await UserModel.findOneAndUpdate(
                     { userId },
-                    { balance: 100 },
+                    { $setOnInsert: { balance: 100 } },
                     { new: true, upsert: true }
                 );
             }
@@ -151,7 +153,8 @@ export async function getBalance(userId: string): Promise<number> {
     }
 
     // Fallback to In-Memory
-    if (playerBalancesInMemory[userId] === undefined || playerBalancesInMemory[userId] <= 0) {
+    if (playerBalancesInMemory[userId] === undefined) {
+        // Người chơi mới lần đầu → cấp vốn ban đầu 100k
         playerBalancesInMemory[userId] = 100;
     }
     return playerBalancesInMemory[userId];

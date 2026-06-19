@@ -79,8 +79,9 @@ export async function playBlackjack(message: Message) {
     balance -= 20;
     await updateBalance(userId, balance);
 
-        activeGamePlayers.add(userId);
     const draftMsg = await message.reply("🃏 **ĐANG XÀO BÀI... CHUẨN BỊ CHIA BÀI!**");
+    // Chỉ add vào Set SAU khi draftMsg tồn tại — đảm bảo luôn được xoá trong collector.on('end')
+    activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Phiên chơi tối đa 5 phút
 
     // Hiệu ứng chia bài trễ 1 giây

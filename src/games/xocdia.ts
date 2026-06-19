@@ -1,4 +1,4 @@
-import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
+import { Message, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 import { getBalance, updateBalance, getDebt, getChatBanExpires } from '../database';
 import { sleep, formatMoney, activeGamePlayers } from '../utils';
 
@@ -25,7 +25,10 @@ export async function playXocDia(message: Message) {
     // Tự động cấp vốn 100k nếu chưa có hoặc phá sản
     await getBalance(userId);
 
-        const draftMsg = await message.reply("🎲 **ĐANG ĐẬY BÁT XÓC ĐĨA... TRÁNH RA CHO BẤT LÊN NÀO!**");
+    // Khởi tạo tin nhắn TRƯỚC khi add vào activeGamePlayers
+    const draftMsg = await message.reply("🎲 **ĐANG ĐẬY BÁT XÓC ĐĨA... TRÁNH RA CHO BẤT LÊN NÀO!**");
+    
+    // Chỉ add vào Set SAU khi có collector — đảm bảo luôn được xoá trong collector.on('end')
     activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
 
@@ -99,104 +102,103 @@ export async function playXocDia(message: Message) {
         try {
             // Xử lý thay đổi mức cược
             if (i.isStringSelectMenu() && i.customId === 'xd_bet_size') {
-            currentBetSize = parseInt(i.values[0]);
-            await i.deferUpdate().catch(()=>{});
-            await updateBoard();
-            return;
-        }
-
-        if (!i.isButton()) return;
-
-        if (isProcessing) {
-            await i.reply({ content: "Từ từ thôi mày, đang xóc chưa mở bát!", ephemeral: true }).catch(()=>{});
-            return;
-        }
-
-        if (i.customId === 'xd_nghi') {
-            const finalBalance = await getBalance(userId);
-            let msg = `🏃 Mày đã xách quần bỏ chạy khỏi sòng xóc đĩa với **${formatMoney(finalBalance)}**. `;
-            msg += finalBalance > 100 ? "Ăn non thế là tốt đấy con trai!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
-            
-            const embed = new EmbedBuilder()
-                .setTitle("🎰 SÒNG XÓC ĐĨA - NGHỈ CHƠI")
-                .setDescription(msg)
-                .setColor(0xFFA500)
-                .setThumbnail(message.author.displayAvatarURL());
-
-            await i.update({ embeds: [embed], components: [] }).catch(()=>{});
-            collector.stop();
-            return;
-        }
-
-        isProcessing = true;
-
-        try {
-            const userBet = i.customId.split('_')[1]; // 'chan' hoặc 'le'
-            let balance = await getBalance(userId);
-
-            if (balance < currentBetSize) {
-                await i.reply({ content: `Ví còn có ${formatMoney(balance)} mà đòi cược ${formatMoney(currentBetSize)}! Hạ mức cược hoặc đi vay tiền đi.`, ephemeral: true }).catch(()=>{});
-                isProcessing = false;
+                currentBetSize = parseInt(i.values[0]);
+                await i.deferUpdate().catch(()=>{});
+                await updateBoard();
                 return;
             }
 
-            // Trừ tiền cược
-            balance -= currentBetSize;
-            await updateBalance(userId, balance);
+            if (!i.isButton()) return;
 
-            await i.deferUpdate().catch(()=>{});
+            if (isProcessing) {
+                await i.reply({ content: "Từ từ thôi mày, đang xóc chưa mở bát!", ephemeral: true }).catch(()=>{});
+                return;
+            }
 
-            // Giai đoạn hiệu ứng xóc bát (3 giây, 1s/khung hình)
-            const shakeFrames = [
-                "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  LẠCH CẠCH  |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘",
-                "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  CẠCH LẠCH  |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘",
-                "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  🎲 ĐỢI MỞ... |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘"
-            ];
-
-            for (let step = 0; step < 3; step++) {
-                const animEmbed = new EmbedBuilder()
-                    .setTitle("🎰 ĐANG XÓC ĐĨA...")
-                    .setDescription(`\`\`\`text\n${shakeFrames[step]}\n\`\`\``)
+            if (i.customId === 'xd_nghi') {
+                const finalBalance = await getBalance(userId);
+                let msg = `🏃 Mày đã xách quần bỏ chạy khỏi sòng xóc đĩa với **${formatMoney(finalBalance)}**. `;
+                msg += finalBalance > 100 ? "Ăn non thế là tốt đấy con trai!" : "Lỗ chổng vó mà vẫn chịu nghỉ là dũng cảm đấy!";
+                
+                const embed = new EmbedBuilder()
+                    .setTitle("🎰 SÒNG XÓC ĐĨA - NGHỈ CHƠI")
+                    .setDescription(msg)
                     .setColor(0xFFA500)
                     .setThumbnail(message.author.displayAvatarURL());
-                
-                await draftMsg.edit({ embeds: [animEmbed], components: [] }).catch(()=>{});
-                await sleep(1000); // 1 giây delay
+
+                await i.update({ embeds: [embed], components: [] }).catch(()=>{});
+                collector.stop();
+                return;
             }
 
-            // Lắc 4 quân vị (Đỏ hoặc Trắng)
-            const coins = Array.from({ length: 4 }, () => Math.random() < 0.5 ? "Đỏ" : "Trắng");
-            const redCount = coins.filter(c => c === "Đỏ").length;
-            const whiteCount = 4 - redCount;
+            isProcessing = true;
 
-            const isChan = redCount % 2 === 0;
-            const actualResult = isChan ? "chan" : "le";
-            const actualResultText = isChan ? "CHẴN 🔴" : "LẺ ⚪";
+            try {
+                const userBet = i.customId.split('_')[1]; // 'chan' hoặc 'le'
+                let balance = await getBalance(userId);
 
-            const coinEmojis = coins.map(c => c === "Đỏ" ? "🔴" : "⚪").join(" ");
-            const plateFrame = `┌──────────────────────────────┐\n│         (ĐĨA MỞ BÁT)         │\n│                              │\n│        ${coinEmojis}         │\n│        ============          │\n└──────────────────────────────┘`;
+                if (balance < currentBetSize) {
+                    await i.reply({ content: `Ví còn có ${formatMoney(balance)} mà đòi cược ${formatMoney(currentBetSize)}! Hạ mức cược hoặc đi vay tiền đi.`, ephemeral: true }).catch(()=>{});
+                    return;
+                }
 
-            let resultMsg = `🎲 **Bát xóc mở ra:**\n\`\`\`text\n${plateFrame}\n\`\`\`\nKết quả: **${actualResultText}** (${redCount} Đỏ - ${whiteCount} Trắng)\n\n`;
+                // Trừ tiền cược
+                balance -= currentBetSize;
+                await updateBalance(userId, balance);
 
-            let isWin = userBet === actualResult;
-            let finalColor = 0xE74C3C; // Đỏ Ruby
+                await i.deferUpdate().catch(()=>{});
 
-            if (isWin) {
-                const winAmount = currentBetSize * 2; // Hoàn cược + ăn lãi 1:1
-                const latestBalance = await getBalance(userId);
-                await updateBalance(userId, latestBalance + winAmount);
-                resultMsg += `🎉 **Mày đã thắng!** Húp về **${formatMoney(currentBetSize)}**.`;
-                finalColor = 0x2ECC71; // Xanh Ngọc
-            } else {
-                resultMsg += `💀 **Mày đã thua!** Mất cmn **${formatMoney(currentBetSize)}** cược con ${userBet === "chan" ? "Chẵn" : "Lẻ"}.`;
+                // Giai đoạn hiệu ứng xóc bát (3 giây, 1s/khung hình)
+                const shakeFrames = [
+                    "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  LẠCH CẠCH  |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘",
+                    "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  CẠCH LẠCH  |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘",
+                    "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  🎲 ĐỢI MỞ... |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘"
+                ];
+
+                for (let step = 0; step < 3; step++) {
+                    const animEmbed = new EmbedBuilder()
+                        .setTitle("🎰 ĐANG XÓC ĐĨA...")
+                        .setDescription(`\`\`\`text\n${shakeFrames[step]}\n\`\`\``)
+                        .setColor(0xFFA500)
+                        .setThumbnail(message.author.displayAvatarURL());
+                    
+                    await draftMsg.edit({ embeds: [animEmbed], components: [] }).catch(()=>{});
+                    await sleep(1000); // 1 giây delay
+                }
+
+                // Lắc 4 quân vị (Đỏ hoặc Trắng)
+                const coins = Array.from({ length: 4 }, () => Math.random() < 0.5 ? "Đỏ" : "Trắng");
+                const redCount = coins.filter(c => c === "Đỏ").length;
+                const whiteCount = 4 - redCount;
+
+                const isChan = redCount % 2 === 0;
+                const actualResult = isChan ? "chan" : "le";
+                const actualResultText = isChan ? "CHẴN 🔴" : "LẺ ⚪";
+
+                const coinEmojis = coins.map(c => c === "Đỏ" ? "🔴" : "⚪").join(" ");
+                const plateFrame = `┌──────────────────────────────┐\n│         (ĐĨA MỞ BÁT)         │\n│                              │\n│        ${coinEmojis}         │\n│        ============          │\n└──────────────────────────────┘`;
+
+                let resultMsg = `🎲 **Bát xóc mở ra:**\n\`\`\`text\n${plateFrame}\n\`\`\`\nKết quả: **${actualResultText}** (${redCount} Đỏ - ${whiteCount} Trắng)\n\n`;
+
+                const isWin = userBet === actualResult;
+                let finalColor = 0xE74C3C; // Đỏ Ruby
+
+                if (isWin) {
+                    const winAmount = currentBetSize * 2; // Hoàn cược + ăn lãi 1:1
+                    const latestBalance = await getBalance(userId);
+                    await updateBalance(userId, latestBalance + winAmount);
+                    resultMsg += `🎉 **Mày đã thắng!** Húp về **${formatMoney(currentBetSize)}**.`;
+                    finalColor = 0x2ECC71; // Xanh Ngọc
+                } else {
+                    resultMsg += `💀 **Mày đã thua!** Mất cmn **${formatMoney(currentBetSize)}** cược con ${userBet === "chan" ? "Chẵn" : "Lẻ"}.`;
+                }
+
+                await updateBoard(null, resultMsg, finalColor);
+            } catch (error) {
+                console.error("[XÓC ĐĨA LỖI] Lỗi ván xóc:", error);
+            } finally {
+                isProcessing = false;
             }
-
-            await updateBoard(null, resultMsg, finalColor);
-        } catch (error) {
-            console.error("[XÓC ĐĨA LỖI] Lỗi ván xóc:", error);
-        } finally {
-            isProcessing = false;
-        }
         } catch (err) {
             console.error("[XÓC ĐĨA LỖI] Lỗi ván Xóc Đĩa:", err);
             isProcessing = false;
@@ -205,6 +207,7 @@ export async function playXocDia(message: Message) {
     });
 
     collector.on('end', () => {
+        // Đảm bảo LUÔN xoá khỏi danh sách đang chơi dù game kết thúc bình thường hay bị lỗi
         activeGamePlayers.delete(userId);
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
