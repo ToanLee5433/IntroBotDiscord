@@ -1,5 +1,5 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import { getBalance, updateBalance, getDebt } from '../database';
+import { getBalance, updateBalance, getDebt, banChat } from '../database';
 import { formatMoney } from '../utils';
 
 interface RouletteSession {
@@ -218,32 +218,27 @@ async function startGame(lobbyMsg: Message, session: RouletteSession) {
                 await updateBalance(sId, bal);
             }
 
-            // Thực hiện hình phạt cấm chat & kick voice
+            // Thực hiện hình phạt cấm chat & áp giải vào Nhà tù
             let punishmentText = "";
             try {
                 const member = i.guild?.members.cache.get(userId);
-                if (member) {
-                    let kickedVoice = false;
-                    let timedOut = false;
+                // Áp dụng cấm chat 3 phút ở Bot level
+                await banChat(userId, 180000);
+                
+                let movedToPrison = false;
+                if (member && member.voice.channelId) {
+                    const prisonChannelId = "1517590846927667230";
+                    await member.voice.setChannel(prisonChannelId, "Bị bắn chết trong sòng Russian Roulette - Đưa vào Nhà tù").catch(()=>{});
+                    movedToPrison = true;
+                }
 
-                    // Kick voice
-                    if (member.voice.channel) {
-                        await member.voice.disconnect("Bị bắn chết trong sòng Russian Roulette").catch(()=>{});
-                        kickedVoice = true;
-                    }
-
-                    // Timeout 2 phút (120000ms)
-                    await member.timeout(120000, "Bị bắn chết trong sòng Russian Roulette").catch(()=>{});
-                    timedOut = true;
-
-                    if (kickedVoice && timedOut) {
-                        punishmentText = `Nạn nhân đã bị **trục xuất khỏi phòng voice** và **cấm chat (Timeout) trong 2 phút**!`;
-                    } else if (timedOut) {
-                        punishmentText = `Nạn nhân đã bị **cấm chat (Timeout) trong 2 phút**!`;
-                    }
+                if (movedToPrison) {
+                    punishmentText = `Nạn nhân đã bị **áp giải vào Nhà Tù** và **khóa mõm (cấm chat) trong 3 phút**!`;
+                } else {
+                    punishmentText = `Nạn nhân đã bị **khóa mõm (cấm chat) trong 3 phút**! *(Do không ở trong phòng voice nên thoát được cảnh tù tội)*`;
                 }
             } catch (err) {
-                punishmentText = `*(Bot thiếu quyền quản trị nên không thực hiện được hình phạt Kick voice/Timeout đối với nạn nhân)*`;
+                punishmentText = `*(Bot thiếu quyền quản trị hoặc xảy ra lỗi nên chỉ thực hiện khóa mõm 3 phút, không áp giải vào Nhà tù được)*`;
             }
 
             const finalMsg = `🏆 **Nhóm sống sót:** ${survivors.map(id => `<@${id}>`).join(", ")} chia nhau mỗi người nhận **${formatMoney(winShare)}** từ hũ.\n\n⚡ **Hình phạt:** ${punishmentText}`;

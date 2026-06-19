@@ -8,6 +8,8 @@ const playerLastDailyInMemory: { [userId: string]: number } = {};
 const playerDebtsInMemory: { [userId: string]: number } = {};
 const playerStreaksInMemory: { [userId: string]: number } = {};
 const playerValorantIdsInMemory: { [userId: string]: string } = {};
+const playerChatBansInMemory: { [userId: string]: number } = {};
+const playerLastDodgeDebtInMemory: { [userId: string]: number } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -17,6 +19,8 @@ interface IUser {
     debt: number;
     streak: number;
     valorantId: string;
+    chatBanUntil: number;
+    lastDodgeDebt: number;
 }
 
 const userSchema = new Schema<IUser>({
@@ -25,10 +29,82 @@ const userSchema = new Schema<IUser>({
     lastDaily: { type: Number, default: 0 },
     debt: { type: Number, default: 0 },
     streak: { type: Number, default: 0 },
-    valorantId: { type: String, default: "" }
+    valorantId: { type: String, default: "" },
+    chatBanUntil: { type: Number, default: 0 },
+    lastDodgeDebt: { type: Number, default: 0 }
 });
 
 const UserModel = model<IUser>('User', userSchema);
+
+interface ILotteryTicket {
+    userId: string;
+    number: string;
+    date: string;
+}
+
+const lotteryTicketSchema = new Schema<ILotteryTicket>({
+    userId: { type: String, required: true },
+    number: { type: String, required: true },
+    date: { type: String, required: true }
+});
+
+const LotteryTicketModel = model<ILotteryTicket>('LotteryTicket', lotteryTicketSchema);
+
+interface ILotteryState {
+    date: string;
+    jackpotPool: number;
+    winningNumber: string;
+    drawn: boolean;
+}
+
+const lotteryStateSchema = new Schema<ILotteryState>({
+    date: { type: String, required: true, unique: true },
+    jackpotPool: { type: Number, default: 200 },
+    winningNumber: { type: String, default: "" },
+    drawn: { type: Boolean, default: false }
+});
+
+const LotteryStateModel = model<ILotteryState>('LotteryState', lotteryStateSchema);
+
+// Fallback RAM DB
+let inMemoryJackpotPool = 200; // 200k base
+const inMemoryTickets: ILotteryTicket[] = [];
+const inMemoryLotteryStates: { [date: string]: { winningNumber: string; drawn: boolean } } = {};
+
+/**
+ * Cấm chat người dùng bằng cách lưu thời hạn cấm ở cấp độ Bot (RAM / MongoDB)
+ */
+export async function banChat(userId: string, durationMs: number): Promise<void> {
+    const expires = Date.now() + durationMs;
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { chatBanUntil: expires },
+                { upsert: true, new: true }
+            );
+            return;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cấm chat trên MongoDB:", error);
+        }
+    }
+    playerChatBansInMemory[userId] = expires;
+}
+
+/**
+ * Lấy thời gian hết hạn cấm chat của người dùng (0 nếu không bị cấm)
+ */
+export async function getChatBanExpires(userId: string): Promise<number> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user && user.chatBanUntil ? user.chatBanUntil : 0;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy thời gian cấm chat từ MongoDB:", error);
+        }
+    }
+    return playerChatBansInMemory[userId] || 0;
+}
 
 /**
  * Thực hiện kết nối tới MongoDB
@@ -124,11 +200,63 @@ function getStreakProgressBar(streak: number): string {
 /**
  * Điểm danh nhận tiền hàng ngày (24 giờ một lần). Có chuỗi đăng nhập liên tiếp nhận thêm bonus.
  */
+function getVNDate(timestamp: number): Date {
+    return new Date(timestamp + 7 * 60 * 60 * 1000);
+}
+
+function getVNDateString(timestamp: number): string {
+    const d = getVNDate(timestamp);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+function getCalendarDayDifference(t1: number, t2: number): number {
+    if (t1 === 0 || t2 === 0) return 999;
+    const d1 = getVNDate(t1);
+    const d2 = getVNDate(t2);
+    
+    const date1 = Date.UTC(d1.getUTCFullYear(), d1.getUTCMonth(), d1.getUTCDate());
+    const date2 = Date.UTC(d2.getUTCFullYear(), d2.getUTCMonth(), d2.getUTCDate());
+    
+    return Math.round((date2 - date1) / (24 * 60 * 60 * 1000));
+}
+
+function getTimeLeftUntilVNNextDay(now: number): { hours: number, minutes: number } {
+    const vnNow = getVNDate(now);
+    const vnTomorrow = Date.UTC(vnNow.getUTCFullYear(), vnNow.getUTCMonth(), vnNow.getUTCDate() + 1);
+    const timeLeftMs = (vnTomorrow - 7 * 60 * 60 * 1000) - now;
+    const hours = Math.floor(timeLeftMs / (60 * 60 * 1000));
+    const minutes = Math.floor((timeLeftMs % (60 * 60 * 1000)) / (60 * 1000));
+    return { hours, minutes };
+}
+
+function getFunnyDailyMessage(streak: number, reward: number, progress: string, isDebtPaid: boolean, garnishment = 0, newBalance = 0, newDebt = 0): string {
+    const formatReward = formatMoney(reward);
+    const formatGarnishment = formatMoney(garnishment);
+    const formatBalance = formatMoney(newBalance);
+    const formatDebt = formatMoney(newDebt);
+
+    const checkInTrolls = [
+        `Mày đã liên tục báo danh được **${streak} ngày** rồi đó, chăm chỉ cày thuê cuốc mướn thế này tao rất ưng! Nhận ngay cọc tiền cờ bạc nào!`,
+        `Báo danh thành công ngày thứ **${streak}**! Tao thí cho mày ít tiền cơm cháo lẻ này con ạ.`,
+        `Chuỗi điểm danh **${streak} ngày**! Kỷ lục gia cờ bạc nghèo đói đây rồi, cầm lấy tiền trợ cấp đi!`,
+        `Vỗ tay tuyên dương con nghiện chăm chỉ điểm danh **${streak} ngày** liên tiếp! Cầm tiền lẹ đi!`,
+        `Báo danh ngày thứ **${streak}** thành công! Mày nhận được tiền trợ cấp xã hội để đi nướng sòng bài.`
+    ];
+    const baseTroll = checkInTrolls[Math.floor(Math.random() * checkInTrolls.length)];
+
+    if (isDebtPaid) {
+        return `🎉 **ĐIỂM DANH THÀNH CÔNG!**\n\n${baseTroll}\n👉 Mày nhận được **${formatReward}**, nhưng vì đang nợ ngân hàng đầm đìa nên tao tự động cấn trừ **${formatGarnishment}** nợ nhé, còn lại **${formatMoney(reward - garnishment)}** bỏ túi cờ bạc tiếp đi con trai!\n\n${progress}\n\n💰 **Ví hiện tại:** **${formatBalance}** | 🏦 **Nợ còn lại:** **${formatDebt}**`;
+    } else {
+        return `🎉 **ĐIỂM DANH THÀNH CÔNG!**\n\n${baseTroll}\n👉 Cầm lấy **${formatReward}** này đi cúng sòng bạc tiếp đi.\n\n${progress}\n\n💰 **Số dư hiện tại:** **${formatBalance}**`;
+    }
+}
+
+/**
+ * Điểm danh nhận tiền hàng ngày (theo ngày Việt Nam UTC+7, reset lúc 00:00). Có chuỗi đăng nhập liên tiếp nhận thêm bonus.
+ */
 export async function claimDaily(userId: string): Promise<{ success: boolean; amount: number; balance: number; message: string }> {
     const now = Date.now();
-    const cooldown = 24 * 60 * 60 * 1000; // 24 giờ
-    const consecutiveLimit = 48 * 60 * 60 * 1000; // 48 giờ để giữ chuỗi
-
+    const todayStr = getVNDateString(now);
     const baseReward = Math.floor(Math.random() * (50 - 10 + 1)) + 10; // Ngẫu nhiên 10k - 50k
 
     if (useMongoDB) {
@@ -138,25 +266,25 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
                 user = await UserModel.create({ userId, balance: 100, lastDaily: 0, streak: 0 });
             }
 
-            if (now - user.lastDaily < cooldown) {
-                const timeLeft = cooldown - (now - user.lastDaily);
-                const hoursLeft = Math.floor(timeLeft / (60 * 60 * 1000));
-                const minsLeft = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
+            const lastDailyStr = getVNDateString(user.lastDaily || 0);
+            if (todayStr === lastDailyStr) {
+                const timeLeft = getTimeLeftUntilVNNextDay(now);
                 const progress = getStreakProgressBar(user.streak || 0);
                 return {
                     success: false,
                     amount: 0,
                     balance: user.balance,
-                    message: `Mày tham lam quá! Chờ thêm **${hoursLeft} giờ ${minsLeft} phút** nữa mới được điểm danh tiếp nhé!\n\n${progress}`
+                    message: `Mày tham lam quá! Chờ thêm **${timeLeft.hours} giờ ${timeLeft.minutes} phút** nữa (qua 00:00 đêm giờ Việt Nam) mới được điểm danh tiếp nhé!\n\n${progress}`
                 };
             }
 
             // Tính chuỗi liên tiếp (streak)
+            const diffDays = getCalendarDayDifference(user.lastDaily || 0, now);
             let currentStreak = user.streak || 0;
-            if (now - user.lastDaily < consecutiveLimit) {
+            if (diffDays === 1) {
                 currentStreak += 1;
             } else {
-                currentStreak = 1; // Quá 48h, reset chuỗi về 1
+                currentStreak = 1; // Đứt chuỗi, reset về 1
             }
 
             const streakBonus = Math.min(25, currentStreak * 5); // Tối đa bonus 25k ở ngày thứ 5+
@@ -178,22 +306,14 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
             await user.save();
 
             const progress = getStreakProgressBar(currentStreak);
-            
-            if (garnishment > 0) {
-                return {
-                    success: true,
-                    amount: rewardLeft,
-                    balance: user.balance,
-                    message: `🎉 **Điểm danh thành công!** Mày nhận được **${formatMoney(baseReward)}** điểm danh, tao cầm trước **${formatMoney(garnishment)}** nợ nhé, còn lại **${formatMoney(rewardLeft)}** cầm mà đi chơi tiếp đi.\n\n${progress}\n\n💰 **Ví hiện tại:** **${formatMoney(user.balance)}** | 🏦 **Nợ còn lại:** **${formatMoney(user.debt)}**`
-                };
-            } else {
-                return {
-                    success: true,
-                    amount: totalReward,
-                    balance: user.balance,
-                    message: `🎉 **Điểm danh thành công!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(user.balance)}**`
-                };
-            }
+            const msg = getFunnyDailyMessage(currentStreak, totalReward, progress, garnishment > 0, garnishment, user.balance, user.debt);
+
+            return {
+                success: true,
+                amount: rewardLeft,
+                balance: user.balance,
+                message: msg
+            };
         } catch (error) {
             console.error("[DB LỖI] Lỗi điểm danh trên MongoDB:", error);
         }
@@ -201,22 +321,22 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
 
     // Fallback to In-Memory
     const lastDaily = playerLastDailyInMemory[userId] || 0;
-    if (now - lastDaily < cooldown) {
-        const timeLeft = cooldown - (now - lastDaily);
-        const hoursLeft = Math.floor(timeLeft / (60 * 60 * 1000));
-        const minsLeft = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
-        const currentBalance = await getBalance(userId);
+    const lastDailyStr = getVNDateString(lastDaily);
+    if (todayStr === lastDailyStr) {
+        const timeLeft = getTimeLeftUntilVNNextDay(now);
         const progress = getStreakProgressBar(playerStreaksInMemory[userId] || 0);
+        const currentBalance = await getBalance(userId);
         return {
             success: false,
             amount: 0,
             balance: currentBalance,
-            message: `Mày tham lam quá! Chờ thêm **${hoursLeft} giờ ${minsLeft} phút** nữa mới được điểm danh tiếp nhé!\n\n${progress}`
+            message: `Mày tham lam quá! Chờ thêm **${timeLeft.hours} giờ ${timeLeft.minutes} phút** nữa (qua 00:00 đêm giờ Việt Nam) mới được điểm danh tiếp nhé!\n\n${progress}`
         };
     }
 
+    const diffDays = getCalendarDayDifference(lastDaily, now);
     let currentStreak = playerStreaksInMemory[userId] || 0;
-    if (now - lastDaily < consecutiveLimit) {
+    if (diffDays === 1) {
         currentStreak += 1;
     } else {
         currentStreak = 1;
@@ -244,20 +364,120 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
     playerStreaksInMemory[userId] = currentStreak;
 
     const progress = getStreakProgressBar(currentStreak);
+    const msg = getFunnyDailyMessage(currentStreak, totalReward, progress, garnishment > 0, garnishment, balance, debt);
+
+    return {
+        success: true,
+        amount: rewardLeft,
+        balance,
+        message: msg
+    };
+}
+
+/**
+ * Thử vận may bùng nợ ngân hàng BotToan (Mỗi ngày thử 1 lần, không cho bùng khi nợ >= 500k)
+ */
+export async function dodgeDebt(userId: string): Promise<{ success: boolean; message: string; doubleDebt?: boolean; newDebt: number }> {
+    const now = Date.now();
+    const todayStr = getVNDateString(now);
     
-    if (garnishment > 0) {
+    let balance = await getBalance(userId);
+    let debt = await getDebt(userId);
+
+    // 1. Kiểm tra xem có nợ không
+    if (debt <= 0) {
+        return {
+            success: false,
+            message: `❌ **ẢO ĐÁ À CON?** Mày có nợ nần đéo gì tao đâu mà đòi bùng? Ví còn sạch sẽ **${formatMoney(balance)}**, đi cờ bạc nợ nần đi rồi quay lại đây nói chuyện!`,
+            newDebt: 0
+        };
+    }
+
+    // 2. Kiểm tra nếu nợ kịch trần (>= 500k)
+    if (debt >= 500) {
+        return {
+            success: false,
+            message: `❌ **CHỦ NỢ CANH GÁC 24/7!** Số nợ của mày đã kịch khung **${formatMoney(debt)}**. Bọn giang hồ và đòi nợ thuê đang túc trực quanh nhà mày gắt gao từng giây, đéo thể trốn bùng nợ nổi lúc này đâu con ạ! Bắt buộc phải tự cày tiền trả tay đi!`,
+            newDebt: debt
+        };
+    }
+
+    // 3. Kiểm tra xem hôm nay đã bùng nợ chưa
+    let lastDodge = 0;
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            lastDodge = user && user.lastDodgeDebt ? user.lastDodgeDebt : 0;
+        } catch (err) {}
+    } else {
+        lastDodge = playerLastDodgeDebtInMemory[userId] || 0;
+    }
+
+    const lastDodgeStr = getVNDateString(lastDodge);
+    if (todayStr === lastDodgeStr) {
+        const timeLeft = getTimeLeftUntilVNNextDay(now);
+        return {
+            success: false,
+            message: `❌ **HÔM NAY BÙNG THẾ ĐỦ RỒI!** Mày đã thử bùng nợ hôm nay rồi con ạ. Chờ thêm **${timeLeft.hours} giờ ${timeLeft.minutes} phút** nữa (qua 00:00 đêm giờ Việt Nam) để chủ nợ lơ là cảnh giác rồi mới thử giật tiếp được nhé!`,
+            newDebt: debt
+        };
+    }
+
+    // Cập nhật mốc thời gian bùng nợ hôm nay
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate({ userId }, { lastDodgeDebt: now }, { upsert: true });
+        } catch (err) {}
+    } else {
+        playerLastDodgeDebtInMemory[userId] = now;
+    }
+
+    // 4. May rủi bùng nợ 50/50
+    const isSuccess = Math.random() < 0.5;
+
+    if (isSuccess) {
+        // Bùng thành công! Giảm từ 30% đến 50% số nợ, hoặc xóa sạch nếu nợ < 100k
+        let wipeAmount = 0;
+        if (debt < 100) {
+            wipeAmount = debt;
+            debt = 0;
+        } else {
+            const percent = 30 + Math.floor(Math.random() * 21); // 30% - 50%
+            wipeAmount = Math.floor(debt * (percent / 100));
+            debt -= wipeAmount;
+        }
+
+        if (useMongoDB) {
+            try {
+                await UserModel.findOneAndUpdate({ userId }, { debt });
+            } catch (err) {}
+        } else {
+            playerDebtsInMemory[userId] = debt;
+        }
+
         return {
             success: true,
-            amount: rewardLeft,
-            balance,
-            message: `🎉 **Điểm danh thành công (RAM DB)!** Mày nhận được **${formatMoney(baseReward)}** điểm danh, tao cầm trước **${formatMoney(garnishment)}** nợ nhé, còn lại **${formatMoney(rewardLeft)}** cầm mà đi chơi tiếp đi.\n\n${progress}\n\n💰 **Ví hiện tại:** **${formatMoney(balance)}** | 🏦 **Nợ còn lại:** **${formatMoney(debt)}**`
+            message: `😱 **ÔI TRỜI ĐẤT ƠI! TRỐN NỢ THÀNH CÔNG!** Mày lủi nhanh như chạch làm tay chân của tao mất dấu, tao đành ngậm ngùi xóa bớt **${formatMoney(wipeAmount)}** nợ cho mày.\n🏦 **Nợ còn lại:** **${formatMoney(debt)}**. Khôn hồn thì nằm im góc tối, đừng để tao bắt được!`,
+            newDebt: debt
         };
     } else {
+        // Bùng thất bại! Phạt nhân 1.5 lần số nợ
+        const penalty = Math.floor(debt * 0.5);
+        debt += penalty;
+
+        if (useMongoDB) {
+            try {
+                await UserModel.findOneAndUpdate({ userId }, { debt });
+            } catch (err) {}
+        } else {
+            playerDebtsInMemory[userId] = debt;
+        }
+
         return {
-            success: true,
-            amount: totalReward,
-            balance,
-            message: `🎉 **Điểm danh thành công (RAM DB)!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(balance)}**`
+            success: false,
+            message: `🚔 **BẮT ĐƯỢC CON NỢ GIẬT NỢ!** Mày định bùng **${formatMoney(debt - penalty)}** nợ của ngân hàng BotToan à? Con giời quá non! Đàn em giang hồ của tao đã tóm cổ mày lôi cổ về đồn, **phạt x1.5 số nợ** (Nợ mới: **${formatMoney(debt)}**), đồng thời áp giải vào **Nhà Tù** khóa mõm 3 phút cho chừa thói khôn lỏi!`,
+            doubleDebt: true,
+            newDebt: debt
         };
     }
 }
@@ -592,4 +812,278 @@ export async function getValorantId(userId: string): Promise<string> {
         }
     }
     return playerValorantIdsInMemory[userId] || "";
+}
+
+/**
+ * Mua vé số kiến thiết BotToan (10k/vé, tối đa 5 vé/người/ngày)
+ */
+export async function buyLotteryTicket(userId: string, num: string): Promise<{ success: boolean; message: string; jackpotPool: number }> {
+    const ticketCost = 10; // 10k
+    const now = Date.now();
+    const todayStr = getVNDateString(now);
+
+    // 1. Kiểm tra số dư ví
+    let balance = await getBalance(userId);
+    if (balance < ticketCost) {
+        return {
+            success: false,
+            message: `❌ **ĐÉO ĐỦ TIỀN MUA VÉ!** Ví mày còn đúng **${formatMoney(balance)}**, đéo đủ 10k để mua 1 tờ vé số kiến thiết!`,
+            jackpotPool: await getCurrentJackpotPool(todayStr)
+        };
+    }
+
+    // 2. Kiểm tra xem người dùng đã mua bao nhiêu vé hôm nay
+    let todayTicketsCount = 0;
+    if (useMongoDB) {
+        try {
+            todayTicketsCount = await LotteryTicketModel.countDocuments({ userId, date: todayStr });
+        } catch (err) {}
+    } else {
+        todayTicketsCount = inMemoryTickets.filter(t => t.userId === userId && t.date === todayStr).length;
+    }
+
+    if (todayTicketsCount >= 5) {
+        return {
+            success: false,
+            message: `❌ **QUÁ HẠN MỨC MUA VÉ!** Mỗi đấu sĩ chỉ được mua tối đa **5 vé / ngày** để tránh ôm đồm phá hoại thị trường! Hôm nay mày mua đủ 5 vé rồi con ạ.`,
+            jackpotPool: await getCurrentJackpotPool(todayStr)
+        };
+    }
+
+    // 3. Trừ tiền cược và tăng hũ tích lũy Jackpot
+    balance -= ticketCost;
+    await updateBalance(userId, balance);
+
+    let newJackpot = 200;
+    if (useMongoDB) {
+        try {
+            // Thêm vé
+            await LotteryTicketModel.create({ userId, number: num, date: todayStr });
+            
+            // Tìm hoặc tạo LotteryState cho hôm nay, cộng thêm 10 vào jackpotPool
+            let state = await LotteryStateModel.findOne({ date: todayStr });
+            if (!state) {
+                // Lấy hũ lũy kế từ ngày hôm trước nếu có
+                const yesterdayStr = getVNDateString(now - 24 * 60 * 60 * 1000);
+                const prev = await LotteryStateModel.findOne({ date: yesterdayStr });
+                const prevPool = prev ? prev.jackpotPool : 200;
+                state = await LotteryStateModel.create({ date: todayStr, jackpotPool: prevPool });
+            }
+            state.jackpotPool += ticketCost;
+            await state.save();
+            newJackpot = state.jackpotPool;
+        } catch (err) {
+            console.error("Lỗi mua vé trên MongoDB:", err);
+        }
+    } else {
+        inMemoryTickets.push({ userId, number: num, date: todayStr });
+        inMemoryJackpotPool += ticketCost;
+        newJackpot = inMemoryJackpotPool;
+    }
+
+    return {
+        success: true,
+        message: `🎟️ **MUA VÉ SỐ THÀNH CÔNG!** Mày đã mua vé số số **${num}** với giá **10k**. 10k này đã được cúng trực tiếp vào hũ Jackpot!\n💰 **Số dư còn lại:** **${formatMoney(balance)}**`,
+        jackpotPool: newJackpot
+    };
+}
+
+/**
+ * Lấy thông tin vé số hiện tại
+ */
+export async function getLotteryInfo(userId: string): Promise<{ jackpotPool: number; myTickets: string[]; lastWinningNum: string; lastDrawDate: string }> {
+    const now = Date.now();
+    const todayStr = getVNDateString(now);
+    const yesterdayStr = getVNDateString(now - 24 * 60 * 60 * 1000);
+
+    let pool = 200;
+    let myTickets: string[] = [];
+    let lastWinningNum = "";
+    let lastDrawDate = "";
+
+    if (useMongoDB) {
+        try {
+            // Lấy hũ hôm nay
+            let state = await LotteryStateModel.findOne({ date: todayStr });
+            if (!state) {
+                const prev = await LotteryStateModel.findOne({ date: yesterdayStr });
+                const prevPool = prev ? prev.jackpotPool : 200;
+                state = await LotteryStateModel.create({ date: todayStr, jackpotPool: prevPool });
+            }
+            pool = state.jackpotPool;
+
+            // Lấy vé của tôi hôm nay
+            const tickets = await LotteryTicketModel.find({ userId, date: todayStr });
+            myTickets = tickets.map(t => t.number);
+
+            // Tìm đợt quay thưởng gần nhất trước ngày hôm nay
+            const lastState = await LotteryStateModel.findOne({ drawn: true }).sort({ date: -1 });
+            if (lastState) {
+                lastWinningNum = lastState.winningNumber;
+                lastDrawDate = lastState.date;
+            }
+        } catch (err) {}
+    } else {
+        pool = inMemoryJackpotPool;
+        myTickets = inMemoryTickets.filter(t => t.userId === userId && t.date === todayStr).map(t => t.number);
+        
+        // Tìm ngày quay thưởng gần nhất trong RAM
+        const dates = Object.keys(inMemoryLotteryStates).filter(d => inMemoryLotteryStates[d].drawn).sort();
+        if (dates.length > 0) {
+            const lastD = dates[dates.length - 1];
+            lastWinningNum = inMemoryLotteryStates[lastD].winningNumber;
+            lastDrawDate = lastD;
+        }
+    }
+
+    return {
+        jackpotPool: pool,
+        myTickets,
+        lastWinningNum,
+        lastDrawDate
+    };
+}
+
+/**
+ * Hàm phụ trợ lấy giá trị Jackpot hiện tại
+ */
+async function getCurrentJackpotPool(dateStr: string): Promise<number> {
+    if (useMongoDB) {
+        try {
+            const state = await LotteryStateModel.findOne({ date: dateStr });
+            return state ? state.jackpotPool : 200;
+        } catch (err) {}
+    }
+    return inMemoryJackpotPool;
+}
+
+/**
+ * Thực hiện quay thưởng xổ số kiến thiết ngày hôm nay
+ */
+export async function drawLottery(dateStr: string): Promise<{ success: boolean; winningNumber?: string; winners?: { userId: string; ticketsCount: number }[]; payoutPerTicket?: number; jackpotPool?: number }> {
+    if (useMongoDB) {
+        try {
+            let state = await LotteryStateModel.findOne({ date: dateStr });
+            if (!state) {
+                const now = Date.now();
+                const yesterdayStr = getVNDateString(now - 24 * 60 * 60 * 1000);
+                const prev = await LotteryStateModel.findOne({ date: yesterdayStr });
+                const prevPool = prev ? prev.jackpotPool : 200;
+                state = await LotteryStateModel.create({ date: dateStr, jackpotPool: prevPool });
+            }
+
+            if (state.drawn) {
+                return { success: false }; // Đã quay rồi
+            }
+
+            // 1. Quay số ngẫu nhiên từ 00 đến 99
+            const winningNumInt = Math.floor(Math.random() * 100);
+            const winningNumber = String(winningNumInt).padStart(2, '0');
+
+            // 2. Tìm tất cả các vé số trúng thưởng ngày hôm nay
+            const matchingTickets = await LotteryTicketModel.find({ date: dateStr, number: winningNumber });
+            const totalWinningTickets = matchingTickets.length;
+
+            const pool = state.jackpotPool;
+            let winnersList: { userId: string; ticketsCount: number }[] = [];
+            let payoutPerTicket = 0;
+            let nextJackpotPool = pool;
+
+            if (totalWinningTickets > 0) {
+                payoutPerTicket = Math.floor(pool / totalWinningTickets);
+                
+                const userTicketCounts: { [userId: string]: number } = {};
+                for (const t of matchingTickets) {
+                    userTicketCounts[t.userId] = (userTicketCounts[t.userId] || 0) + 1;
+                }
+
+                winnersList = Object.keys(userTicketCounts).map(uId => ({
+                    userId: uId,
+                    ticketsCount: userTicketCounts[uId]
+                }));
+
+                for (const winner of winnersList) {
+                    const totalReward = payoutPerTicket * winner.ticketsCount;
+                    let bal = await getBalance(winner.userId);
+                    bal += totalReward;
+                    await updateBalance(winner.userId, bal);
+                }
+
+                nextJackpotPool = 200;
+            }
+
+            state.winningNumber = winningNumber;
+            state.drawn = true;
+            await state.save();
+
+            const tomorrowStr = getVNDateString(Date.now() + 24 * 60 * 60 * 1000);
+            await LotteryStateModel.findOneAndUpdate(
+                { date: tomorrowStr },
+                { jackpotPool: nextJackpotPool },
+                { upsert: true, new: true }
+            );
+
+            return {
+                success: true,
+                winningNumber,
+                winners: winnersList,
+                payoutPerTicket,
+                jackpotPool: pool
+            };
+        } catch (err) {
+            console.error("Lỗi quay thưởng xổ số trên MongoDB:", err);
+            return { success: false };
+        }
+    }
+
+    // Fallback to In-Memory
+    if (inMemoryLotteryStates[dateStr] && inMemoryLotteryStates[dateStr].drawn) {
+        return { success: false };
+    }
+
+    const winningNumInt = Math.floor(Math.random() * 100);
+    const winningNumber = String(winningNumInt).padStart(2, '0');
+
+    const matchingTickets = inMemoryTickets.filter(t => t.date === dateStr && t.number === winningNumber);
+    const totalWinningTickets = matchingTickets.length;
+
+    const pool = inMemoryJackpotPool;
+    let winnersList: { userId: string; ticketsCount: number }[] = [];
+    let payoutPerTicket = 0;
+
+    if (totalWinningTickets > 0) {
+        payoutPerTicket = Math.floor(pool / totalWinningTickets);
+
+        const userTicketCounts: { [userId: string]: number } = {};
+        for (const t of matchingTickets) {
+            userTicketCounts[t.userId] = (userTicketCounts[t.userId] || 0) + 1;
+        }
+
+        winnersList = Object.keys(userTicketCounts).map(uId => ({
+            userId: uId,
+            ticketsCount: userTicketCounts[uId]
+        }));
+
+        for (const winner of winnersList) {
+            const totalReward = payoutPerTicket * winner.ticketsCount;
+            let bal = await getBalance(winner.userId);
+            bal += totalReward;
+            await updateBalance(winner.userId, bal);
+        }
+
+        inMemoryJackpotPool = 200;
+    }
+
+    inMemoryLotteryStates[dateStr] = {
+        winningNumber,
+        drawn: true
+    };
+
+    return {
+        success: true,
+        winningNumber,
+        winners: winnersList,
+        payoutPerTicket,
+        jackpotPool: pool
+    };
 }

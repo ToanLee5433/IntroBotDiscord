@@ -1,5 +1,5 @@
 import { 
-    Client, GatewayIntentBits, VoiceState, Message, EmbedBuilder
+    Client, GatewayIntentBits, VoiceState, Message, EmbedBuilder, PermissionFlagsBits
 } from 'discord.js';
 import { 
     joinVoiceChannel, createAudioPlayer, createAudioResource, 
@@ -17,11 +17,13 @@ import { playBlackjack } from './games/blackjack';
 import { playTaiXiu } from './games/taixiu';
 import { handleLixi } from './games/lixi';
 import { playRussianRoulette } from './games/russianroulette';
+import { playPokerRoulette } from './games/pokerroulette';
 import { chatWithGemini } from './services/gemini';
 import { fetchValorantRank } from './services/valorant';
 
+import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId } from './database';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery } from './database';
 
 
 
@@ -51,6 +53,25 @@ const client = new Client({
 // ================= LẮNG NGHE LỆNH & CHAT =================
 client.on('messageCreate', async (message: Message) => {
     if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
+
+    // ----------------- KIỂM TRA CẤM CHAT (BOT LEVEL) -----------------
+    const banExpires = await getChatBanExpires(message.author.id);
+    if (banExpires > Date.now()) {
+        const timeLeftMs = banExpires - Date.now();
+        const secondsLeft = Math.ceil(timeLeftMs / 1000);
+        
+        const trollMessages = [
+            `💀 **OÀI CÁI THẰNG MA MỚI NÀY!** Mày vừa bị bắn nát sọ trong sòng bài tử thần rồi, hồn ma bóng quế thì nằm im chịu tội đi! Còn **${secondsLeft} giây** cấm khẩu nữa, đi đầu thai lẹ giùm tao cái!`,
+            `🔫 **BÙM!** Ăn kẹo đồng xong vẫn chưa chừa à con? Họng súng vô tình đã tiễn mày lên bảng đếm số. Cấm chat còn **${secondsLeft} giây** nữa, câm mồm vào góc mà suy ngẫm nhân sinh đi!`,
+            `👻 **HỒN MA BẢN HỘ MỆNH!** Bị bắn vỡ alo rồi mà vẫn ngoi lên đòi sủa à? BotToan khóa mõm mày thêm **${secondsLeft} giây** nữa cho mát mẻ đầu óc nhé. Biến!`,
+            `🤫 **IM MỒM VÀ NÍN!** Mày nghĩ mày là ai mà đòi chat chit lúc này? Đang trong thời gian chịu án phạt **${secondsLeft} giây** nữa mới được hồi sinh nghe chưa cưng. Đi rửa bát giùm cái!`,
+            `🤐 **MẤT PHÁT NGÔN!** Tấm vé đi bụi của mày vẫn còn hiệu lực nhé. Còn **${secondsLeft} giây** cấm sủa, lảm nhảm nữa tao đục thêm phát nữa giờ!`
+        ];
+        
+        const randomTroll = trollMessages[Math.floor(Math.random() * trollMessages.length)];
+        await message.reply(randomTroll).catch(()=>{});
+        return;
+    }
 
     const botId = client.user.id;
     const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
@@ -115,6 +136,27 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG BÙNG NỢ NGÂN HÀNG (MỚI) -----------------
+    const dodgeTriggers = ['bung no', 'giat no', 'tron no'];
+    if (dodgeTriggers.some(t => cleanInput.includes(t))) {
+        const result = await dodgeDebt(message.author.id);
+        
+        if (!result.success && result.doubleDebt) {
+            // Cho đi tù và cấm chat 3 phút ở Bot level
+            await banChat(message.author.id, 180000);
+            try {
+                const member = message.member;
+                if (member && member.voice.channelId) {
+                    const prisonChannelId = "1517590846927667230";
+                    await member.voice.setChannel(prisonChannelId, "Bùng nợ ngân hàng thất bại - Áp giải vào Nhà tù").catch(()=>{});
+                }
+            } catch (err) {}
+        }
+        
+        await message.reply(result.message);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG ĐIỂM DANH TÀI SẢN -----------------
     const checkWalletTriggers = ['tai san', 'vi tien', 'check tien', 'bop tien', 'vi', 'tai san'];
     if (checkWalletTriggers.some(t => cleanInput.includes(t))) {
@@ -163,6 +205,65 @@ client.on('messageCreate', async (message: Message) => {
             .setDescription(result.message)
             .setColor(result.success ? 0x00FF00 : 0xFF0000)
             .setFooter({ text: "BotToan - Sòng bạc hoàng gia", iconURL: client.user?.displayAvatarURL() });
+
+        await message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG MUA VÉ SỐ KIẾN THIẾT (MỚI) -----------------
+    const buyTicketRegex = /^(mua ve|buy ticket)(?:\s+(\S+))?/i;
+    const buyTicketMatch = cleanInput.match(buyTicketRegex);
+    if (buyTicketMatch) {
+        let num = buyTicketMatch[2]; // Số hoặc "random" hoặc undefined
+        if (!num || num === 'random') {
+            const rand = Math.floor(Math.random() * 100);
+            num = String(rand).padStart(2, '0');
+        } else {
+            // Chuẩn hóa thành 2 chữ số
+            num = num.padStart(2, '0');
+            if (num.length !== 2 || isNaN(Number(num))) {
+                await message.reply("❌ **Sai cú pháp!** Hãy nhập số từ `00` đến `99` (Ví dụ: `mua ve 79`) hoặc `mua ve random`.");
+                return;
+            }
+        }
+        
+        const result = await buyLotteryTicket(message.author.id, num);
+        const embed = new EmbedBuilder()
+            .setTitle("🎟️ VÉ SỐ KIẾN THIẾT BOTTOAN")
+            .setDescription(result.message)
+            .setColor(result.success ? 0x2ECC71 : 0xFF0000)
+            .addFields({ name: "💰 Hũ Jackpot hiện tại", value: `**${formatMoney(result.jackpotPool)}**`, inline: true })
+            .setFooter({ text: "Kết quả quay số tự động lúc 18:30 hàng ngày!" });
+
+        await message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG XEM VÉ SỐ CỦA TÔI (MỚI) -----------------
+    const checkTicketTriggers = ['ve so', 'check ve', 'xem ve', 'jackpot'];
+    if (checkTicketTriggers.some(t => cleanInput === t)) {
+        const info = await getLotteryInfo(message.author.id);
+        const ticketsStr = info.myTickets.length > 0 
+            ? info.myTickets.map(t => `\`[ ${t} ]\``).join("  ")
+            : "*Hôm nay mày chưa mua vé nào con ạ!*";
+            
+        let desc = `💰 **Tổng hũ tích lũy Jackpot hiện tại:** **${formatMoney(info.jackpotPool)}**\n\n`;
+        desc += `🎟️ **Các vé mày đã mua hôm nay (${info.myTickets.length}/5):**\n${ticketsStr}\n\n`;
+        
+        if (info.lastWinningNum) {
+            desc += `🔮 **Kết quả quay ngày trước (${info.lastDrawDate}):** 🎉 **${info.lastWinningNum}** 🎉\n`;
+        } else {
+            desc += `🔮 *Hôm nay là ngày quay đầu tiên, chưa có lịch sử trước đó!*\n`;
+        }
+        
+        desc += `\n*Lệ phí: 10k/vé. Mỗi người được mua tối đa 5 vé. Gõ \`@BotToan mua ve 79\` để mua nhé!*`;
+
+        const embed = new EmbedBuilder()
+            .setTitle("🎰 THÔNG TIN VÉ SỐ KIẾN THIẾT BOTTOAN")
+            .setDescription(desc)
+            .setColor(0xF1C40F)
+            .setFooter({ text: "Quay số chính xác vào 18:30 hàng ngày!" })
+            .setThumbnail(message.author.displayAvatarURL());
 
         await message.reply({ embeds: [embed] });
         return;
@@ -244,6 +345,15 @@ client.on('messageCreate', async (message: Message) => {
     if (rrMatch) {
         const betAmount = rrMatch[2] ? (parseMoneyInput(rrMatch[2]) || 20) : 20; // mặc định 20k
         await playRussianRoulette(message, betAmount);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG GAME POKER TỬ THẦN -----------------
+    const prRegex = /^(poker|poker roulette|roulette poker)(?:\s+(\d+(?:\.\d+)?(?:k|tr|trieu|ty|b)?))?/i;
+    const prMatch = cleanInput.match(prRegex);
+    if (prMatch) {
+        const betAmount = prMatch[2] ? (parseMoneyInput(prMatch[2]) || 20) : 20; // mặc định 20k
+        await playPokerRoulette(message, betAmount);
         return;
     }
 
@@ -424,6 +534,80 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         console.error('Lỗi voice:', error);
     }
 });
+
+// ================= THIẾT LẬP CRON QUAY SỐ 18:30 HÀNG NGÀY (MỚI) =================
+cron.schedule('30 18 * * *', async () => {
+    try {
+        const now = Date.now();
+        // Lấy ngày hôm nay theo múi giờ Việt Nam (UTC+7)
+        const d = new Date(now + 7 * 60 * 60 * 1000);
+        const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        
+        const result = await drawLottery(dateStr);
+        if (!result.success) return; // Đợt quay này đã được thực hiện hoặc có lỗi
+
+        // Tạo Embed thông báo kết quả xổ số kiến thiết cực đẹp
+        const embed = new EmbedBuilder()
+            .setTitle("🎰 KẾT QUẢ XỔ SỐ KIẾN THIẾT BOTTOAN 🎰")
+            .setColor(0xF1C40F)
+            .setTimestamp();
+            
+        let desc = `📆 **Ngày quay thưởng:** \`${dateStr}\`\n`;
+        desc += `🔮 **Con số may mắn ngày hôm nay:** 🎉 **${result.winningNumber}** 🎉\n`;
+        desc += `💰 **Tổng hũ tích lũy Jackpot:** **${formatMoney(result.jackpotPool || 200)}**\n\n`;
+        
+        if (result.winners && result.winners.length > 0) {
+            desc += `👑 **DANH SÁCH CHIẾN THẦN TRÚNG GIẢI:**\n`;
+            for (const w of result.winners) {
+                const totalPayout = (result.payoutPerTicket || 0) * w.ticketsCount;
+                desc += `- <@${w.userId}> trúng **${w.ticketsCount} vé** -> nhận về **${formatMoney(totalPayout)}**!\n`;
+            }
+            desc += `\n*Hũ Jackpot đã được chia đều và reset về mốc khởi điểm **200.000đ** cho đợt ngày mai!*`;
+        } else {
+            desc += `💸 **Không có ai trúng thưởng giải đặc biệt ngày hôm nay!**\n*Toàn bộ hũ tích lũy **${formatMoney(result.jackpotPool || 200)}** sẽ được cộng dồn (Rollover) sang ngày mai! Cơ hội làm giàu đang lớn dần!*`;
+        }
+        
+        embed.setDescription(desc);
+        
+        // Broadcast thông báo tới tất cả server
+        for (const guild of client.guilds.cache.values()) {
+            try {
+                let targetChannel = null;
+                
+                // 1. Ưu tiên systemChannel nếu bot gửi được tin
+                if (guild.systemChannel) {
+                    const me = guild.members.me;
+                    const canSend = me && guild.systemChannel.viewable && guild.systemChannel.permissionsFor(me).has(PermissionFlagsBits.SendMessages);
+                    if (canSend) {
+                        targetChannel = guild.systemChannel;
+                    }
+                }
+                
+                // 2. Nếu không được, tìm kênh text đầu tiên có quyền gửi tin
+                if (!targetChannel) {
+                    const me = guild.members.me;
+                    if (me) {
+                        targetChannel = guild.channels.cache.find(c => 
+                            c.isTextBased() && 
+                            c.viewable && 
+                            c.permissionsFor(me).has(PermissionFlagsBits.SendMessages)
+                        );
+                    }
+                }
+                
+                if (targetChannel) {
+                    await (targetChannel as any).send({ embeds: [embed] }).catch(()=>{});
+                }
+            } catch (err) {
+                console.error("Lỗi khi gửi kết quả xổ số kiến thiết:", err);
+            }
+        }
+    } catch (error) {
+        console.error("Lỗi tác vụ quay xổ số kiến thiết:", error);
+    }
+}, {
+    timezone: "Asia/Ho_Chi_Minh"
+} as any);
 
 (async () => {
     await connectDB();
