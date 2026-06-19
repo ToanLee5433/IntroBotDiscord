@@ -126,15 +126,14 @@ export async function playXocDia(message: Message) {
 
             await i.deferUpdate().catch(()=>{});
 
-            // Giai đoạn hiệu ứng xóc bát (4 khung hình lắc)
+            // Giai đoạn hiệu ứng xóc bát (3 giây, 1s/khung hình)
             const shakeFrames = [
-                "╔══════════════════════════════╗\n║         ___/^^\\___           ║\n║        |  LẠCH CẠCH  |       ║\n║         \\________/           ║\n║        ============          ║\n╚══════════════════════════════╝",
-                "╔══════════════════════════════╗\n║          ___/^^\\___          ║\n║         |  CẠCH LẠCH |       ║\n║          \\________/          ║\n║        ============          ║\n╚══════════════════════════════╝",
-                "╔══════════════════════════════╗\n║         ___/^^\\___           ║\n║        |  LẠCH CẠCH  |       ║\n║         \\________/           ║\n║        ============          ║\n╚══════════════════════════════╝",
-                "╔══════════════════════════════╗\n║          ___/^^\\___          ║\n║         |  CẠCH LẠCH |       ║\n║          \\________/          ║\n║        ============          ║\n╚══════════════════════════════╝"
+                "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  LẠCH CẠCH  |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘",
+                "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  CẠCH LẠCH  |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘",
+                "┌──────────────────────────────┐\n│     ⛩️ XÓC ĐĨA HOÀNG GIA     │\n├──────────────────────────────┤\n│          ___/^^\\___          │\n│         |  🎲 ĐỢI MỞ... |      │\n│          \\________/          │\n│         ============         │\n└──────────────────────────────┘"
             ];
 
-            for (let step = 0; step < 4; step++) {
+            for (let step = 0; step < 3; step++) {
                 const animEmbed = new EmbedBuilder()
                     .setTitle("🎰 ĐANG XÓC ĐĨA...")
                     .setDescription(`\`\`\`text\n${shakeFrames[step]}\n\`\`\``)
@@ -142,7 +141,7 @@ export async function playXocDia(message: Message) {
                     .setThumbnail(message.author.displayAvatarURL());
                 
                 await draftMsg.edit({ embeds: [animEmbed], components: [] }).catch(()=>{});
-                await sleep(450);
+                await sleep(1000); // 1 giây delay
             }
 
             // Lắc 4 quân vị (Đỏ hoặc Trắng)
@@ -155,19 +154,19 @@ export async function playXocDia(message: Message) {
             const actualResultText = isChan ? "CHẴN 🔴" : "LẺ ⚪";
 
             const coinEmojis = coins.map(c => c === "Đỏ" ? "🔴" : "⚪").join(" ");
-            const plateFrame = `╔══════════════════════════════╗\n║         (MỞ BÁT)             ║\n║                              ║\n║        ${coinEmojis}         ║\n║        ============          ║\n╚══════════════════════════════╝`;
+            const plateFrame = `┌──────────────────────────────┐\n│         (ĐĨA MỞ BÁT)         │\n│                              │\n│        ${coinEmojis}         │\n│        ============          │\n└──────────────────────────────┘`;
 
             let resultMsg = `🎲 **Bát xóc mở ra:**\n\`\`\`text\n${plateFrame}\n\`\`\`\nKết quả: **${actualResultText}** (${redCount} Đỏ - ${whiteCount} Trắng)\n\n`;
 
             let isWin = userBet === actualResult;
-            let finalColor = 0xFF0000;
+            let finalColor = 0xE74C3C; // Đỏ Ruby
 
             if (isWin) {
                 const winAmount = currentBetSize * 2; // Hoàn cược + ăn lãi 1:1
                 balance += winAmount;
                 await updateBalance(userId, balance);
                 resultMsg += `🎉 **Mày đã thắng!** Húp về **${currentBetSize}k**.`;
-                finalColor = 0x00FF00;
+                finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
                 resultMsg += `💀 **Mày đã thua!** Mất cmn **${currentBetSize}k** cược con ${userBet === "chan" ? "Chẵn" : "Lẻ"}.`;
             }

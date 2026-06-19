@@ -144,23 +144,22 @@ export async function playBauCua(message: Message) {
 
             await i.deferUpdate().catch(()=>{});
 
-            // Giai đoạn hiệu ứng xóc bát (4 khung hình lắc)
-            for (let step = 0; step < 4; step++) {
-                const t = [
-                    bauCuaSymbols[Math.floor(Math.random() * 6)],
-                    bauCuaSymbols[Math.floor(Math.random() * 6)],
-                    bauCuaSymbols[Math.floor(Math.random() * 6)]
-                ];
-                const box = `╔══════════════════════════════╗\n║    [ ${bauCuaEmojis[t[0]]} ]    [ ${bauCuaEmojis[t[1]]} ]    [ ${bauCuaEmojis[t[2]]} ]    ║\n║        🔄 ĐANG XÓC ĐĨA BẦU CUA...      ║\n╚══════════════════════════════╝`;
-                
+            // Giai đoạn hiệu ứng xóc bát (3 giây, 1s/khung hình)
+            const shakeFrames = [
+                "┌──────────────────────────────┐\n│      🎏 BẦU CUA TRÀ CHIẾU     │\n├──────────────────────────────┤\n│      🎃   -   🦀   -   🦐        │\n│    👉 ĐANG XOAY BẦU CUA...   │\n└──────────────────────────────┘",
+                "┌──────────────────────────────┐\n│      🎏 BẦU CUA TRÀ CHIẾU     │\n├──────────────────────────────┤\n│      🐟   -   🐓   -   🦌        │\n│    👉 LẮC LẮC LẮC LẮC...     │\n└──────────────────────────────┘",
+                "┌──────────────────────────────┐\n│      🎏 BẦU CUA TRÀ CHIẾU     │\n├──────────────────────────────┤\n│      🦀   -   🐟   -   🐓        │\n│    🎲 CHUẨN BỊ MỞ BÁT!!!      │\n└──────────────────────────────┘"
+            ];
+
+            for (let step = 0; step < 3; step++) {
                 const animEmbed = new EmbedBuilder()
                     .setTitle("🎃 BẦU CUA HOÀNG GIA - ĐANG XÓC...")
-                    .setDescription(`\`\`\`text\n${box}\n\`\`\``)
+                    .setDescription(`\`\`\`text\n${shakeFrames[step]}\n\`\`\``)
                     .setColor(0xFFA500)
                     .setThumbnail(message.author.displayAvatarURL());
                 
                 await draftMsg.edit({ embeds: [animEmbed], components: [] }).catch(()=>{});
-                await sleep(450);
+                await sleep(1000); // 1 giây delay để tránh rate limit
             }
 
             // Lắc ra kết quả thật
@@ -172,16 +171,16 @@ export async function playBauCua(message: Message) {
 
             // Tính tiền thắng/thua
             let matchCount = result.filter(s => s === betSymbol).length;
-            const finalBox = `╔══════════════════════════════╗\n║  ✨  [ ${bauCuaEmojis[result[0]]} ]    [ ${bauCuaEmojis[result[1]]} ]    [ ${bauCuaEmojis[result[2]]} ]  ✨  ║\n╚══════════════════════════════╝`;
+            const finalBox = `┌──────────────────────────────┐\n│      🎏 BẦU CUA TRÀ CHIẾU     │\n├──────────────────────────────┤\n│  ✨   [ ${bauCuaEmojis[result[0]]} ]   [ ${bauCuaEmojis[result[1]]} ]   [ ${bauCuaEmojis[result[2]]} ]   ✨ │\n└──────────────────────────────┘`;
             let resultMsg = `🎲 **Bát xóc mở ra:**\n\`\`\`text\n${finalBox}\n\`\`\`\n`;
-            let finalColor = 0xFF0000;
+            let finalColor = 0xE74C3C; // Đỏ Ruby
 
             if (matchCount > 0) {
                 const winAmount = currentBetSize + (matchCount * currentBetSize); // Hoàn cược + tiền thắng
                 balance += winAmount;
                 await updateBalance(userId, balance);
                 resultMsg += `🎉 **Trúng ${matchCount} nháy!** Mày lụm lãi **${matchCount * currentBetSize}k**.`;
-                finalColor = 0x00FF00;
+                finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
                 resultMsg += `💀 **Mất cmn ${currentBetSize}k** cược con ${betSymbol}!`;
             }

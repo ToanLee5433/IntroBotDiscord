@@ -11,7 +11,7 @@ import * as http from 'http';
 
 import { PORT, TOKEN, loadAgentIcons } from './config';
 import { playBauCua } from './games/baucua';
-import { playValorantDraft } from './games/valorant';
+import { playValorantDraft, registerValorantCollector } from './games/valorant';
 import { playXocDia } from './games/xocdia';
 import { playBlackjack } from './games/blackjack';
 import { playTaiXiu } from './games/taixiu';
@@ -301,6 +301,7 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 (async () => {
     await connectDB();
     await loadAgentIcons();
+    registerValorantCollector(client);
     client.login(TOKEN);
 })();
 

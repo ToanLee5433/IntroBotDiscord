@@ -126,17 +126,16 @@ export async function playTaiXiu(message: Message) {
             balance -= currentBetSize;
             await updateBalance(userId, balance);
 
-            // Giai đoạn hiệu ứng lắc bát (4 khung hình lắc)
+            // Giai đoạn hiệu ứng lắc bát ASCII Terminal (3 giây, 1s/khung hình)
             const shakeFrames = [
-                "╔══════════════════════════════╗\n║  🎲  [ ⚀ ]      [ ⚂ ]      [ ⚄ ]  🎲  ║\n║        🔄 LẠCH CẠCH LẠCH CẠCH...      ║\n╚══════════════════════════════╝",
-                "╔══════════════════════════════╗\n║  🎲  [ ⚁ ]      [ ⚃ ]      [ ⚅ ]  🎲  ║\n║        🔄 XOAY XOAY XOAY XOAY...      ║\n╚══════════════════════════════╝",
-                "╔══════════════════════════════╗\n║  🎲  [ ⚂ ]      [ ⚀ ]      [ ⚃ ]  🎲  ║\n║        🔄 LẠCH CẠCH LẠCH CẠCH...      ║\n╚══════════════════════════════╝",
-                "╔══════════════════════════════╗\n║  🎲  [ ⚄ ]      [ ⚅ ]      [ ⚁ ]  🎲  ║\n║        🎲 CHUẨN BỊ MỞ BÁT!!!          ║\n╚══════════════════════════════╝"
+                "┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│       [ ⚀ ]  [ ⚂ ]  [ ⚄ ]       │\n│    👉 LẠCH CẠCH LẠCH CẠCH...  │\n└──────────────────────────────┘",
+                "┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│       [ ⚁ ]  [ ⚃ ]  [ ⚅ ]       │\n│    👉 XOAY XOAY XOAY XOAY...  │\n└──────────────────────────────┘",
+                "┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│       [ ⚄ ]  [ ⚅ ]  [ ⚁ ]       │\n│    🎲 CHUẨN BỊ MỞ BÁT!!!      │\n└──────────────────────────────┘"
             ];
 
             await i.deferUpdate().catch(()=>{});
 
-            for (let step = 0; step < 4; step++) {
+            for (let step = 0; step < 3; step++) {
                 const animEmbed = new EmbedBuilder()
                     .setTitle("🎲 ĐANG LẮC BÁT TÀI XỈU...")
                     .setDescription(`\`\`\`text\n${shakeFrames[step]}\n\`\`\``)
@@ -144,7 +143,7 @@ export async function playTaiXiu(message: Message) {
                     .setThumbnail(message.author.displayAvatarURL());
                 
                 await draftMsg.edit({ embeds: [animEmbed], components: [] }).catch(()=>{});
-                await sleep(450);
+                await sleep(1000); // 1 giây delay để tránh Discord Rate Limit
             }
 
             // Kết quả thật
@@ -169,11 +168,11 @@ export async function playTaiXiu(message: Message) {
                 actualResultText = total >= 11 ? `TÀI 🔴 (${total} điểm)` : `XỈU ⚪ (${total} điểm)`;
             }
 
-            const boxResult = `╔══════════════════════════════╗\n║  ✨  [ ${dieText1} ]      [ ${dieText2} ]      [ ${dieText3} ]  ✨  ║\n╚══════════════════════════════╝`;
+            const boxResult = `┌──────────────────────────────┐\n│     🎲 TÀI XỈU CASINO 🎲     │\n├──────────────────────────────┤\n│  ✨   [ ${dieText1} ]    [ ${dieText2} ]    [ ${dieText3} ]   ✨  │\n└──────────────────────────────┘`;
             let resultMsg = `🎲 **Bát xóc mở ra:**\n\`\`\`text\n${boxResult}\n\`\`\`\nKết quả: **${actualResultText}**\n\n`;
             
             const isWin = userBet === actualResult;
-            let finalColor = 0xFF0000;
+            let finalColor = 0xE74C3C; // Đỏ Ruby
 
             if (isTriple) {
                 resultMsg += `💀 **BÃO RỒI!** Bộ ba đồng nhất xuất hiện. Nhà cái ăn sạch sành sanh! Mày mất **${currentBetSize}k**.`;
@@ -182,7 +181,7 @@ export async function playTaiXiu(message: Message) {
                 balance += winAmount;
                 await updateBalance(userId, balance);
                 resultMsg += `🎉 **Mày đã thắng!** Húp về **${currentBetSize}k**.`;
-                finalColor = 0x00FF00;
+                finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
                 resultMsg += `💀 **Mày đã thua!** Mất cmn **${currentBetSize}k** cược con ${userBet === "tai" ? "Tài" : "Xỉu"}.`;
             }

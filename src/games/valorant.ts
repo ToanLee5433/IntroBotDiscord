@@ -1,15 +1,30 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { fullAgentsByRole, agentIcons } from '../config';
+import { sleep } from '../utils';
 
-interface DraftSession {
-    currentDraft: string[];
-    agentPool: { [key: string]: string[] };
-    isDrafting: boolean;
-    currentRole: string;
-    currentAgent: string;
+interface DraftPlayer {
+    userId: string;
+    displayName: string;
+    avatarUrl: string;
+    agent?: string;
+    role?: string;
 }
 
-// Cô lập phiên draft động theo channelId để hỗ trợ nhiều kênh chat hoạt động song song
+interface DraftSession {
+    channelId: string;
+    isDrafting: boolean;
+    creatorId: string;
+    players: DraftPlayer[]; // Trong Lobby là danh sách người đăng ký; khi chạy là dãy 5 lượt
+    agentPool: { [key: string]: string[] };
+    currentTurnIndex: number;
+    currentRole: string;
+    currentAgent: string;
+    changeAttempts: number;
+    timeoutTimer?: NodeJS.Timeout;
+    draftMsg?: Message;
+}
+
+// Map quản lý phiên chơi động theo kênh
 const draftSessions = new Map<string, DraftSession>();
 
 /**
@@ -17,146 +32,409 @@ const draftSessions = new Map<string, DraftSession>();
  */
 export async function playValorantDraft(message: Message) {
     const channelId = message.channelId;
-    
+    const creatorId = message.author.id;
+
     let session = draftSessions.get(channelId);
     if (session && session.isDrafting) {
-        await message.reply("Đang pick dở kìa, tập trung chốt đi mày!");
+        await message.reply("Đang có bàn draft dở ở kênh này rồi, tập trung chốt đi mày!");
         return;
     }
 
     session = {
-        isDrafting: true,
-        currentDraft: [],
+        channelId,
+        isDrafting: false,
+        creatorId,
+        players: [{
+            userId: creatorId,
+            displayName: message.author.displayName || message.author.username,
+            avatarUrl: message.author.displayAvatarURL()
+        }],
         agentPool: {
             "Duelist": [...fullAgentsByRole["Duelist"]],
             "Initiator": [...fullAgentsByRole["Initiator"]],
             "Controller": [...fullAgentsByRole["Controller"]],
             "Sentinel": [...fullAgentsByRole["Sentinel"]]
         },
+        currentTurnIndex: 0,
         currentRole: "",
-        currentAgent: ""
+        currentAgent: "",
+        changeAttempts: 0
     };
     draftSessions.set(channelId, session);
 
-    const draftMsg = await message.reply("🎲 **Bắt đầu Draft Team Valorant! Đang thiết lập bàn quay...**");
-    const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); 
+    const lobbyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('vd_join').setLabel('🎮 Tham gia Draft').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('vd_start').setLabel('⚡ Bắt đầu Draft').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('vd_cancel').setLabel('🛑 Hủy sòng').setStyle(ButtonStyle.Secondary)
+    );
 
-    const showRoleMenu = async (interaction?: any) => {
+    const updateLobbyEmbed = () => {
         const s = draftSessions.get(channelId);
-        if (!s) return;
+        if (!s) return new EmbedBuilder();
 
-        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('r_duelist').setLabel('⚔️ Duelist').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId('r_initiator').setLabel('👁️ Initiator').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('r_controller').setLabel('💨 Controller').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('r_sentinel').setLabel('🛡️ Sentinel').setStyle(ButtonStyle.Primary)
-        );
-        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('r_random').setLabel('🎲 Random Role').setStyle(ButtonStyle.Success)
-        );
-
-        const teamText = s.currentDraft.length > 0 ? s.currentDraft.map((v, i) => `**${i + 1}.** ${v}`).join('\n') : "*Chưa có thành viên nào*";
-
-        const embed = new EmbedBuilder()
-            .setTitle("🎯 BÀN DRAFT ĐỘI HÌNH VALORANT")
-            .setColor(0x00AE86)
-            .setDescription(`Chọn vai trò (Role) cho vị trí thứ **${s.currentDraft.length + 1}** trong đội hình:`)
-            .addFields({ name: "👥 Đội hình hiện tại", value: teamText, inline: false })
-            .setFooter({ text: "Sử dụng các nút bên dưới để chọn" });
-
-        if (interaction) await interaction.update({ embeds: [embed], components: [row1, row2] }).catch(()=>{});
-        else await draftMsg.edit({ content: "", embeds: [embed], components: [row1, row2] }).catch(()=>{});
-    };
-
-    const rollAgent = async (role: string, interaction: any) => {
-        const s = draftSessions.get(channelId);
-        if (!s) return;
-
-        if (!s.agentPool[role] || s.agentPool[role].length === 0) {
-            s.agentPool[role] = [...fullAgentsByRole[role]];
-        }
-        s.currentRole = role;
-        
-        const randomIndex = Math.floor(Math.random() * s.agentPool[role].length);
-        s.currentAgent = s.agentPool[role][randomIndex];
-
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('a_chot').setLabel('✅ Chốt luôn').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('a_doi').setLabel('🔄 Bốc con khác').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId('a_back').setLabel('🔙 Quay lại Role').setStyle(ButtonStyle.Secondary)
-        );
-
-        const iconUrl = agentIcons.get(s.currentAgent.toLowerCase().trim()) || "";
-
-        const teamText = s.currentDraft.length > 0 ? s.currentDraft.map((v, i) => `**${i + 1}.** ${v}`).join('\n') : "*Chưa có thành viên nào*";
-
-        const embed = new EmbedBuilder()
-            .setTitle(`🎭 LƯỢT QUAY TƯỚNG: ${s.currentAgent.toUpperCase()}`)
+        const listText = s.players.map((p, idx) => `**${idx + 1}.** <@${p.userId}> (${p.displayName})`).join("\n");
+        return new EmbedBuilder()
+            .setTitle("🎯 PHÒNG CHỜ DRAFT VALORANT 🎯")
+            .setDescription(`Chủ phòng <@${s.creatorId}> đã mở phòng chờ draft team!\n\n👥 **Thành viên đã tham gia (${s.players.length}/5):**\n${listText}\n\n*Yêu cầu tối thiểu 1 người. Chủ phòng nhấn Bắt đầu để chia lượt quay.*`)
             .setColor(0xFF4654)
-            .setDescription(`Vị trí thứ **${s.currentDraft.length + 1}** (${s.currentRole}) bốc trúng con **${s.currentAgent}**!\nMày chốt luôn hay chê?`)
-            .addFields({ name: "👥 Đội hình hiện tại", value: teamText, inline: false })
-            .setFooter({ text: "BotToan - Sòng bạc hoàng gia" });
-
-        if (iconUrl) {
-            embed.setThumbnail(iconUrl);
-        }
-
-        await interaction.update({ embeds: [embed], components: [row] }).catch(()=>{});
+            .setFooter({ text: "Phòng chờ tự hủy sau 2 phút nếu không bắt đầu" });
     };
 
-    collector.on('collect', async i => {
+    if (!('send' in message.channel)) return;
+    const lobbyMsg = await (message.channel as any).send({
+        embeds: [updateLobbyEmbed()],
+        components: [lobbyRow]
+    });
+
+    session.draftMsg = lobbyMsg;
+
+    const lobbyCollector = lobbyMsg.createMessageComponentCollector({ time: 120000 });
+
+    lobbyCollector.on('collect', async (i: any) => {
         const s = draftSessions.get(channelId);
         if (!s) return;
 
-        const id = i.customId;
-        
+        const userId = i.user.id;
+
+        if (i.customId === 'vd_join') {
+            if (s.players.some(p => p.userId === userId)) {
+                await i.reply({ content: "Mày đã đăng ký trong phòng chờ rồi con ạ!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+            if (s.players.length >= 5) {
+                await i.reply({ content: "Phòng chờ đã đầy 5 slot rồi!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+
+            s.players.push({
+                userId: userId,
+                displayName: i.user.displayName || i.user.username,
+                avatarUrl: i.user.displayAvatarURL()
+            });
+
+            await i.reply({ content: "🎮 Mày đã tham gia phòng chờ draft!", ephemeral: true }).catch(()=>{});
+            await lobbyMsg.edit({ embeds: [updateLobbyEmbed()] }).catch(()=>{});
+        } 
+        else if (i.customId === 'vd_cancel') {
+            if (userId !== s.creatorId) {
+                await i.reply({ content: "Chỉ chủ phòng mới được hủy sòng!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+            draftSessions.delete(channelId);
+            lobbyCollector.stop();
+            await i.update({ content: "🛑 **SÒNG DRAFT VALORANT ĐÃ BỊ HỦY!**", embeds: [], components: [] }).catch(()=>{});
+        }
+        else if (i.customId === 'vd_start') {
+            if (userId !== s.creatorId) {
+                await i.reply({ content: "Chỉ chủ phòng mới bấm Bắt đầu được!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+
+            s.isDrafting = true;
+            lobbyCollector.stop();
+
+            // Nếu số người chơi < 5, sao chép quay vòng để đủ 5 lượt chọn
+            const originalPlayers = [...s.players];
+            const expandedSequence: DraftPlayer[] = [];
+            while (expandedSequence.length < 5) {
+                for (const p of originalPlayers) {
+                    if (expandedSequence.length < 5) {
+                        expandedSequence.push({ ...p });
+                    }
+                }
+            }
+            s.players = expandedSequence;
+
+            await i.deferUpdate().catch(()=>{});
+            await startDraftTurns(channelId);
+        }
+    });
+
+    lobbyCollector.on('end', () => {
+        const s = draftSessions.get(channelId);
+        if (s && !s.isDrafting) {
+            draftSessions.delete(channelId);
+            lobbyMsg.edit({ content: "🛑 **Phòng chờ tự động đóng do quá thời gian 2 phút.**", embeds: [], components: [] }).catch(()=>{});
+        }
+    });
+}
+
+/**
+ * Điều hướng bắt đầu lượt quay tướng
+ */
+async function startDraftTurns(channelId: string) {
+    const s = draftSessions.get(channelId);
+    if (!s || !s.draftMsg) return;
+
+    if (s.currentTurnIndex >= 5) {
+        // Hoàn thành draft đội hình
+        await showFinalResult(channelId);
+        return;
+    }
+
+    const currentPlayer = s.players[s.currentTurnIndex];
+
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('r_duelist').setLabel('⚔️ Duelist').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('r_initiator').setLabel('👁️ Initiator').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('r_controller').setLabel('💨 Controller').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('r_sentinel').setLabel('🛡️ Sentinel').setStyle(ButtonStyle.Primary)
+    );
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('r_random').setLabel('🎲 Random Role').setStyle(ButtonStyle.Success)
+    );
+
+    const rosterText = displayRosterSoFar(s.players);
+    const embed = new EmbedBuilder()
+        .setTitle(`🎯 LƯỢT QUAY SLOT THỨ ${s.currentTurnIndex + 1}: ${currentPlayer.displayName.toUpperCase()}`)
+        .setDescription(`**Đội hình hiện tại:**\n${rosterText}\n\n👉 Lượt của <@${currentPlayer.userId}>. Mày muốn bốc tướng hệ nào?\n⚠️ Mày có **15 giây** để bấm nút, nếu không tao sẽ tự động random!`)
+        .setColor(0xFF4654)
+        .setThumbnail(currentPlayer.avatarUrl)
+        .setFooter({ text: `Lượt quay ${s.currentTurnIndex + 1} / 5` });
+
+    await s.draftMsg.edit({ embeds: [embed], components: [row1, row2] }).catch(()=>{});
+
+    // Bắt đầu đếm ngược 15 giây AFK
+    if (s.timeoutTimer) clearTimeout(s.timeoutTimer);
+    s.timeoutTimer = setTimeout(async () => {
+        await autoRollTurn(channelId);
+    }, 15000);
+}
+
+/**
+ * Hiển thị đội hình đã chốt cho đến thời điểm hiện tại
+ */
+function displayRosterSoFar(players: DraftPlayer[]): string {
+    return players.map((p, idx) => {
+        if (p.agent) {
+            return `- **Vị trí ${idx + 1}**: <@${p.userId}> (${p.displayName}) ➡️ **${p.agent}** (${p.role})`;
+        } else {
+            return `- **Vị trí ${idx + 1}**: <@${p.userId}> (${p.displayName}) ➡️ *Đang chọn...*`;
+        }
+    }).join("\n");
+}
+
+/**
+ * Xử lý tự động bốc tướng khi hết giờ (AFK) ở màn hình chọn vai trò
+ */
+async function autoRollTurn(channelId: string) {
+    const s = draftSessions.get(channelId);
+    if (!s || !s.draftMsg) return;
+
+    if (s.timeoutTimer) clearTimeout(s.timeoutTimer);
+
+    const currentPlayer = s.players[s.currentTurnIndex];
+    const roles = ["Duelist", "Initiator", "Controller", "Sentinel"];
+    const randomRole = roles[Math.floor(Math.random() * roles.length)];
+    
+    // Auto lấy đạn thật
+    const pool = s.agentPool[randomRole];
+    const rolledAgent = pool[Math.floor(Math.random() * pool.length)];
+
+    // Chốt luôn cho người chơi
+    currentPlayer.agent = rolledAgent;
+    currentPlayer.role = randomRole;
+    s.agentPool[randomRole] = s.agentPool[randomRole].filter(a => a !== rolledAgent);
+
+    s.currentTurnIndex++;
+    
+    // Thông báo chat
+    const alertMsg = await (s.draftMsg.channel as any).send(`⏰ **Hết giờ!** Do <@${currentPlayer.userId}> treo máy, tao đã tự động chọn và chốt tướng **${rolledAgent}** (${randomRole}) cho nó!`).catch(()=>{});
+    setTimeout(() => {
+        alertMsg?.delete().catch(()=>{});
+    }, 5000);
+
+    await startDraftTurns(channelId);
+}
+
+/**
+ * Thực hiện hiệu ứng quay tướng
+ */
+async function rollAgent(role: string, interaction: any, channelId: string) {
+    const s = draftSessions.get(channelId);
+    if (!s || !s.draftMsg) return;
+
+    if (s.timeoutTimer) clearTimeout(s.timeoutTimer);
+
+    const currentPlayer = s.players[s.currentTurnIndex];
+    s.currentRole = role;
+
+    if (!s.agentPool[role] || s.agentPool[role].length === 0) {
+        s.agentPool[role] = [...fullAgentsByRole[role]];
+    }
+
+    const pool = s.agentPool[role];
+
+    // Chạy hiệu ứng chữ cuộn (3 khung hình trễ 1 giây để chống Rate Limit)
+    for (let step = 0; step < 3; step++) {
+        const dummyAgent = pool[Math.floor(Math.random() * pool.length)];
+        const frameASCII = `┌──────────────────────────────┐\n` +
+                           `│      🌀 VÒNG QUAY VALORANT   │\n` +
+                           `├──────────────────────────────┤\n` +
+                           `│  ➔ Lượt: ${currentPlayer.displayName}\n` +
+                           `│  ➔ Quay hệ: ${role.toUpperCase()}\n` +
+                           `│                              │\n` +
+                           `│      👉 [ ${dummyAgent.toUpperCase()} ]         │\n` +
+                           `└──────────────────────────────┘`;
+
+        const animEmbed = new EmbedBuilder()
+            .setTitle(`🌀 ĐANG QUAY TƯỚNG CHO ${currentPlayer.displayName.toUpperCase()}...`)
+            .setDescription(`\`\`\`text\n${frameASCII}\n\`\`\``)
+            .setColor(0xFF4654)
+            .setThumbnail(currentPlayer.avatarUrl);
+
+        await s.draftMsg.edit({ embeds: [animEmbed], components: [] }).catch(()=>{});
+        await sleep(1000);
+    }
+
+    // Kết quả tướng thật
+    s.currentAgent = pool[Math.floor(Math.random() * pool.length)];
+    s.changeAttempts = 0;
+
+    await showSelectionBoard(interaction, channelId);
+}
+
+/**
+ * Bảng hiển thị kết quả bốc được để chốt hoặc đổi
+ */
+async function showSelectionBoard(interaction: any, channelId: string) {
+    const s = draftSessions.get(channelId);
+    if (!s || !s.draftMsg) return;
+
+    const currentPlayer = s.players[s.currentTurnIndex];
+    const iconUrl = agentIcons.get(s.currentAgent.toLowerCase().trim()) || "";
+    const rosterText = displayRosterSoFar(s.players);
+
+    const boardASCII = `┌──────────────────────────────┐\n` +
+                      `│      🎉 KẾT QUẢ BỐC TƯỚNG    │\n` +
+                      `├──────────────────────────────┤\n` +
+                      `│  Lượt: ${currentPlayer.displayName}\n` +
+                      `│  Hệ:   ${s.currentRole.toUpperCase()}\n` +
+                      `│                              │\n` +
+                      `│      ⭐  ${s.currentAgent.toUpperCase()}  ⭐\n` +
+                      `└──────────────────────────────┘`;
+
+    const embed = new EmbedBuilder()
+        .setTitle(`🎭 QUAY TRÚNG: ${s.currentAgent.toUpperCase()}`)
+        .setDescription(`\`\`\`text\n${boardASCII}\n\`\`\`\n**Đội hình hiện tại:**\n${rosterText}\n\n👉 <@${currentPlayer.userId}>, mày có đồng ý chọn **${s.currentAgent}** không? Mày có **15 giây** để chốt hoặc đổi.`)
+        .setColor(0xFF4654)
+        .setThumbnail(currentPlayer.avatarUrl);
+
+    if (iconUrl) {
+        embed.setImage(iconUrl);
+    }
+
+    const row = new ActionRowBuilder<ButtonBuilder>();
+    row.addComponents(new ButtonBuilder().setCustomId('vd_chot').setLabel('✅ Chốt luôn').setStyle(ButtonStyle.Success));
+    
+    if (s.changeAttempts === 0) {
+        row.addComponents(new ButtonBuilder().setCustomId('vd_doi').setLabel('🔄 Bốc con khác (1 lần)').setStyle(ButtonStyle.Danger));
+    }
+
+    if (interaction && (interaction.replied || interaction.deferred)) {
+        await interaction.editReply({ embeds: [embed], components: [row] }).catch(()=>{});
+    } else {
+        await s.draftMsg.edit({ embeds: [embed], components: [row] }).catch(()=>{});
+    }
+
+    // Khởi tạo collector cho nút chốt/đổi
+    const buttonCollector = s.draftMsg.createMessageComponentCollector({
+        filter: (btnInteract) => btnInteract.user.id === currentPlayer.userId,
+        time: 15000,
+        max: 1
+    });
+
+    buttonCollector.on('collect', async (btnInteract: any) => {
+        if (btnInteract.customId === 'vd_chot') {
+            await btnInteract.deferUpdate().catch(()=>{});
+            currentPlayer.agent = s.currentAgent;
+            currentPlayer.role = s.currentRole;
+            s.agentPool[s.currentRole] = s.agentPool[s.currentRole].filter(a => a !== s.currentAgent);
+            s.currentTurnIndex++;
+            await startDraftTurns(channelId);
+        } 
+        else if (btnInteract.customId === 'vd_doi') {
+            s.changeAttempts = 1;
+            s.agentPool[s.currentRole] = s.agentPool[s.currentRole].filter(a => a !== s.currentAgent);
+            
+            // Quay lại ngay lập tức
+            await btnInteract.deferUpdate().catch(()=>{});
+            await rollAgent(s.currentRole, null, channelId);
+        }
+    });
+
+    buttonCollector.on('end', async (collected, reason) => {
+        // Nếu hết 15s mà người chơi không nhấn gì
+        if (reason === 'time' && collected.size === 0) {
+            const sCheck = draftSessions.get(channelId);
+            if (sCheck && sCheck.currentTurnIndex === s.currentTurnIndex) {
+                currentPlayer.agent = s.currentAgent;
+                currentPlayer.role = s.currentRole;
+                sCheck.agentPool[s.currentRole] = sCheck.agentPool[s.currentRole].filter(a => a !== s.currentAgent);
+                sCheck.currentTurnIndex++;
+                
+                const alertMsg = await (sCheck.draftMsg!.channel as any).send(`⏰ **Hết giờ!** Hệ thống đã tự động chốt tướng **${s.currentAgent}** cho <@${currentPlayer.userId}>.`).catch(()=>{});
+                setTimeout(() => {
+                    alertMsg?.delete().catch(()=>{});
+                }, 5000);
+
+                await startDraftTurns(channelId);
+            }
+        }
+    });
+}
+
+/**
+ * In ra kết quả đội hình cuối cùng
+ */
+async function showFinalResult(channelId: string) {
+    const s = draftSessions.get(channelId);
+    if (!s || !s.draftMsg) return;
+
+    if (s.timeoutTimer) clearTimeout(s.timeoutTimer);
+
+    const teamText = s.players.map((p, idx) => {
+        return `👤 **Vị trí ${idx + 1}**: <@${p.userId}> (${p.displayName}) ➡️ ⚔️ **${p.agent}** (${p.role})`;
+    }).join("\n");
+
+    const finalEmbed = new EmbedBuilder()
+        .setTitle("🏆 ĐỘI HÌNH RA SÂN CHÍNH THỨC 🏆")
+        .setDescription(`Các chiến thần đã chọn xong đội hình Valorant cực mạnh:\n\n${teamText}\n\n*Mau vào game và bán hành cho đối thủ thôi các con giời!*`)
+        .setColor(0x2ECC71) // Xanh lục thắng lợi
+        .setFooter({ text: "BotToan - Sòng bạc hoàng gia" });
+
+    await s.draftMsg.edit({ embeds: [finalEmbed], components: [] }).catch(()=>{});
+    draftSessions.delete(channelId);
+}
+
+// ================= ROUTING LẮNG NGHE SỰ KIỆN CHO VALORANT =================
+// Hàm lắng nghe riêng để tích hợp vào index.ts
+export function registerValorantCollector(client: any) {
+    client.on('interactionCreate', async (interaction: any) => {
+        if (!interaction.isButton()) return;
+        const id = interaction.customId;
+        const channelId = interaction.channelId;
+        const s = draftSessions.get(channelId);
+        if (!s) return;
+
+        const currentPlayer = s.players[s.currentTurnIndex];
+
+        // Lượt chọn Role
         if (id.startsWith('r_')) {
+            if (interaction.user.id !== currentPlayer.userId) {
+                await interaction.reply({ content: "Đéo phải lượt của mày chọn hệ!", ephemeral: true }).catch(()=>{});
+                return;
+            }
+
             let role = id.split('_')[1];
             if (role === 'random') {
                 const roles = ["Duelist", "Initiator", "Controller", "Sentinel"];
                 role = roles[Math.floor(Math.random() * roles.length)];
             } else {
-                role = role.charAt(0).toUpperCase() + role.slice(1); 
+                role = role.charAt(0).toUpperCase() + role.slice(1);
             }
-            await rollAgent(role, i);
-        } 
-        else if (id === 'a_chot') {
-            s.currentDraft.push(`${s.currentAgent} (${s.currentRole})`);
-            s.agentPool[s.currentRole] = s.agentPool[s.currentRole].filter(a => a !== s.currentAgent); 
-            
-            if (s.currentDraft.length === 5) {
-                const teamText = s.currentDraft.map((v, idx) => `**${idx + 1}.** ${v}`).join('\n');
-                
-                const finalEmbed = new EmbedBuilder()
-                    .setTitle("🏆 ĐỘI HÌNH HỦY DIỆT CHỐT XONG 🏆")
-                    .setColor(0x00FF00)
-                    .setDescription(`Đội hình ra sân chính thức:\n\n${teamText}\n\n*Chuẩn bị vào game và huỷ diệt phòng đấu thôi các con giời!*`)
-                    .setFooter({ text: "BotToan - Sòng bạc hoàng gia" });
 
-                await i.update({ embeds: [finalEmbed], components: [] }).catch(()=>{});
-                draftSessions.delete(channelId);
-                collector.stop();
-            } else {
-                await showRoleMenu(i); 
-            }
-        } 
-        else if (id === 'a_doi') {
-            s.agentPool[s.currentRole] = s.agentPool[s.currentRole].filter(a => a !== s.currentAgent); 
-            await rollAgent(s.currentRole, i); 
-        } 
-        else if (id === 'a_back') {
-            await showRoleMenu(i); 
+            await rollAgent(role, interaction, channelId);
         }
     });
-
-    collector.on('end', collected => {
-        const s = draftSessions.get(channelId);
-        if (s && s.isDrafting) {
-            draftSessions.delete(channelId);
-            draftMsg.reply("Ngâm lâu quá đéo ai bấm, tao tự hủy bàn draft nhé!").catch(()=>{});
-        }
-        draftMsg.edit({ components: [] }).catch(()=>{});
-    });
-
-    await showRoleMenu();
 }

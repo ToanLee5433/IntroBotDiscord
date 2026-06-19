@@ -1,5 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { getBalance, updateBalance } from '../database';
+import { sleep } from '../utils';
 
 interface Card {
     suit: string;
@@ -38,9 +39,9 @@ function calculateScore(hand: Card[]): number {
 
 function displayHand(hand: Card[], hideSecond = false): string {
     if (hideSecond && hand.length >= 2) {
-        return `\`[${hand[0].value}${hand[0].suit}]\` \`[??]\``;
+        return `[ ${hand[0].value}${hand[0].suit} ]  [ 🂠 ? ]`;
     }
-    return hand.map(c => `\`[${c.value}${c.suit}]\``).join(" ");
+    return hand.map(c => `[ ${c.value}${c.suit} ]`).join("  ");
 }
 
 /**
@@ -55,7 +56,7 @@ export async function playBlackjack(message: Message) {
     if (balance < 20) {
         const embed = new EmbedBuilder()
             .setTitle("🃏 SÒNG BÀI BLACKJACK - CHÁY TÚI")
-            .setDescription(`💸 **ĐÉO ĐỦ TIỀN VÀO BÀN!** Mày chỉ còn **${balance}k**.\nLệ phí cược Blackjack tối thiểu là **20k**. Chơi bầu cua kiếm thêm đi con ạ!`)
+            .setDescription(`💸 **ĐÉO ĐỦ TIỀN VÀO BÀN!** Mày chỉ còn **${balance}k**.\nLệ phí cược Blackjack tối thiểu là **20k**. Đi điểm danh hoặc vay tiền đi con ạ!`)
             .setColor(0xFF0000)
             .setThumbnail(message.author.displayAvatarURL());
         await message.reply({ embeds: [embed] });
@@ -66,27 +67,43 @@ export async function playBlackjack(message: Message) {
     balance -= 20;
     await updateBalance(userId, balance);
 
+    const draftMsg = await message.reply("🃏 **ĐANG XÀO BÀI... CHUẨN BỊ CHIA BÀI!**");
+    const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Phiên chơi tối đa 5 phút
+
+    // Hiệu ứng chia bài trễ 1 giây
+    const dealAnimEmbed = new EmbedBuilder()
+        .setTitle("🃏 ĐANG CHIA BÀI BLACKJACK...")
+        .setDescription("```text\n┌──────────────────────────────┐\n│      🃏 CASINO BLACKJACK 🃏  │\n├──────────────────────────────┤\n│  Dealer: [ 🂠 ] [ 🂠 ]         │\n│  Mày:    [ 🂠 ] [ 🂠 ]         │\n│                              │\n│   👉 ĐANG PHÁT BÀI...        │\n└──────────────────────────────┘\n```")
+        .setColor(0xFFA500)
+        .setThumbnail(message.author.displayAvatarURL());
+
+    await draftMsg.edit({ embeds: [dealAnimEmbed] }).catch(()=>{});
+    await sleep(1000); // Trễ 1 giây để tránh Rate Limit và tăng độ hồi hộp
+
     // Phát bài ban đầu
     const playerHand: Card[] = [drawCard(), drawCard()];
     const dealerHand: Card[] = [drawCard(), drawCard()];
 
-    const draftMsg = await message.reply("🃏 **ĐANG CHIA BÀI BLACKJACK... NHÌN BÀI CHO KĨ!**");
-    const collector = draftMsg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 300000 }); // Phiên chơi tối đa 5 phút
-
     const updateBoard = async (interaction?: any, extraMsg = "", isEnded = false, colorHex = 0x00AE86) => {
         const currentBalance = await getBalance(userId);
         const playerScore = calculateScore(playerHand);
-        const dealerScore = isEnded ? calculateScore(dealerHand) : dealerHand[0].score + (dealerHand[1].value === "A" ? 11 : dealerHand[1].score); // Chỉ show điểm lá 1
+        const dealerScoreDisplay = isEnded ? `${calculateScore(dealerHand)} đ` : `Ngửa: ${dealerHand[0].score} đ`;
+
+        const boardASCII = `┌──────────────────────────────┐\n` +
+                          `│     🃏 CASINO BLACKJACK 🃏   │\n` +
+                          `├──────────────────────────────┤\n` +
+                          `│ 🕴️ Nhà cái:  ${displayHand(dealerHand, !isEnded)}\n` +
+                          `│             (${dealerScoreDisplay})\n` +
+                          `├──────────────────────────────┤\n` +
+                          `│ 👤 Mày:     ${displayHand(playerHand)}\n` +
+                          `│             (${playerScore} đ)\n` +
+                          `└──────────────────────────────┘`;
 
         const embed = new EmbedBuilder()
             .setTitle("🃏 BÀN CHƠI BLACKJACK - BOTTOAN")
             .setColor(colorHex)
             .setThumbnail(message.author.displayAvatarURL())
-            .addFields(
-                { name: "🂴 Bài Của Mày", value: `${displayHand(playerHand)} (Tổng điểm: **${playerScore}**)`, inline: false },
-                { name: "🂺 Bài Của Nhà Cái (BotToan)", value: isEnded ? `${displayHand(dealerHand)} (Tổng điểm: **${calculateScore(dealerHand)}**)` : `${displayHand(dealerHand, true)} (Lá ngửa: **${dealerHand[0].score}**)`, inline: false }
-            )
-            .setDescription(extraMsg || `💰 Tài sản còn lại: **${currentBalance}k**\nLệ phí cược ván này: **20k**`)
+            .setDescription(`\`\`\`text\n${boardASCII}\n\`\`\`\n${extraMsg || `💰 Tài sản còn lại: **${currentBalance}k**\nLệ phí cược ván này: **20k**`}`)
             .setFooter({ text: isEnded ? "Trận đấu kết thúc" : "Rút thêm bài (Hit) hoặc Dằn bài (Stand)" });
 
         if (isEnded) {
@@ -101,8 +118,15 @@ export async function playBlackjack(message: Message) {
             new ButtonBuilder().setCustomId('bj_stand').setLabel('🛑 Dằn bài (Stand)').setStyle(ButtonStyle.Danger)
         );
 
-        if (interaction) await interaction.update({ embeds: [embed], components: [row] }).catch(()=>{});
-        else await draftMsg.edit({ embeds: [embed], components: [row] }).catch(()=>{});
+        if (interaction) {
+            if (interaction.replied || interaction.deferred) {
+                await interaction.editReply({ embeds: [embed], components: [row] }).catch(()=>{});
+            } else {
+                await interaction.update({ embeds: [embed], components: [row] }).catch(()=>{});
+            }
+        } else {
+            await draftMsg.edit({ embeds: [embed], components: [row] }).catch(()=>{});
+        }
     };
 
     collector.on('collect', async i => {
@@ -112,7 +136,7 @@ export async function playBlackjack(message: Message) {
         }
 
         if (isProcessing) {
-            await i.reply({ content: "Từ từ thôi mày, đang xào bài!", ephemeral: true }).catch(()=>{});
+            await i.reply({ content: "Từ từ thôi mày, đang rút bài!", ephemeral: true }).catch(()=>{});
             return;
         }
 
@@ -127,7 +151,7 @@ export async function playBlackjack(message: Message) {
             if (playerScore > 21) {
                 // Người chơi bị QUẮC (Bust)
                 isProcessing = false;
-                await updateBoard(i, "💀 **MÀY BỊ QUẮC RỒI!** Điểm vượt quá 21. Nhà cái lụm cmn **20k** cược.", true, 0xFF0000);
+                await updateBoard(i, "💀 **MÀY BỊ QUẮC RỒI!** Điểm vượt quá 21. Nhà cái lụm cmn **20k** cược.", true, 0xE74C3C);
                 return;
             }
 
@@ -144,7 +168,7 @@ export async function playBlackjack(message: Message) {
 
             const playerScore = calculateScore(playerHand);
             let finalMsg = "";
-            let colorHex = 0x00FF00;
+            let colorHex = 0x2ECC71;
             let currentBal = await getBalance(userId);
 
             if (dealerScore > 21) {
@@ -152,17 +176,17 @@ export async function playBlackjack(message: Message) {
                 currentBal += 40; // Trả cược + thắng 20k
                 await updateBalance(userId, currentBal);
                 finalMsg = "🎉 **NHÀ CÁI BỊ QUẮC!** Mày đã thắng và ăn **20k**.";
-                colorHex = 0x00FF00;
+                colorHex = 0x2ECC71;
             } else if (playerScore > dealerScore) {
                 // Người chơi điểm cao hơn
                 currentBal += 40;
                 await updateBalance(userId, currentBal);
                 finalMsg = `🎉 **MÀY THẮNG!** Điểm của mày (${playerScore}) cao hơn nhà cái (${dealerScore}). Húp **20k**.`;
-                colorHex = 0x00FF00;
+                colorHex = 0x2ECC71;
             } else if (playerScore < dealerScore) {
                 // Nhà cái điểm cao hơn
                 finalMsg = `💀 **MÀY THUA!** Điểm nhà cái (${dealerScore}) cao hơn mày (${playerScore}). Mất **20k**.`;
-                colorHex = 0xFF0000;
+                colorHex = 0xE74C3C;
             } else {
                 // Hòa (Push)
                 currentBal += 20; // Hoàn tiền cược
@@ -177,7 +201,6 @@ export async function playBlackjack(message: Message) {
     });
 
     collector.on('end', async () => {
-        // Đảm bảo nút bấm bị dọn dẹp nếu người chơi ngâm quá 5 phút
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 
@@ -187,7 +210,7 @@ export async function playBlackjack(message: Message) {
         let currentBal = await getBalance(userId);
         currentBal += 40; // Trả cược + thắng 20k
         await updateBalance(userId, currentBal);
-        await updateBoard(null, "🎉 **BLACKJACK 21 ĐIỂM!** Mày trúng độc đắc ăn luôn **20k**!", true, 0x00FF00);
+        await updateBoard(null, "🎉 **BLACKJACK 21 ĐIỂM!** Mày trúng độc đắc ăn luôn **20k**!", true, 0x2ECC71);
         return;
     }
 
