@@ -57,41 +57,36 @@ client.on('messageCreate', async (message: Message) => {
     const cleanInput = removeAccents(rawInput).toLowerCase();
     
     // ----------------- TÍNH NĂNG "CÂM" -----------------
-    const shutUpTriggers = ['cam', 'im', 'nin', 'cam mom', 'im di', 'im mom'];
+    const shutUpTriggers = ['cam', 'im', 'nin', 'ngung sua', 'cam mom', 'im di', 'im mom'];
     if (shutUpTriggers.some(t => cleanInput.includes(t))) {
-        await message.reply("Biết rồi, tao câm đây!");
+        message.reply("Biết rồi, tao câm đây!").catch(()=>{});
 
-        // Tìm kiếm và cách ly HornBot (nếu đang ở cùng phòng voice với người dùng phát lệnh)
-        try {
-            await message.guild?.members.fetch().catch(() => {});
-            const hornBot = message.guild?.members.cache.find(m => 
-                m.user.bot && (
-                    m.user.username.toLowerCase().includes('hornbot') || 
-                    m.user.username.toLowerCase().includes('horn') ||
-                    m.displayName.toLowerCase().includes('hornbot') ||
-                    m.displayName.toLowerCase().includes('horn')
-                )
-            );
+        // Di chuyển HornBot bất đồng bộ lập tức để ngắt tiếng
+        (async () => {
+            try {
+                const hornBotId = '1131890979100700712';
+                const hornBot = await message.guild?.members.fetch(hornBotId).catch(() => null);
 
-            if (hornBot && hornBot.voice.channelId) {
-                const senderVoiceChannelId = message.member?.voice.channelId;
-                // Chỉ di chuyển nếu HornBot đang ở cùng phòng với người ra lệnh câm lặng
-                if (senderVoiceChannelId && hornBot.voice.channelId === senderVoiceChannelId) {
-                    const currentChId = hornBot.voice.channelId;
-                    const otherChannel = message.guild?.channels.cache.find(c => 
-                        c.isVoiceBased() && c.id !== currentChId
-                    );
+                if (hornBot && hornBot.voice.channelId) {
+                    const senderVoiceChannelId = message.member?.voice.channelId;
+                    // Chỉ di chuyển nếu HornBot đang ở cùng phòng với người ra lệnh câm lặng
+                    if (senderVoiceChannelId && hornBot.voice.channelId === senderVoiceChannelId) {
+                        const currentChId = hornBot.voice.channelId;
+                        const otherChannel = message.guild?.channels.cache.find(c => 
+                            c.isVoiceBased() && c.id !== currentChId
+                        );
 
-                    if (otherChannel) {
-                        await hornBot.voice.setChannel(otherChannel.id, "Bị BotToan bắt câm (cách ly)").catch(() => {});
-                    } else {
-                        await hornBot.voice.disconnect("Bị BotToan bắt câm (cách ly)").catch(() => {});
+                        if (otherChannel) {
+                            await hornBot.voice.setChannel(otherChannel.id, "Bị BotToan bắt câm (cách ly)").catch(() => {});
+                        } else {
+                            await hornBot.voice.disconnect("Bị BotToan bắt câm (cách ly)").catch(() => {});
+                        }
                     }
                 }
+            } catch (err) {
+                console.error("Lỗi khi cách ly HornBot:", err);
             }
-        } catch (err) {
-            console.error("Lỗi khi cách ly HornBot:", err);
-        }
+        })();
         return; 
     }
 

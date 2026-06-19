@@ -1,5 +1,5 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import { getBalance, updateBalance } from '../database';
+import { getBalance, updateBalance, getDebt } from '../database';
 import { formatMoney } from '../utils';
 
 interface RouletteSession {
@@ -14,6 +14,17 @@ interface RouletteSession {
  */
 export async function playRussianRoulette(message: Message, betAmount: number) {
     const creatorId = message.author.id;
+
+    const debt = await getDebt(creatorId);
+    if (debt > 0) {
+        const embed = new EmbedBuilder()
+            .setTitle("🚫 BỊ CẤM CỬA VÀO SÒNG CASINO")
+            .setDescription(`💀 **MÀY ĐANG NỢ CHỒNG CHẤT!**\nHiện tại mày đang nợ ngân hàng BotToan tổng cộng **${formatMoney(debt)}**.\n\nTheo luật **"Nợ là Danh dự"**, mày bị cấm tham gia sòng cờ bạc Vòng Quay Tử Thần! Mau gõ \`@BotToan tra no het\` để trả nợ rồi mới được tạo phòng chơi con ạ!`)
+            .setColor(0xFF0000)
+            .setThumbnail(message.author.displayAvatarURL());
+        await message.reply({ embeds: [embed] });
+        return;
+    }
 
     if (betAmount < 10) {
         await message.reply(`❌ Tiền cược tối thiểu để chơi Vòng Quay Tử Thần là **${formatMoney(10)}**!`);
@@ -76,6 +87,13 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
 
             if (session.players.length >= 6) {
                 await i.reply({ content: "Sòng đã đầy! Tối đa chỉ 6 người chơi thôi.", ephemeral: true }).catch(()=>{});
+                return;
+            }
+
+            // Kiểm tra nợ của người muốn tham gia
+            const userDebt = await getDebt(userId);
+            if (userDebt > 0) {
+                await i.reply({ content: `❌ **CẤM ĐỎ ĐEN!** Mày đang nợ BotToan **${formatMoney(userDebt)}**.\nTheo luật **"Nợ là Danh dự"**, trả nợ xong thì mới được tham gia sòng cược con ạ!`, ephemeral: true }).catch(()=>{});
                 return;
             }
 
