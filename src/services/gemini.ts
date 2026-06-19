@@ -12,14 +12,37 @@ interface ChatMessage {
     parts: { text: string }[];
 }
 
-const chatHistories = new Map<string, ChatMessage[]>();
+// Lưu lịch sử chat + timestamp lần dùng cuối cùng để cleanup
+const chatHistories = new Map<string, { history: ChatMessage[]; lastUsed: number }>();
+
+// Cleanup mỗi 30 phút: xóa lịch sử của user không hoạt động > 60 phút
+// Ngăn RAM leak khi server chạy lâu dài
+const HISTORY_TTL_MS = 60 * 60 * 1000; // 60 phút không chat -> xóa
+const MAX_HISTORY_SIZE = 100; // Tối đa 100 users trong bộ nhớ cùng lúc
+
+setInterval(() => {
+    const now = Date.now();
+    for (const [userId, entry] of chatHistories.entries()) {
+        if (now - entry.lastUsed > HISTORY_TTL_MS) {
+            chatHistories.delete(userId);
+        }
+    }
+    // Nếu vẫn vượt max size (nhiều user đang active), xóa entry cũ nhất
+    if (chatHistories.size > MAX_HISTORY_SIZE) {
+        const sortedEntries = [...chatHistories.entries()].sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+        const toDelete = sortedEntries.slice(0, chatHistories.size - MAX_HISTORY_SIZE);
+        for (const [uid] of toDelete) {
+            chatHistories.delete(uid);
+        }
+    }
+}, 30 * 60 * 1000); // Chạy cleanup mỗi 30 phút
 
 /**
  * Gửi câu hỏi đến Gemini và nhận phản hồi theo phong cách BotToan bựa, giữ lịch sử 10 câu gần nhất.
  */
 export async function chatWithGemini(userId: string, userQuestion: string): Promise<string> {
     const model = genAI.getGenerativeModel({ 
-        model: "gemini-3.1-flash-lite",
+        model: "gemini-2.0-flash-lite",
         systemInstruction: `
             Bạn là BotToan, trợ lý Discord "bựa", hài hước, dùng từ lóng, cà khịa bạn bè.
             QUY TẮC: 
@@ -30,7 +53,8 @@ export async function chatWithGemini(userId: string, userQuestion: string): Prom
         `
     });
 
-    const history = chatHistories.get(userId) || [];
+    const entry = chatHistories.get(userId);
+    const history = entry ? entry.history : [];
 
     const chat = model.startChat({
         history: history
@@ -40,7 +64,11 @@ export async function chatWithGemini(userId: string, userQuestion: string): Prom
     const responseText = result.response.text();
 
     const newHistory = await chat.getHistory();
-    chatHistories.set(userId, newHistory.slice(-10) as ChatMessage[]);
+    // Cập nhật lịch sử + thời gian dùng cuối
+    chatHistories.set(userId, {
+        history: newHistory.slice(-10) as ChatMessage[],
+        lastUsed: Date.now()
+    });
 
     return responseText;
 }

@@ -86,8 +86,6 @@ export async function playPokerRoulette(message: Message, betAmount: number) {
     creatorBalance -= betAmount;
     await updateBalance(creatorId, creatorBalance);
 
-    activeGamePlayers.add(creatorId);
-
     const sessionPlayers: string[] = [creatorId];
     let isStarted = false;
 
@@ -110,6 +108,8 @@ export async function playPokerRoulette(message: Message, betAmount: number) {
         embeds: [updateLobbyEmbed()], 
         components: [lobbyRow] 
     });
+    // Chỉ add vào Set SAU khi lobbyMsg tồn tại — đảm bảo luôn được xoá trong collector.on('end')
+    activeGamePlayers.add(creatorId);
 
     const lobbyCollector = lobbyMsg.createMessageComponentCollector({ 
         componentType: ComponentType.Button, 

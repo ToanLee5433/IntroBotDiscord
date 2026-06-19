@@ -58,6 +58,7 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
     
     // Lưu vết người đã giật
     const grabbedUsers: { userId: string; amount: number }[] = [];
+    let isGrabbing = false; // Lock chống race condition: 2 người bấm cùng lúc pop cùng 1 phần
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('lx_giat').setLabel('🧧 Giật Lì Xì').setStyle(ButtonStyle.Danger)
@@ -85,38 +86,49 @@ export async function handleLixi(message: Message, amount: number, maxPeople: nu
             return;
         }
 
+        // Chặn concurrent grab — 2 người bấm cùng lúc
+        if (isGrabbing) {
+            await i.reply({ content: "🚦 Ơ bấm nhanh quá! Chờ tí đợi người trước lấy xong đã con!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
         // Kiểm tra xem đã giật chưa
         if (grabbedUsers.some(u => u.userId === userId)) {
             await i.reply({ content: "Mày giật một lần rồi, tham lam vừa thôi nhường cho đứa khác nữa!", ephemeral: true }).catch(()=>{});
             return;
         }
 
-        // Lấy phần lì xì ra
-        const grabAmount = cuts.pop();
-        if (grabAmount === undefined) {
-            await i.reply({ content: "Bao lì xì đã được giật hết sạch rồi con ạ, chậm chân rồi!", ephemeral: true }).catch(()=>{});
-            collector.stop();
-            return;
-        }
+        isGrabbing = true;
+        try {
+            // Lấy phần lì xì ra
+            const grabAmount = cuts.pop();
+            if (grabAmount === undefined) {
+                await i.reply({ content: "Bao lì xì đã được giật hết sạch rồi con ạ, chậm chân rồi!", ephemeral: true }).catch(()=>{});
+                collector.stop();
+                return;
+            }
 
-        // Cộng tiền cho người giật
-        let userBalance = await getBalance(userId);
-        userBalance += grabAmount;
-        await updateBalance(userId, userBalance);
+            // Cộng tiền cho người giật
+            let userBalance = await getBalance(userId);
+            userBalance += grabAmount;
+            await updateBalance(userId, userBalance);
 
-        grabbedUsers.push({ userId, amount: grabAmount });
+            grabbedUsers.push({ userId, amount: grabAmount });
 
-        // Cập nhật Embed danh sách người đã giật
-        const listText = grabbedUsers.map((u, idx) => `**${idx + 1}.** <@${u.userId}> đã cướp được **${formatMoney(u.amount)}**`).join("\n");
-        const updatedEmbed = EmbedBuilder.from(embed)
-            .setDescription(`Đại gia <@${senderId}> vừa thả bao lì xì trị giá **${formatMoney(amount)}**!\nSố phần còn lại: **${cuts.length} / ${maxPeople}**\n\n👥 **Danh sách cướp được:**\n${listText}`);
+            // Cập nhật Embed danh sách người đã giật
+            const listText = grabbedUsers.map((u, idx) => `**${idx + 1}.** <@${u.userId}> đã cướp được **${formatMoney(u.amount)}**`).join("\n");
+            const updatedEmbed = EmbedBuilder.from(embed)
+                .setDescription(`Đại gia <@${senderId}> vừa thả bao lì xì trị giá **${formatMoney(amount)}**!\nSố phần còn lại: **${cuts.length} / ${maxPeople}**\n\n👥 **Danh sách cướp được:**\n${listText}`);
 
-        await i.reply({ content: `🧧 Mày đã giật được **${formatMoney(grabAmount)}**!`, ephemeral: true }).catch(()=>{});
+            await i.reply({ content: `🧧 Mày đã giật được **${formatMoney(grabAmount)}**!`, ephemeral: true }).catch(()=>{});
 
-        if (cuts.length === 0) {
-            collector.stop();
-        } else {
-            await lixiMsg.edit({ embeds: [updatedEmbed] }).catch(()=>{});
+            if (cuts.length === 0) {
+                collector.stop();
+            } else {
+                await lixiMsg.edit({ embeds: [updatedEmbed] }).catch(()=>{});
+            }
+        } finally {
+            isGrabbing = false;
         }
     });
 
