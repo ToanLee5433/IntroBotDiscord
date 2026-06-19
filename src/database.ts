@@ -1,6 +1,6 @@
 import mongoose, { Schema, model } from 'mongoose';
 import { MONGO_URI } from './config';
-import { formatMoney } from './utils';
+import { formatMoney, parseMoneyInput } from './utils';
 
 // Fallback in-memory store in case MONGO_URI is missing or connection fails
 const playerBalancesInMemory: { [userId: string]: number } = {};
@@ -159,18 +159,38 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
             const streakBonus = Math.min(25, currentStreak * 5); // Tối đa bonus 25k ở ngày thứ 5+
             const totalReward = baseReward + streakBonus;
 
-            user.balance += totalReward;
+            // Khấu trừ nợ tự động (20% - 30%)
+            let garnishment = 0;
+            let rewardLeft = totalReward;
+            if (user.debt && user.debt > 0) {
+                const garnishmentPercent = 20 + Math.floor(Math.random() * 11);
+                garnishment = Math.min(user.debt, Math.floor(totalReward * (garnishmentPercent / 100)));
+                user.debt -= garnishment;
+                rewardLeft = totalReward - garnishment;
+            }
+
+            user.balance += rewardLeft;
             user.lastDaily = now;
             user.streak = currentStreak;
             await user.save();
 
             const progress = getStreakProgressBar(currentStreak);
-            return {
-                success: true,
-                amount: totalReward,
-                balance: user.balance,
-                message: `🎉 **Điểm danh thành công!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(user.balance)}**`
-            };
+            
+            if (garnishment > 0) {
+                return {
+                    success: true,
+                    amount: rewardLeft,
+                    balance: user.balance,
+                    message: `🎉 **Điểm danh thành công!** Mày nhận được **${formatMoney(baseReward)}** điểm danh, tao cầm trước **${formatMoney(garnishment)}** nợ nhé, còn lại **${formatMoney(rewardLeft)}** cầm mà đi chơi tiếp đi.\n\n${progress}\n\n💰 **Ví hiện tại:** **${formatMoney(user.balance)}** | 🏦 **Nợ còn lại:** **${formatMoney(user.debt)}**`
+                };
+            } else {
+                return {
+                    success: true,
+                    amount: totalReward,
+                    balance: user.balance,
+                    message: `🎉 **Điểm danh thành công!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(user.balance)}**`
+                };
+            }
         } catch (error) {
             console.error("[DB LỖI] Lỗi điểm danh trên MongoDB:", error);
         }
@@ -203,18 +223,40 @@ export async function claimDaily(userId: string): Promise<{ success: boolean; am
     const totalReward = baseReward + streakBonus;
 
     let balance = await getBalance(userId);
-    balance += totalReward;
+    let debt = await getDebt(userId);
+    let garnishment = 0;
+    let rewardLeft = totalReward;
+
+    if (debt > 0) {
+        const garnishmentPercent = 20 + Math.floor(Math.random() * 11);
+        garnishment = Math.min(debt, Math.floor(totalReward * (garnishmentPercent / 100)));
+        debt -= garnishment;
+        rewardLeft = totalReward - garnishment;
+        playerDebtsInMemory[userId] = debt;
+    }
+
+    balance += rewardLeft;
     playerBalancesInMemory[userId] = balance;
     playerLastDailyInMemory[userId] = now;
     playerStreaksInMemory[userId] = currentStreak;
 
     const progress = getStreakProgressBar(currentStreak);
-    return {
-        success: true,
-        amount: totalReward,
-        balance,
-        message: `🎉 **Điểm danh thành công (RAM DB)!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(balance)}**`
-    };
+    
+    if (garnishment > 0) {
+        return {
+            success: true,
+            amount: rewardLeft,
+            balance,
+            message: `🎉 **Điểm danh thành công (RAM DB)!** Mày nhận được **${formatMoney(baseReward)}** điểm danh, tao cầm trước **${formatMoney(garnishment)}** nợ nhé, còn lại **${formatMoney(rewardLeft)}** cầm mà đi chơi tiếp đi.\n\n${progress}\n\n💰 **Ví hiện tại:** **${formatMoney(balance)}** | 🏦 **Nợ còn lại:** **${formatMoney(debt)}**`
+        };
+    } else {
+        return {
+            success: true,
+            amount: totalReward,
+            balance,
+            message: `🎉 **Điểm danh thành công (RAM DB)!** Mày nhận **${formatMoney(baseReward)}** + bonus chuỗi **+${formatMoney(streakBonus)}**.\n\n${progress}\n\n🎁 **Tổng nhận:** **${formatMoney(totalReward)}**\n💰 **Số dư hiện tại:** **${formatMoney(balance)}**`
+        };
+    }
 }
 
 /**
@@ -340,9 +382,18 @@ export async function getDebt(userId: string): Promise<number> {
  */
 export async function borrowMoney(userId: string): Promise<{ success: boolean; balance: number; debt: number; message: string }> {
     const currentBalance = await getBalance(userId);
+    const debt = await getDebt(userId);
+
+    if (debt >= 500) {
+        return {
+            success: false,
+            balance: currentBalance,
+            debt: debt,
+            message: `❌ **HẠN MỨC NỢ KỊCH TRẦN!** Mày đang nợ tao kịch khung **${formatMoney(debt)}** rồi con ạ! Trả bớt nợ đi rồi tao mới cho vay tiếp, đéo cho vay khôn thế đâu!`
+        };
+    }
     
     if (currentBalance >= 10) {
-        const debt = await getDebt(userId);
         return {
             success: false,
             balance: currentBalance,
@@ -374,16 +425,78 @@ export async function borrowMoney(userId: string): Promise<{ success: boolean; b
     }
 
     // Fallback to In-Memory
-    const debt = (playerDebtsInMemory[userId] || 0) + borrowAmount;
-    playerDebtsInMemory[userId] = debt;
+    const newDebt = (playerDebtsInMemory[userId] || 0) + borrowAmount;
+    playerDebtsInMemory[userId] = newDebt;
     playerBalancesInMemory[userId] = currentBalance + borrowAmount;
 
     return {
         success: true,
         balance: playerBalancesInMemory[userId],
-        debt: debt,
-        message: `🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN (RAM DB):**\nBơm thêm **${formatMoney(borrowAmount)}** vào ví chung. Mày đang nợ tao tổng **${formatMoney(debt)}**. Gỡ lẹ đi!`
+        debt: newDebt,
+        message: `🏦 **NGÂN HÀNG BOTTOAN GIẢI NGÂN (RAM DB):**\nBơm thêm **${formatMoney(borrowAmount)}** vào ví chung. Mày đang nợ tao tổng **${formatMoney(newDebt)}**. Gỡ lẹ đi!`
     };
+}
+
+/**
+ * Thực hiện trả nợ ngân hàng tự nguyện
+ */
+export async function payDebt(userId: string, target?: string): Promise<{ success: boolean; message: string }> {
+    let balance = await getBalance(userId);
+    let debt = await getDebt(userId);
+
+    if (debt <= 0) {
+        return {
+            success: false,
+            message: `Mày có nợ nần gì tao đâu mà đòi trả? Lo đi cờ bạc tiếp đi con ạ! Ví còn **${formatMoney(balance)}**.`
+        };
+    }
+
+    let payAmount = 0;
+    if (!target || target === 'het' || target === 'all') {
+        payAmount = Math.min(balance, debt);
+    } else {
+        const parsed = parseMoneyInput(target);
+        if (parsed === null || parsed <= 0) {
+            return {
+                success: false,
+                message: `Cú pháp trả nợ sai rồi! Nhập dạng \`tra no 50k\` hoặc \`tra no het\`.`
+            };
+        }
+        payAmount = Math.min(balance, debt, parsed);
+    }
+
+    if (payAmount <= 0) {
+        return {
+            success: false,
+            message: `Mày làm đéo gì còn đồng nào trong ví mà đòi trả nợ? Đi điểm danh hoặc vay tiếp (nếu chưa kịch trần) đi con ạ!`
+        };
+    }
+
+    balance -= payAmount;
+    debt -= payAmount;
+
+    await updateBalance(userId, balance);
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate({ userId }, { debt });
+        } catch (err) {
+            console.error("Lỗi cập nhật nợ trên MongoDB:", err);
+        }
+    } else {
+        playerDebtsInMemory[userId] = debt;
+    }
+
+    if (debt === 0) {
+        return {
+            success: true,
+            message: `🎉 **TUNG HÔ QUÝ NHÂN UY TÍN!** 🎉\n<@${userId}> đã hoàn thành nghĩa vụ quốc gia, trả sạch toàn bộ nợ nần! Anh em trong server vỗ tay tuyên dương người chơi hệ uy tín này nào! 👏👏👏\n\n💰 **Ví hiện tại:** **${formatMoney(balance)}**`
+        };
+    } else {
+        return {
+            success: true,
+            message: `🏦 **Trả nợ thành công!** Mày đã trả **${formatMoney(payAmount)}**.\n💰 **Số dư còn lại:** **${formatMoney(balance)}**\n🏦 **Nợ còn lại:** **${formatMoney(debt)}**`
+        };
+    }
 }
 
 /**

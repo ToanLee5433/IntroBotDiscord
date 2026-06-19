@@ -1,5 +1,5 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import { getBalance, updateBalance } from '../database';
+import { getBalance, updateBalance, getDebt } from '../database';
 import { sleep, formatMoney } from '../utils';
 
 interface Card {
@@ -49,6 +49,18 @@ function displayHand(hand: Card[], hideSecond = false): string {
  */
 export async function playBlackjack(message: Message) {
     const userId = message.author.id;
+
+    const debt = await getDebt(userId);
+    if (debt > 0) {
+        const embed = new EmbedBuilder()
+            .setTitle("🚫 BỊ CẤM CỬA VÀO SÒNG CASINO")
+            .setDescription(`💀 **MÀY ĐANG NỢ CHỒNG CHẤT!**\nHiện tại mày đang nợ ngân hàng BotToan tổng cộng **${formatMoney(debt)}**.\n\nTheo luật **"Nợ là Danh dự"**, mày bị cấm cửa tham gia mọi sòng cờ bạc đỏ đen! Mau gõ \`@BotToan tra no het\` để trả nợ rồi mới được chơi tiếp con ạ!`)
+            .setColor(0xFF0000)
+            .setThumbnail(message.author.displayAvatarURL());
+        await message.reply({ embeds: [embed] });
+        return;
+    }
+
     let isProcessing = false;
 
     // Phí vào bàn là 20k

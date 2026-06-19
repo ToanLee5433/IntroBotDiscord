@@ -21,7 +21,7 @@ import { chatWithGemini } from './services/gemini';
 
 
 import { sleep, removeAccents, formatMoney, parseMoneyInput } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts } from './database';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt } from './database';
 
 
 
@@ -103,6 +103,23 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG TRẢ NỢ NGÂN HÀNG -----------------
+    const payDebtRegex = /^(tra no|pay debt)(?:\s+(\S+))?/i;
+    const payDebtMatch = cleanInput.match(payDebtRegex);
+    if (payDebtMatch) {
+        const target = payDebtMatch[2]; // 'het', '50k', 'all', undefined
+        const result = await payDebt(message.author.id, target);
+        
+        const embed = new EmbedBuilder()
+            .setTitle(result.success ? "🏦 GIAO DỊCH TRẢ NỢ" : "🏦 LỖI GIAO DỊCH TRẢ NỢ")
+            .setDescription(result.message)
+            .setColor(result.success ? 0x2ECC71 : 0xFF0000)
+            .setFooter({ text: "BotToan - Ngân hàng hoàng gia" });
+
+        await message.reply({ embeds: [embed] });
+        return;
+    }
+
     // ----------------- TÍNH NĂNG ĐIỂM DANH TÀI SẢN -----------------
     const checkWalletTriggers = ['tai san', 'vi tien', 'check tien', 'bop tien', 'vi', 'tai san'];
     if (checkWalletTriggers.some(t => cleanInput.includes(t))) {
@@ -120,7 +137,8 @@ client.on('messageCreate', async (message: Message) => {
             for (const r of results) {
                 const member = memberMap.get(r.userId);
                 const name = member ? member.displayName : `<@${r.userId}>`;
-                outputText += `- **${name}**: Ví: **${formatMoney(r.balance)}** | Nợ: **${formatMoney(r.debt)}**\n`;
+                const displayName = r.debt > 100 ? `${name} ⚠️ (Con Nợ Bot)` : name;
+                outputText += `- **${displayName}**: Ví: **${formatMoney(r.balance)}** | Nợ: **${formatMoney(r.debt)}**\n`;
             }
         } else {
             outputText += `🌍 **Danh sách tổng hợp toàn server:**\n`;
@@ -131,7 +149,8 @@ client.on('messageCreate', async (message: Message) => {
                 for (const r of results) {
                     const member = message.guild?.members.cache.get(r.userId);
                     const name = member ? member.displayName : `<@${r.userId}>`;
-                    outputText += `- **${name}**: Ví: **${formatMoney(r.balance)}** | Nợ: **${formatMoney(r.debt)}**\n`;
+                    const displayName = r.debt > 100 ? `${name} ⚠️ (Con Nợ Bot)` : name;
+                    outputText += `- **${displayName}**: Ví: **${formatMoney(r.balance)}** | Nợ: **${formatMoney(r.debt)}**\n`;
                 }
             }
         }
