@@ -1087,3 +1087,78 @@ export async function drawLottery(dateStr: string): Promise<{ success: boolean; 
         jackpotPool: pool
     };
 }
+
+/**
+ * Lấy thông tin đợt quay xổ số gần nhất đã hoàn thành
+ */
+export async function getLastLotteryDraw(): Promise<{
+    success: boolean;
+    date: string;
+    winningNumber: string;
+    jackpotPool: number;
+    winners: { userId: string; ticketsCount: number; payout: number }[];
+} | null> {
+    if (useMongoDB) {
+        try {
+            const lastState = await LotteryStateModel.findOne({ drawn: true }).sort({ date: -1 });
+            if (!lastState) return null;
+
+            // Tìm các vé trúng thưởng vào ngày này
+            const matchingTickets = await LotteryTicketModel.find({ date: lastState.date, number: lastState.winningNumber });
+            const totalWinningTickets = matchingTickets.length;
+            const payoutPerTicket = totalWinningTickets > 0 ? Math.floor(lastState.jackpotPool / totalWinningTickets) : 0;
+
+            const userTicketCounts: { [userId: string]: number } = {};
+            for (const t of matchingTickets) {
+                userTicketCounts[t.userId] = (userTicketCounts[t.userId] || 0) + 1;
+            }
+
+            const winners = Object.keys(userTicketCounts).map(uId => ({
+                userId: uId,
+                ticketsCount: userTicketCounts[uId],
+                payout: payoutPerTicket * userTicketCounts[uId]
+            }));
+
+            return {
+                success: true,
+                date: lastState.date,
+                winningNumber: lastState.winningNumber,
+                jackpotPool: lastState.jackpotPool,
+                winners
+            };
+        } catch (err) {
+            console.error("Lỗi lấy thông tin kqxs từ MongoDB:", err);
+            return null;
+        }
+    }
+
+    // Fallback to In-Memory
+    const drawnDates = Object.keys(inMemoryLotteryStates).filter(d => inMemoryLotteryStates[d].drawn).sort();
+    if (drawnDates.length === 0) return null;
+
+    const lastDate = drawnDates[drawnDates.length - 1];
+    const winNum = inMemoryLotteryStates[lastDate].winningNumber;
+
+    const matchingTickets = inMemoryTickets.filter(t => t.date === lastDate && t.number === winNum);
+    const totalWinningTickets = matchingTickets.length;
+    const payoutPerTicket = totalWinningTickets > 0 ? Math.floor(inMemoryJackpotPool / totalWinningTickets) : 0;
+
+    const userTicketCounts: { [userId: string]: number } = {};
+    for (const t of matchingTickets) {
+        userTicketCounts[t.userId] = (userTicketCounts[t.userId] || 0) + 1;
+    }
+
+    const winners = Object.keys(userTicketCounts).map(uId => ({
+        userId: uId,
+        ticketsCount: userTicketCounts[uId],
+        payout: payoutPerTicket * userTicketCounts[uId]
+    }));
+
+    return {
+        success: true,
+        date: lastDate,
+        winningNumber: winNum,
+        jackpotPool: inMemoryJackpotPool,
+        winners
+    };
+}

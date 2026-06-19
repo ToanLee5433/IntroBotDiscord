@@ -23,7 +23,7 @@ import { fetchValorantRank } from './services/valorant';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery } from './database';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw } from './database';
 
 
 
@@ -265,6 +265,63 @@ client.on('messageCreate', async (message: Message) => {
             .setFooter({ text: "Quay số chính xác vào 18:30 hàng ngày!" })
             .setThumbnail(message.author.displayAvatarURL());
 
+        await message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG XEM KẾT QUẢ XỔ SỐ (MỚI) -----------------
+    const kqxsTriggers = ['kqxs', 'ket qua xo so', 'xo so', 'kq ve so', 'ket qua ve so'];
+    if (kqxsTriggers.some(t => cleanInput === t)) {
+        const lastDraw = await getLastLotteryDraw();
+        
+        if (!lastDraw) {
+            // Null Handling: chưa từng có đợt quay nào
+            await message.reply("❌ **SÒNG MỚI KHAI TRƯƠNG!** Chưa tới giờ quay phát nào mà đã đòi xem kết quả! Lo mà nôn 10k ra mua vé đi các con giời! Gõ `@BotToan mua ve 79` cúng tiền lẹ!");
+            return;
+        }
+        
+        // Tạo bảng vàng kết quả xổ số kiến thiết cực đẹp và bựa
+        const embed = new EmbedBuilder()
+            .setTitle("🎰 BẢNG VÀNG XỔ SỐ KIẾN THIẾT BOTTOAN 🎰")
+            .setColor(0xF1C40F)
+            .setFooter({ text: "Quay thưởng tự động chính xác lúc 18:30 tối hàng ngày!" })
+            .setTimestamp();
+            
+        let desc = `📆 **Đợt quay ngày:** \`${lastDraw.date}\` (Giờ Việt Nam)\n`;
+        desc += `🔮 **Con số thần tài nổ giải:** 🎉 **${lastDraw.winningNumber}** 🎉\n`;
+        desc += `💰 **Trị giá hũ Jackpot lúc quay:** **${formatMoney(lastDraw.jackpotPool)}**\n\n`;
+        
+        if (lastDraw.winners && lastDraw.winners.length > 0) {
+            desc += `🏆 **DANH SÁCH CHIẾN THẦN HÚP LỘC:**\n`;
+            for (const w of lastDraw.winners) {
+                desc += `- <@${w.userId}> trúng **${w.ticketsCount} vé** húp về **${formatMoney(w.payout)}**!\n`;
+            }
+            
+            const winTrolls = [
+                "Trúng giải rồi thì nhớ chia lộc cho tao, cấm bùng nợ nghe chưa các con nghiện!",
+                "Ăn đậm thế tối nay bao cả sòng bài nhé chiến thần!",
+                "Jackpot nổ to quá, chúc mừng các đại gia mới nổi tối nay ăn chơi sa đọa!"
+            ];
+            desc += `\n*💬 Lời nhắn từ chủ lô:* "${winTrolls[Math.floor(Math.random() * winTrolls.length)]}"`;
+        } else {
+            desc += `💸 **Toàn bộ con giời cúng tiền hôm nay đã ra đê!** Không có ai trúng số đặc biệt cả.\n\n`;
+            
+            // FOMO alert
+            const today = new Date(Date.now() + 7 * 60 * 60 * 1000);
+            const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-${String(today.getUTCDate()).padStart(2, '0')}`;
+            const info = await getLotteryInfo(message.author.id);
+            
+            desc += `🔥 **HŨ TÍCH LŨY HIỆN TẠI ĐÃ LÊN TỚI: ${formatMoney(info.jackpotPool)}**!\n👉 Nhanh tay gõ \`@BotToan mua ve random\` mua vé cúng hũ kẻo ngày mai thằng khác nó húp mất thì khóc hận!\n\n`;
+            
+            const loseTrolls = [
+                "Lô đề cờ bạc muôn đời thịnh, các con giời thua cuộc lo cày cuốc ngày mai cúng tiếp đi cưng!",
+                "Tiền cúng hũ của các con giời tao cầm tạm đi mua trà sữa nhé, cảm ơn nhiều nha!",
+                "Hôm nay lại thêm một đống xác con nợ dưới chân cầu, hũ to hơn rồi, mua tiếp đi cưng!"
+            ];
+            desc += `*💬 Lời nhắn từ chủ lô:* "${loseTrolls[Math.floor(Math.random() * loseTrolls.length)]}"`;
+        }
+        
+        embed.setDescription(desc);
         await message.reply({ embeds: [embed] });
         return;
     }
