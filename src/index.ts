@@ -22,8 +22,8 @@ import { chatWithGemini } from './services/gemini';
 import { fetchValorantRank } from './services/valorant';
 
 import cron from 'node-cron';
-import { sleep, removeAccents, formatMoney, parseMoneyInput } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw } from './database';
+import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw, getSnitchCooldown, updateSnitchDate, getBalance, updateBalance } from './database';
 
 
 
@@ -323,6 +323,105 @@ client.on('messageCreate', async (message: Message) => {
         
         embed.setDescription(desc);
         await message.reply({ embeds: [embed] });
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG BÁO CÁO CÔNG AN (MỚI) -----------------
+    const snitchRegex = /^(bao cong an|goi cong an|bao an|snitch)(?:\s+<@!?(\d+)>)?/i;
+    const snitchMatch = cleanInput.match(snitchRegex);
+    if (snitchMatch) {
+        const targetUser = message.mentions.users.first();
+        if (!targetUser) {
+            await message.reply("❌ **Mày muốn báo án ai?** Tag nó vào! Ví dụ: `@BotToan bao cong an @Ten_Doi_Phuong`.");
+            return;
+        }
+
+        const targetId = targetUser.id;
+        const reporterId = message.author.id;
+
+        if (targetId === reporterId) {
+            await message.reply("❌ **TỰ HỦY À BẠN?** Mày định báo công an bắt chính mình à? Đang phê đá hay gì con trai?");
+            return;
+        }
+
+        if (targetId === client.user?.id) {
+            await message.reply("❌ **VUỐT RÂU HÙM À?** Tao là Cảnh Sát Trưởng (BotToan) bảo kê sòng này, công an nào dám đụng?");
+            return;
+        }
+
+        // 1. Kiểm tra xem người bị báo có đang chơi game hay không
+        if (!activeGamePlayers.has(targetId)) {
+            await message.reply("❌ **BÁO ÁN LÁO!** Thằng kia có đang chơi bời, tụ tập cờ bạc gì đâu mà mày đòi báo công an? Định trêu chiến sĩ hay vu khống hả con?");
+            return;
+        }
+
+        // 2. Kiểm tra xem hôm nay người báo đã báo án chưa
+        const { canSnitch, todayStr } = await getSnitchCooldown(reporterId);
+        if (!canSnitch) {
+            await message.reply("❌ **LẠM DỤNG ĐƯỜNG DÂY NÓNG!** Hôm nay mày gọi Công an một lần rồi! Lạm dụng đường dây nóng tao tống cổ vào tù bây giờ. Mai quay lại!");
+            return;
+        }
+
+        // 3. Kiểm tra ví tiền đối phương trước khi thụ lý
+        const targetBal = await getBalance(targetId);
+        if (targetBal < 15) {
+            await message.reply("❌ **KHÔNG THỂ THỤ LÝ!** Thằng này nghèo rớt mồng tơi, đến cái nịt còn chẳng có thì đánh bạc cái gì? Dùng quyền báo án duy nhất trong ngày của mày cho đứa khác đi!");
+            return;
+        }
+
+        // Đánh dấu người báo đã dùng lượt của ngày hôm nay lập tức để tránh gửi liên tiếp
+        await updateSnitchDate(reporterId, todayStr);
+
+        // 4. May rủi 50% / 50%
+        const isSuccess = Math.random() < 0.5;
+
+        if (isSuccess) {
+            // Thành công: Phạt đối phương, thưởng cho người báo
+            const confiscatedAmount = Math.min(trueRandom(15, 30), targetBal);
+            
+            // Cập nhật ví tiền
+            await updateBalance(targetId, targetBal - confiscatedAmount);
+            const reporterBal = await getBalance(reporterId);
+            await updateBalance(reporterId, reporterBal + confiscatedAmount);
+
+            // Phạt đối phương cấm chat 2 phút và di chuyển vào voice Nhà Tù
+            await banChat(targetId, 120000);
+            const moved = message.guild ? await sendToJail(message.guild, targetId, "Bị báo công an bắt quả tang đang ôm sới bạc") : false;
+
+            let prisonText = moved
+                ? `đã bị **áp giải vào Nhà Tù** và cấm chat 2 phút!`
+                : `đã bị cấm chat 2 phút! *(Do đối phương không có trong phòng voice nên thoát được cảnh tù tội)*`;
+
+            const embed = new EmbedBuilder()
+                .setTitle("🚨 SWAT ĐỘT KÍCH THÀNH CÔNG 🚨")
+                .setDescription(`Đoàng! SWAT đã phá cửa xông vào bắt quả tang <@${targetId}> đang ôm sới bạc.\nTịch thu **${formatMoney(confiscatedAmount)}** giao cho công dân gương mẫu <@${reporterId}>!\n<@${targetId}> ${prisonText}`)
+                .setColor(0x0000FF)
+                .setFooter({ text: "BotToan - Công an Nhân dân", iconURL: client.user?.displayAvatarURL() })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        } else {
+            // Thất bại: Phạt người báo án láo 15k, cấm chat 2 phút và đi tù
+            let reporterBal = await getBalance(reporterId);
+            reporterBal = Math.max(0, reporterBal - 15);
+            await updateBalance(reporterId, reporterBal);
+
+            await banChat(reporterId, 120000);
+            const moved = message.guild ? await sendToJail(message.guild, reporterId, "Báo công an láo - Phạt nặng") : false;
+
+            let prisonText = moved
+                ? `đã bị **áp giải vào Nhà Tù** và cấm chat 2 phút!`
+                : `đã bị cấm chat 2 phút! *(Do không ở trong phòng voice nên thoát được cảnh tù tội)*`;
+
+            const embed = new EmbedBuilder()
+                .setTitle("⚠️ BÁO ÁN LÁO - PHẠT NẶNG ⚠️")
+                .setDescription(`Báo án láo này! Công an check camera thấy <@${targetId}> đang ngủ ở nhà.\n<@${reporterId}> đã phí mất lượt báo án duy nhất trong ngày, chuẩn bị khăn gói lên đồn nộp phạt **${formatMoney(15)}** và ${prisonText} vì tội trêu chiến sĩ!`)
+                .setColor(0xF1C40F)
+                .setFooter({ text: "BotToan - Công an Nhân dân", iconURL: client.user?.displayAvatarURL() })
+                .setTimestamp();
+
+            await message.reply({ embeds: [embed] });
+        }
         return;
     }
 

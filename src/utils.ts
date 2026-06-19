@@ -1,3 +1,5 @@
+import { Guild } from 'discord.js';
+
 /**
  * Chờ một khoảng thời gian được chỉ định (milliseconds)
  */
@@ -72,3 +74,29 @@ export const parseMoneyInput = (input: string): number | null => {
     }
     return Math.floor(value);
 };
+
+/**
+ * Danh sách ID người dùng đang tham gia các trò chơi hoạt động
+ */
+export const activeGamePlayers = new Set<string>();
+
+/**
+ * Di chuyển một người dùng vào kênh voice Nhà Tù một cách an toàn và tin cậy nhất
+ */
+export async function sendToJail(guild: Guild, userId: string, reason: string): Promise<boolean> {
+    try {
+        let member = guild.members.cache.get(userId);
+        if (!member) {
+            member = await guild.members.fetch(userId).catch(() => undefined) || undefined;
+        }
+        if (member && member.voice.channelId) {
+            const prisonChannelId = "1517590846927667230";
+            await member.voice.setChannel(prisonChannelId, reason);
+            return true;
+        }
+    } catch (err) {
+        console.error(`[JAIL ERROR] Lỗi khi đưa người chơi ${userId} vào tù:`, err);
+    }
+    return false;
+}
+

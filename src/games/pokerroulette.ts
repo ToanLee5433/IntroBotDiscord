@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import { getBalance, updateBalance, getDebt, banChat } from '../database';
-import { formatMoney } from '../utils';
+import { getBalance, updateBalance, getDebt, banChat, getChatBanExpires } from '../database';
+import { formatMoney, activeGamePlayers, sendToJail } from '../utils';
 
 // @ts-ignore
 import { Hand } from 'pokersolver';
@@ -86,6 +86,8 @@ export async function playPokerRoulette(message: Message, betAmount: number) {
     creatorBalance -= betAmount;
     await updateBalance(creatorId, creatorBalance);
 
+    activeGamePlayers.add(creatorId);
+
     const sessionPlayers: string[] = [creatorId];
     let isStarted = false;
 
@@ -117,7 +119,14 @@ export async function playPokerRoulette(message: Message, betAmount: number) {
     lobbyCollector.on('collect', async (i: any) => {
         const userId = i.user.id;
 
-        if (i.customId === 'pr_join') {
+        const banExpires = await getChatBanExpires(userId);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
+        try {
+            if (i.customId === 'pr_join') {
             if (isStarted) return;
 
             if (sessionPlayers.includes(userId)) {
@@ -149,6 +158,7 @@ export async function playPokerRoulette(message: Message, betAmount: number) {
             await updateBalance(userId, userBalance);
 
             sessionPlayers.push(userId);
+            activeGamePlayers.add(userId);
             await i.reply({ content: `🤝 Mày đã tham gia sòng cược **${formatMoney(betAmount)}**!`, ephemeral: true }).catch(()=>{});
             
             await lobbyMsg.edit({ embeds: [updateLobbyEmbed()] }).catch(()=>{});
@@ -169,12 +179,16 @@ export async function playPokerRoulette(message: Message, betAmount: number) {
             await i.deferUpdate().catch(()=>{});
             await runGame(lobbyMsg, sessionPlayers, betAmount);
         }
+        } catch (err) {
+            console.error("[POKER LOBBY LỖI]:", err);
+        }
     });
 
     lobbyCollector.on('end', async () => {
         if (!isStarted) {
             // Hoàn tiền cho tất cả mọi người vì sòng bị hủy
             for (const pId of sessionPlayers) {
+                activeGamePlayers.delete(pId);
                 let bal = await getBalance(pId);
                 bal += betAmount;
                 await updateBalance(pId, bal);
@@ -309,13 +323,10 @@ async function runGame(lobbyMsg: Message, userIds: string[], betAmount: number) 
             // Nổ súng! Chết!
             player.alive = false;
             
-            // Thực hiện hình phạt di chuyển voice sang Nhà tù và Bot level ban chat
-            await banChat(player.userId, 180000);
             try {
-                const member = lobbyMsg.guild?.members.cache.get(player.userId);
-                if (member && member.voice.channelId) {
-                    await member.voice.setChannel(prisonChannelId, "Bị bắn chết trong sòng Poker Roulette - Áp giải vào Nhà tù").catch(()=>{});
-                }
+                // Thực hiện hình phạt cấm chat & áp giải vào Nhà tù
+                await banChat(player.userId, 180000);
+                await sendToJail(lobbyMsg.guild!, player.userId, "Bị bắn chết trong sòng Poker Roulette - Áp giải vào Nhà tù");
             } catch (err) {}
             return true;
         }
@@ -509,7 +520,16 @@ async function runGame(lobbyMsg: Message, userIds: string[], betAmount: number) 
 
     gameCollector.on('collect', async (i: any) => {
         const userId = i.user.id;
+
+        const banExpires = await getChatBanExpires(userId);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
         const activePlayer = playOrder[activeIndex];
+
+        try {
 
         if (i.customId === 'poker_view') {
             // Xem bài tẩy cá nhân (Ẩn danh - Ephemeral)
@@ -560,10 +580,17 @@ async function runGame(lobbyMsg: Message, userIds: string[], betAmount: number) 
 
             await nextTurn();
         }
+        } catch (err) {
+            console.error("[POKER GAME PLAY LỖI]:", err);
+            gameCollector.stop();
+        }
     });
 
     gameCollector.on('end', () => {
         if (turnTimeoutTimer) clearTimeout(turnTimeoutTimer);
+        for (const pId of userIds) {
+            activeGamePlayers.delete(pId);
+        }
         lobbyMsg.edit({ components: [] }).catch(()=>{});
     });
 

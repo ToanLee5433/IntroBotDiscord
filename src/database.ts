@@ -10,6 +10,7 @@ const playerStreaksInMemory: { [userId: string]: number } = {};
 const playerValorantIdsInMemory: { [userId: string]: string } = {};
 const playerChatBansInMemory: { [userId: string]: number } = {};
 const playerLastDodgeDebtInMemory: { [userId: string]: number } = {};
+const playerLastSnitchDatesInMemory: { [userId: string]: string } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -21,6 +22,7 @@ interface IUser {
     valorantId: string;
     chatBanUntil: number;
     lastDodgeDebt: number;
+    lastSnitchDate: string;
 }
 
 const userSchema = new Schema<IUser>({
@@ -31,7 +33,8 @@ const userSchema = new Schema<IUser>({
     streak: { type: Number, default: 0 },
     valorantId: { type: String, default: "" },
     chatBanUntil: { type: Number, default: 0 },
-    lastDodgeDebt: { type: Number, default: 0 }
+    lastDodgeDebt: { type: Number, default: 0 },
+    lastSnitchDate: { type: String, default: "" }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -1162,3 +1165,48 @@ export async function getLastLotteryDraw(): Promise<{
         winners
     };
 }
+
+/**
+ * Lấy trạng thái cooldown báo án của người dùng (1 lần / ngày theo ngày VN UTC+7)
+ */
+export async function getSnitchCooldown(userId: string): Promise<{ canSnitch: boolean; todayStr: string }> {
+    const now = Date.now();
+    const todayStr = getVNDateString(now);
+    
+    let lastSnitchDate = "";
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            lastSnitchDate = user && user.lastSnitchDate ? user.lastSnitchDate : "";
+        } catch (err) {
+            console.error("[DB LỖI] Lỗi lấy ngày báo án từ MongoDB:", err);
+        }
+    } else {
+        lastSnitchDate = playerLastSnitchDatesInMemory[userId] || "";
+    }
+    
+    return {
+        canSnitch: lastSnitchDate !== todayStr,
+        todayStr
+    };
+}
+
+/**
+ * Cập nhật ngày báo án gần nhất của người dùng sang ngày hiện tại
+ */
+export async function updateSnitchDate(userId: string, todayStr: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { lastSnitchDate: todayStr },
+                { upsert: true }
+            );
+        } catch (err) {
+            console.error("[DB LỖI] Lỗi cập nhật ngày báo án trên MongoDB:", err);
+        }
+    } else {
+        playerLastSnitchDatesInMemory[userId] = todayStr;
+    }
+}
+

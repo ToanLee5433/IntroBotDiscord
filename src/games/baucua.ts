@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
-import { getBalance, updateBalance, getDebt } from '../database';
-import { sleep, formatMoney } from '../utils';
+import { getBalance, updateBalance, getDebt, getChatBanExpires } from '../database';
+import { sleep, formatMoney, activeGamePlayers } from '../utils';
 
 const bauCuaSymbols = ["Bầu", "Cua", "Tôm", "Cá", "Gà", "Nai"];
 const bauCuaEmojis: { [key: string]: string } = {
@@ -32,7 +32,8 @@ export async function playBauCua(message: Message) {
     // Tự động cấp vốn 100k nếu chưa có hoặc phá sản
     await getBalance(userId);
 
-    const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
+        const draftMsg = await message.reply("🎲 **ĐANG TRẢI CHIẾU SÒNG BẦU CUA...**");
+    activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
 
     const updateBoard = async (interaction?: any, extraMsg = "", colorHex = 0x00AE86) => {
@@ -121,8 +122,15 @@ export async function playBauCua(message: Message) {
             return;
         }
 
-        // Xử lý thay đổi mức cược
-        if (i.isStringSelectMenu() && i.customId === 'bc_bet_size') {
+        const banExpires = await getChatBanExpires(i.user.id);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
+        try {
+            // Xử lý thay đổi mức cược
+            if (i.isStringSelectMenu() && i.customId === 'bc_bet_size') {
             currentBetSize = parseInt(i.values[0]);
             await i.deferUpdate().catch(()=>{});
             await updateBoard();
@@ -306,9 +314,15 @@ export async function playBauCua(message: Message) {
             await i.deferUpdate().catch(()=>{});
             await updateBoard(null, `🛒 Đã đặt cược **${formatMoney(currentBetSize)}** vào cửa **${betSymbol}**.`);
         }
+        } catch (err) {
+            console.error("[BẦU CUA LỖI] Lỗi ván Bầu Cua:", err);
+            isProcessing = false;
+            collector.stop();
+        }
     });
 
     collector.on('end', () => {
+        activeGamePlayers.delete(userId);
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 

@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import { getBalance, updateBalance, getDebt, banChat } from '../database';
-import { formatMoney } from '../utils';
+import { getBalance, updateBalance, getDebt, banChat, getChatBanExpires } from '../database';
+import { formatMoney, activeGamePlayers, sendToJail } from '../utils';
 
 interface RouletteSession {
     betAmount: number;
@@ -42,6 +42,8 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
     creatorBalance -= betAmount;
     await updateBalance(creatorId, creatorBalance);
 
+    activeGamePlayers.add(creatorId);
+
     const session: RouletteSession = {
         betAmount,
         creatorId,
@@ -77,7 +79,14 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
     lobbyCollector.on('collect', async (i: any) => {
         const userId = i.user.id;
 
-        if (i.customId === 'rr_join') {
+        const banExpires = await getChatBanExpires(userId);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
+        try {
+            if (i.customId === 'rr_join') {
             if (session.isStarted) return;
 
             if (session.players.includes(userId)) {
@@ -109,6 +118,7 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
             await updateBalance(userId, userBalance);
 
             session.players.push(userId);
+            activeGamePlayers.add(userId);
             await i.reply({ content: `🤝 Mày đã tham gia sòng cược **${formatMoney(betAmount)}**!`, ephemeral: true }).catch(()=>{});
             
             await lobbyMsg.edit({ embeds: [await updateLobbyEmbed()] }).catch(()=>{});
@@ -129,12 +139,16 @@ export async function playRussianRoulette(message: Message, betAmount: number) {
             await i.deferUpdate().catch(()=>{});
             await startGame(lobbyMsg, session);
         }
+        } catch (err) {
+            console.error("[ROULETTE LOBBY LỖI]:", err);
+        }
     });
 
     lobbyCollector.on('end', async () => {
         if (!session.isStarted) {
             // Hoàn tiền cho tất cả mọi người vì sòng bị hủy
             for (const pId of session.players) {
+                activeGamePlayers.delete(pId);
                 let bal = await getBalance(pId);
                 bal += betAmount;
                 await updateBalance(pId, bal);
@@ -195,7 +209,16 @@ async function startGame(lobbyMsg: Message, session: RouletteSession) {
         if (i.customId !== 'rr_shoot') return;
 
         const userId = i.user.id;
+
+        const banExpires = await getChatBanExpires(userId);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
         const activePlayer = gameOrder[turnIndex];
+
+        try {
 
         if (userId !== activePlayer) {
             await i.reply({ content: "Đéo phải lượt bóp cò của mày! Chờ súng chuyền đến tay đã.", ephemeral: true }).catch(()=>{});
@@ -221,16 +244,10 @@ async function startGame(lobbyMsg: Message, session: RouletteSession) {
             // Thực hiện hình phạt cấm chat & áp giải vào Nhà tù
             let punishmentText = "";
             try {
-                const member = i.guild?.members.cache.get(userId);
                 // Áp dụng cấm chat 3 phút ở Bot level
                 await banChat(userId, 180000);
                 
-                let movedToPrison = false;
-                if (member && member.voice.channelId) {
-                    const prisonChannelId = "1517590846927667230";
-                    await member.voice.setChannel(prisonChannelId, "Bị bắn chết trong sòng Russian Roulette - Đưa vào Nhà tù").catch(()=>{});
-                    movedToPrison = true;
-                }
+                const movedToPrison = await sendToJail(i.guild, userId, "Bị bắn chết trong sòng Russian Roulette - Đưa vào Nhà tù");
 
                 if (movedToPrison) {
                     punishmentText = `Nạn nhân đã bị **áp giải vào Nhà Tù** và **khóa mõm (cấm chat) trong 3 phút**!`;
@@ -261,9 +278,16 @@ async function startGame(lobbyMsg: Message, session: RouletteSession) {
                 components: [gameRow] 
             }).catch(()=>{});
         }
+        } catch (err) {
+            console.error("[ROULETTE GAME PLAY LỖI]:", err);
+            gameCollector.stop();
+        }
     });
 
     gameCollector.on('end', async (collected, reason) => {
+        for (const pId of session.players) {
+            activeGamePlayers.delete(pId);
+        }
         if (reason === 'time') {
             // Trả lại tiền cho những ai còn sống nếu game bị đứng quá 5 phút
             for (const pId of gameOrder) {

@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
-import { getBalance, updateBalance, getDebt } from '../database';
-import { sleep, formatMoney } from '../utils';
+import { getBalance, updateBalance, getDebt, getChatBanExpires } from '../database';
+import { sleep, formatMoney, activeGamePlayers } from '../utils';
 
 interface Card {
     suit: string;
@@ -79,6 +79,7 @@ export async function playBlackjack(message: Message) {
     balance -= 20;
     await updateBalance(userId, balance);
 
+        activeGamePlayers.add(userId);
     const draftMsg = await message.reply("🃏 **ĐANG XÀO BÀI... CHUẨN BỊ CHIA BÀI!**");
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Phiên chơi tối đa 5 phút
 
@@ -147,6 +148,12 @@ export async function playBlackjack(message: Message) {
             return;
         }
 
+        const banExpires = await getChatBanExpires(i.user.id);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
         if (isProcessing) {
             await i.reply({ content: "Từ từ thôi mày, đang rút bài!", ephemeral: true }).catch(()=>{});
             return;
@@ -154,65 +161,72 @@ export async function playBlackjack(message: Message) {
 
         isProcessing = true;
 
-        const action = i.customId;
+        try {
+            const action = i.customId;
 
-        if (action === 'bj_hit') {
-            playerHand.push(drawCard());
-            const playerScore = calculateScore(playerHand);
+            if (action === 'bj_hit') {
+                playerHand.push(drawCard());
+                const playerScore = calculateScore(playerHand);
 
-            if (playerScore > 21) {
-                // Người chơi bị QUẮC (Bust)
+                if (playerScore > 21) {
+                    // Người chơi bị QUẮC (Bust)
+                    isProcessing = false;
+                    await updateBoard(i, `💀 **MÀY BỊ QUẮC RỒI!** Điểm vượt quá 21. Nhà cái lụm cmn **${formatMoney(20)}** cược.`, true, 0xE74C3C);
+                    return;
+                }
+
                 isProcessing = false;
-                await updateBoard(i, `💀 **MÀY BỊ QUẮC RỒI!** Điểm vượt quá 21. Nhà cái lụm cmn **${formatMoney(20)}** cược.`, true, 0xE74C3C);
-                return;
-            }
+                await updateBoard(i);
+            } 
+            else if (action === 'bj_stand') {
+                // Lượt của Nhà Cái (BotToan) rút bài. Nhà Cái rút cho đến khi >= 17 điểm.
+                let dealerScore = calculateScore(dealerHand);
+                while (dealerScore < 17) {
+                    dealerHand.push(drawCard());
+                    dealerScore = calculateScore(dealerHand);
+                }
 
+                const playerScore = calculateScore(playerHand);
+                let finalMsg = "";
+                let colorHex = 0x2ECC71;
+                let currentBal = await getBalance(userId);
+
+                if (dealerScore > 21) {
+                    // Nhà cái bị Quắc
+                    currentBal += 40; // Trả cược + thắng 20k
+                    await updateBalance(userId, currentBal);
+                    finalMsg = `🎉 **NHÀ CÁI BỊ QUẮC!** Mày đã thắng và ăn **${formatMoney(20)}**.`;
+                    colorHex = 0x2ECC71;
+                } else if (playerScore > dealerScore) {
+                    // Người chơi điểm cao hơn
+                    currentBal += 40;
+                    await updateBalance(userId, currentBal);
+                    finalMsg = `🎉 **MÀY THẮNG!** Điểm của mày (${playerScore}) cao hơn nhà cái (${dealerScore}). Húp **${formatMoney(20)}**.`;
+                    colorHex = 0x2ECC71;
+                } else if (playerScore < dealerScore) {
+                    // Nhà cái điểm cao hơn
+                    finalMsg = `💀 **MÀY THUA!** Điểm nhà cái (${dealerScore}) cao hơn mày (${playerScore}). Mất **${formatMoney(20)}**.`;
+                    colorHex = 0xE74C3C;
+                } else {
+                    // Hòa (Push)
+                    currentBal += 20; // Hoàn tiền cược
+                    await updateBalance(userId, currentBal);
+                    finalMsg = `🤝 **HÒA NHAU!** Cả hai cùng đạt **${playerScore}** điểm. Hoàn trả **${formatMoney(20)}** cược.`;
+                    colorHex = 0xFFA500;
+                }
+
+                isProcessing = false;
+                await updateBoard(i, finalMsg, true, colorHex);
+            }
+        } catch (err) {
+            console.error("[BLACKJACK LỖI] Lỗi trong lúc chơi:", err);
             isProcessing = false;
-            await updateBoard(i);
-        } 
-        else if (action === 'bj_stand') {
-            // Lượt của Nhà Cái (BotToan) rút bài. Nhà Cái rút cho đến khi >= 17 điểm.
-            let dealerScore = calculateScore(dealerHand);
-            while (dealerScore < 17) {
-                dealerHand.push(drawCard());
-                dealerScore = calculateScore(dealerHand);
-            }
-
-            const playerScore = calculateScore(playerHand);
-            let finalMsg = "";
-            let colorHex = 0x2ECC71;
-            let currentBal = await getBalance(userId);
-
-            if (dealerScore > 21) {
-                // Nhà cái bị Quắc
-                currentBal += 40; // Trả cược + thắng 20k
-                await updateBalance(userId, currentBal);
-                finalMsg = `🎉 **NHÀ CÁI BỊ QUẮC!** Mày đã thắng và ăn **${formatMoney(20)}**.`;
-                colorHex = 0x2ECC71;
-            } else if (playerScore > dealerScore) {
-                // Người chơi điểm cao hơn
-                currentBal += 40;
-                await updateBalance(userId, currentBal);
-                finalMsg = `🎉 **MÀY THẮNG!** Điểm của mày (${playerScore}) cao hơn nhà cái (${dealerScore}). Húp **${formatMoney(20)}**.`;
-                colorHex = 0x2ECC71;
-            } else if (playerScore < dealerScore) {
-                // Nhà cái điểm cao hơn
-                finalMsg = `💀 **MÀY THUA!** Điểm nhà cái (${dealerScore}) cao hơn mày (${playerScore}). Mất **${formatMoney(20)}**.`;
-                colorHex = 0xE74C3C;
-            } else {
-                // Hòa (Push)
-                currentBal += 20; // Hoàn tiền cược
-                await updateBalance(userId, currentBal);
-                finalMsg = `🤝 **HÒA NHAU!** Cả hai cùng đạt **${playerScore}** điểm. Hoàn trả **${formatMoney(20)}** cược.`;
-                colorHex = 0xFFA500;
-            }
-
-            isProcessing = false;
-            await updateBoard(i, finalMsg, true, colorHex);
+            collector.stop();
         }
     });
 
     collector.on('end', async () => {
+        activeGamePlayers.delete(userId);
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 

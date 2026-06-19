@@ -1,6 +1,6 @@
 import { Message, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
-import { getBalance, updateBalance, getDebt } from '../database';
-import { sleep, formatMoney } from '../utils';
+import { getBalance, updateBalance, getDebt, getChatBanExpires } from '../database';
+import { sleep, formatMoney, activeGamePlayers } from '../utils';
 
 const diceEmojis = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
@@ -27,7 +27,8 @@ export async function playTaiXiu(message: Message) {
     // Tự động cấp vốn 100k nếu chưa có hoặc phá sản
     await getBalance(userId);
 
-    const draftMsg = await message.reply("🎲 **ĐANG LẮC BÁT TÀI XỈU... BẤM CỬA ĐI CÁC CON GIỜI!**");
+        const draftMsg = await message.reply("🎲 **ĐANG LẮC BÁT TÀI XỈU... BẤM CỬA ĐI CÁC CON GIỜI!**");
+    activeGamePlayers.add(userId);
     const collector = draftMsg.createMessageComponentCollector({ time: 300000 }); // Sòng tồn tại 5 phút
 
     const updateBoard = async (interaction?: any, extraMsg = "", colorHex = 0x00AE86) => {
@@ -91,8 +92,15 @@ export async function playTaiXiu(message: Message) {
             return;
         }
 
-        // Xử lý thay đổi mức cược
-        if (i.isStringSelectMenu() && i.customId === 'tx_bet_size') {
+        const banExpires = await getChatBanExpires(i.user.id);
+        if (banExpires > Date.now()) {
+            await i.reply({ content: "🚓 Mày đang bóc lịch trong đồn mà vẫn lén dùng điện thoại đánh bạc à? Cất ngay!", ephemeral: true }).catch(()=>{});
+            return;
+        }
+
+        try {
+            // Xử lý thay đổi mức cược
+            if (i.isStringSelectMenu() && i.customId === 'tx_bet_size') {
             currentBetSize = parseInt(i.values[0]);
             await i.deferUpdate().catch(()=>{});
             await updateBoard();
@@ -190,8 +198,8 @@ export async function playTaiXiu(message: Message) {
                 resultMsg += `💀 **BÃO RỒI!** Bộ ba đồng nhất xuất hiện. Nhà cái ăn sạch sành sanh! Mày mất **${formatMoney(currentBetSize)}**.`;
             } else if (isWin) {
                 const winAmount = currentBetSize * 2; // Hoàn cược + ăn lãi 1:1
-                balance += winAmount;
-                await updateBalance(userId, balance);
+                const latestBalance = await getBalance(userId);
+                await updateBalance(userId, latestBalance + winAmount);
                 resultMsg += `🎉 **Mày đã thắng!** Húp về **${formatMoney(currentBetSize)}**.`;
                 finalColor = 0x2ECC71; // Xanh Ngọc
             } else {
@@ -204,9 +212,15 @@ export async function playTaiXiu(message: Message) {
         } finally {
             isProcessing = false;
         }
+        } catch (err) {
+            console.error("[TÀI XỈU LỖI] Lỗi ván Tài Xỉu:", err);
+            isProcessing = false;
+            collector.stop();
+        }
     });
 
     collector.on('end', () => {
+        activeGamePlayers.delete(userId);
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 
