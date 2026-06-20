@@ -144,7 +144,7 @@ function detectSpreadType(question: string): SpreadType {
     const q = question.toLowerCase();
 
     // Trải bài tình duyên/tình yêu
-    if (/tình|yêu|crush|người thương|bạn trai|bạn gái|hôn nhân|cưới|chia tay|quan hệ|have|bo|bo|mối|duyên/.test(q)) {
+    if (/tình|yêu|crush|người thương|bạn trai|bạn gái|hôn nhân|cưới|chia tay|quan hệ|have|mối|duyên/.test(q) || /(?:^|\s)(?:bo|bồ)(?:\s|$)/.test(q)) {
         return {
             name: "Trải Bài Tình Duyên 💕",
             positions: ["Tình trạng hiện tại của mối quan hệ", "Trở ngại / Thử thách đang đối mặt", "Kết quả / Tương lai của tình duyên"],
@@ -162,7 +162,7 @@ function detectSpreadType(question: string): SpreadType {
     }
 
     // Trải bài quyết định
-    if (/nên|không nên|có nên|quyết định|chọn|lựa chọn|đi|ở lại|thay đổi|chuyển/.test(q)) {
+    if (/nên|không nên|có nên|quyết định|chọn|lựa chọn|ở lại|thay đổi|chuyển/.test(q) || /(?:^|\s)đi(?:\s|$)/.test(q)) {
         return {
             name: "Trải Bài Lựa Chọn ⚖️",
             positions: ["Yếu tố nên làm / Thuận lợi", "Yếu tố không nên / Trở ngại tiềm ẩn", "Lời khuyên cuối cùng từ vũ trụ"],
@@ -240,7 +240,7 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
 
     // 4. Lấy câu hỏi của user (bỏ trigger word)
     const userQuestion = rawInput
-        .replace(/^(boi tarot|tarot|xem tarot|trai bai tarot)/i, '')
+        .replace(/^(bói tarot|boi tarot|tarot|xem tarot|xem bói tarot|xem boi tarot|trải bài tarot|trai bai tarot)/i, '')
         .trim();
 
     // 5. Xác định kiểu trải bài dựa theo câu hỏi
@@ -352,7 +352,7 @@ Giới hạn: tổng dưới 1000 ký tự.
     // 10. Màu embed theo tổng thể năng lượng
     const dangerousIds = ['13', '15', '16'];
     const hasDanger = cards.some(c => dangerousIds.includes(c.id));
-    const hasPositive = cards.some(c => ['19', '17', '21', '10'].includes(c.id) && orients[cards.indexOf(c)].includes('Xuôi'));
+    const hasPositive = cards.some((c, idx) => ['19', '17', '21', '10'].includes(c.id) && orients[idx].includes('Xuôi'));
 
     let embedColor: number;
     if (hasDanger) embedColor = 0x7C0A02;       // Đỏ máu — hung

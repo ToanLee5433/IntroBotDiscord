@@ -143,7 +143,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- TÍNH NĂNG BÓI BÀI TAROT (kiểm tra trước gieo quẻ để tránh 'boi' match nhầm) -----------------
-    const tarotTriggers = ['boi tarot', 'tarot', 'xem tarot', 'trai bai tarot'];
+    const tarotTriggers = ['boi tarot', 'tarot', 'xem tarot', 'trai bai tarot', 'xem boi tarot'];
     if (tarotTriggers.some(t => cleanInput.startsWith(t))) {
         await handleTarot(message, rawInput);
         return;
