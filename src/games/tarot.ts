@@ -46,40 +46,100 @@ export const TAROT_DECK: TarotCard[] = [
 ];
 
 /**
+ * Helper: sleep ms
+ */
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Tải một ảnh với retry logic (tối đa 5 lần) + delay tăng dần khi gặp 429 Rate Limit.
+ * Sau mỗi lần tải thành công hoặc thất bại có thể retry, chờ 2s trước khi tải ảnh kế tiếp.
+ */
+async function fetchWithRetry(url: string, filePath: string, cardName: string): Promise<void> {
+    const MAX_RETRIES = 5;
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'BotToanDiscord/1.0 (tarot-image-downloader; contact: github.com/ToanLee5433)',
+                    'Accept': 'image/jpeg,image/*;q=0.9,*/*;q=0.8',
+                }
+            });
+
+            if (response.status === 429) {
+                // Rate limited: chờ exponential backoff (4s, 8s, 16s, 32s, 64s)
+                const waitMs = Math.pow(2, attempt + 1) * 1000;
+                console.warn(`[TAROT] Bị rate limit (429) khi tải ${cardName}. Thử lại lần ${attempt}/${MAX_RETRIES} sau ${waitMs / 1000}s...`);
+                await sleep(waitMs);
+                lastError = new Error(`HTTP 429 Too Many Requests`);
+                continue;
+            }
+
+            if (!response.ok) {
+                throw new Error(`HTTP Error: status ${response.status}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            fs.writeFileSync(filePath, buffer);
+            console.log(`[TAROT] ✅ Đã lưu thành công lá bài ${cardName}`);
+
+            // Delay 2s giữa mỗi lần tải để tránh rate limit
+            await sleep(2000);
+            return; // Thành công, thoát
+        } catch (err: any) {
+            lastError = err;
+            if (attempt < MAX_RETRIES) {
+                const waitMs = Math.pow(2, attempt) * 1000;
+                console.warn(`[TAROT] Lỗi tải ${cardName} (lần ${attempt}/${MAX_RETRIES}): ${err.message}. Thử lại sau ${waitMs / 1000}s...`);
+                await sleep(waitMs);
+            }
+        }
+    }
+
+    throw lastError || new Error('Unknown error after max retries');
+}
+
+/**
  * Tải tất cả ảnh từ Wikimedia Commons về máy chủ cục bộ khi bot khởi động.
  * Đảm bảo 100% hiển thị ảnh trên Discord chat mà không bị Cloudflare chặn.
+ * Dùng rate-limit-safe sequential download với retry + exponential backoff.
  */
 export async function initTarot(): Promise<void> {
     if (!fs.existsSync(ASSETS_DIR)) {
         fs.mkdirSync(ASSETS_DIR, { recursive: true });
     }
 
-    console.log("[TAROT] Đang kiểm tra thư viện ảnh Tarot cục bộ...");
-    for (const card of TAROT_DECK) {
+    // Đếm số ảnh còn thiếu
+    const missing = TAROT_DECK.filter(c => !fs.existsSync(path.join(ASSETS_DIR, `${c.id}.jpg`)));
+    if (missing.length === 0) {
+        console.log("[TAROT] ✅ Thư viện ảnh Tarot đã đầy đủ 22/22 lá. Bỏ qua bước tải.");
+        return;
+    }
+
+    console.log(`[TAROT] Đang tải ${missing.length} lá bài còn thiếu (tuần tự, 2s/lá để tránh rate limit)...`);
+    let success = 0;
+    let failed = 0;
+
+    for (const card of missing) {
         const filePath = path.join(ASSETS_DIR, `${card.id}.jpg`);
-        if (!fs.existsSync(filePath)) {
-            console.log(`[TAROT] Đang tải ảnh lá bài ${card.englishName} từ Wikimedia...`);
-            const url = `https://commons.wikimedia.org/wiki/Special:Redirect/file/Pictorial_Key_to_the_Tarot_${card.id}_${card.wikiName}.jpg`;
-            try {
-                const response = await fetch(url, {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error(`HTTP Error: status ${response.status}`);
-                }
-                const arrayBuffer = await response.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-                fs.writeFileSync(filePath, buffer);
-                console.log(`[TAROT] Đã lưu thành công lá bài ${card.englishName}`);
-            } catch (err: any) {
-                console.error(`[TAROT LỖI] Lỗi tải ảnh cho lá ${card.englishName}:`, err.message);
-            }
+        const url = `https://commons.wikimedia.org/wiki/Special:Redirect/file/Pictorial_Key_to_the_Tarot_${card.id}_${card.wikiName}.jpg`;
+        try {
+            await fetchWithRetry(url, filePath, card.englishName);
+            success++;
+        } catch (err: any) {
+            console.error(`[TAROT LỖI] ❌ Bỏ qua lá ${card.englishName} - không tải được sau 5 lần thử: ${err.message}`);
+            failed++;
         }
     }
-    console.log("[TAROT] Kiểm tra thư viện ảnh Tarot hoàn tất!");
+
+    const total = TAROT_DECK.filter(c => fs.existsSync(path.join(ASSETS_DIR, `${c.id}.jpg`))).length;
+    console.log(`[TAROT] Kiểm tra hoàn tất! Thư viện: ${total}/22 lá có ảnh (tải thành công: ${success}, thất bại: ${failed})`);
 }
+
 
 /**
  * Xử lý lệnh bói bài Tarot
