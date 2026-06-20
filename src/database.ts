@@ -19,6 +19,9 @@ const playerFailedMatchesTodayInMemory: { [userId: string]: number } = {};
 const playerLastFailedMatchDateInMemory: { [userId: string]: string } = {};
 const playerSimpLoUntilInMemory: { [userId: string]: number } = {};
 const playerLastQueDateInMemory: { [userId: string]: string } = {};
+const playerLastTarotDateInMemory: { [userId: string]: string } = {};
+const playerLastTarotTimestampInMemory: { [userId: string]: number } = {};
+const playerTarotStreakInMemory: { [userId: string]: number } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -41,6 +44,9 @@ interface IUser {
     lastFailedMatchDate?: string;
     simpLoUntil?: number;
     lastQueDate?: string;
+    lastTarotDate?: string;
+    lastTarotTimestamp?: number;
+    tarotStreak?: number;
 }
 
 const userSchema = new Schema<IUser>({
@@ -62,7 +68,10 @@ const userSchema = new Schema<IUser>({
     failedMatchesToday: { type: Number, default: 0 },
     lastFailedMatchDate: { type: String, default: "" },
     simpLoUntil: { type: Number, default: 0 },
-    lastQueDate: { type: String, default: "" }
+    lastQueDate: { type: String, default: "" },
+    lastTarotDate: { type: String, default: "" },
+    lastTarotTimestamp: { type: Number, default: 0 },
+    tarotStreak: { type: Number, default: 0 }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -1466,6 +1475,107 @@ export async function markGieoQueToday(userId: string, todayStr: string): Promis
     }
     playerLastQueDateInMemory[userId] = todayStr;
 }
+
+/**
+ * Kiểm tra xem người dùng đã bói Tarot hôm nay chưa
+ */
+export async function hasTarotToday(userId: string, todayStr: string): Promise<boolean> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user && user.lastTarotDate === todayStr ? true : false;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi kiểm tra ngày Tarot từ MongoDB:", error);
+        }
+    }
+    return playerLastTarotDateInMemory[userId] === todayStr;
+}
+
+/**
+ * Ghi nhận lượt chơi Tarot hôm nay và cập nhật streak, trả về streak mới
+ */
+export async function recordTarotPlay(userId: string, todayStr: string, now: number): Promise<number> {
+    let newStreak = 1;
+    if (useMongoDB) {
+        try {
+            let user = await UserModel.findOne({ userId });
+            if (!user) {
+                user = await UserModel.create({ userId });
+            }
+
+            const lastTimestamp = user.lastTarotTimestamp || 0;
+            if (lastTimestamp > 0) {
+                const diffDays = getCalendarDayDifference(lastTimestamp, now);
+                if (diffDays === 1) {
+                    newStreak = (user.tarotStreak || 0) + 1;
+                } else if (diffDays === 0) {
+                    newStreak = user.tarotStreak || 1;
+                } else {
+                    newStreak = 1;
+                }
+            } else {
+                newStreak = 1;
+            }
+
+            user.lastTarotDate = todayStr;
+            user.lastTarotTimestamp = now;
+            user.tarotStreak = newStreak;
+            await user.save();
+            return newStreak;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi recordTarotPlay trên MongoDB:", error);
+        }
+    }
+
+    // Fallback to RAM
+    const lastTimestamp = playerLastTarotTimestampInMemory[userId] || 0;
+    if (lastTimestamp > 0) {
+        const diffDays = getCalendarDayDifference(lastTimestamp, now);
+        if (diffDays === 1) {
+            newStreak = (playerTarotStreakInMemory[userId] || 0) + 1;
+        } else if (diffDays === 0) {
+            newStreak = playerTarotStreakInMemory[userId] || 1;
+        } else {
+            newStreak = 1;
+        }
+    } else {
+        newStreak = 1;
+    }
+
+    playerLastTarotDateInMemory[userId] = todayStr;
+    playerLastTarotTimestampInMemory[userId] = now;
+    playerTarotStreakInMemory[userId] = newStreak;
+    return newStreak;
+}
+
+/**
+ * Hoàn tác lượt chơi Tarot nếu gửi kết quả qua DM bị lỗi
+ */
+export async function cancelTarotPlay(userId: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            let user = await UserModel.findOne({ userId });
+            if (user) {
+                user.lastTarotDate = "";
+                user.lastTarotTimestamp = 0;
+                if (user.tarotStreak && user.tarotStreak > 0) {
+                    user.tarotStreak = user.tarotStreak - 1;
+                }
+                await user.save();
+            }
+            return;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cancelTarotPlay trên MongoDB:", error);
+        }
+    }
+
+    playerLastTarotDateInMemory[userId] = "";
+    playerLastTarotTimestampInMemory[userId] = 0;
+    if (playerTarotStreakInMemory[userId] && playerTarotStreakInMemory[userId] > 0) {
+        playerTarotStreakInMemory[userId] = playerTarotStreakInMemory[userId] - 1;
+    }
+}
+
 
 
 

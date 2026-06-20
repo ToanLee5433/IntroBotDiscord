@@ -2,9 +2,10 @@ import { Message, EmbedBuilder, AttachmentBuilder, ComponentType, ActionRowBuild
 import * as fs from 'fs';
 import * as path from 'path';
 import { 
-    getProfile, getBalance, updateBalance, getDebt
+    getProfile, getBalance, updateBalance, getDebt,
+    hasTarotToday, recordTarotPlay, cancelTarotPlay
 } from '../database';
-import { formatMoney, trueRandom } from '../utils';
+import { formatMoney, trueRandom, activeGamePlayers } from '../utils';
 import { getTarotReading } from '../services/gemini';
 
 // Định nghĩa thư mục lưu trữ ảnh cục bộ
@@ -193,7 +194,7 @@ export async function initTarot(): Promise<void> {
  */
 export async function handleTarot(message: Message, rawInput: string): Promise<void> {
     const userId = message.author.id;
-    const cost = 20000;
+    const cost = 50; // Lệ phí mới 50k
 
     // 1. Kiểm tra profile
     const profile = await getProfile(userId);
@@ -209,6 +210,35 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
         await message.reply(`❌ **Đéo đủ tiền xem bói!** Lệ phí cúng thầy Toàn là **${formatMoney(cost)}**.\nVí mày chỉ có **${formatMoney(balance)}**, cút đi cày cuốc rồi quay lại! 💸`).catch(() => {});
         return;
     }
+
+    const now = Date.now();
+    const d = new Date(now + 7 * 60 * 60 * 1000);
+    const todayStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+
+    // 3. Kiểm tra xem hôm nay bói Tarot chưa
+    const hasTarot = await hasTarotToday(userId, todayStr);
+    if (hasTarot) {
+        const vnTomorrow = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+        const timeLeftMs = (vnTomorrow - 7 * 60 * 60 * 1000) - now;
+        const hours = Math.floor(timeLeftMs / (60 * 60 * 1000));
+        const minutes = Math.floor((timeLeftMs % (60 * 60 * 1000)) / (60 * 1000));
+
+        const embed = new EmbedBuilder()
+            .setTitle("🔮 XIN QUẺ TAROT THẤT BẠI - THẦY MỆT RỒI!")
+            .setDescription(`⚠️ **Mày đã bói Tarot hôm nay rồi con giời!**\n\nMỗi ngày thầy chỉ gieo quẻ Tarot **1 lần duy nhất** thôi. Xem lắm coi chừng loạn năng lượng đấy!\nHãy quay lại sau **${hours} giờ ${minutes} phút** nữa nhé!`)
+            .setColor(0xFF0000)
+            .setFooter({ text: "BotToan Tarot - Thầy bói giang hồ", iconURL: message.client.user?.displayAvatarURL() });
+
+        await message.reply({ embeds: [embed] }).catch(()=>{});
+        return;
+    }
+
+    // 4. Kiểm tra active players
+    if (activeGamePlayers.has(userId)) {
+        await message.reply("❌ **Mày đang bận chơi trò khác hoặc đang xem bói rồi con giời!** Đợi tí đi cưng!").catch(() => {});
+        return;
+    }
+    activeGamePlayers.add(userId);
 
     // Lấy câu hỏi của user (bỏ trigger word)
     const userQuestion = rawInput
@@ -229,12 +259,17 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
         .setFooter({ text: "Thời gian chọn: 60 giây" });
 
     const tarotPromptMsg = await message.reply({ embeds: [embed], components: [row] }).catch(() => null);
-    if (!tarotPromptMsg) return;
+    if (!tarotPromptMsg) {
+        activeGamePlayers.delete(userId);
+        return;
+    }
 
     const collector = tarotPromptMsg.createMessageComponentCollector({
         componentType: ComponentType.Button,
         time: 60000
     });
+
+    let isProcessing = false;
 
     collector.on('collect', async (i: any) => {
         if (i.user.id !== userId) {
@@ -242,69 +277,76 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
             return;
         }
 
-        let spread: SpreadType;
-        let topicName = "";
-        if (i.customId === 'tarot_love') {
-            spread = SPREADS.love;
-            topicName = "Tình Duyên 💕";
-        } else if (i.customId === 'tarot_career') {
-            spread = SPREADS.career;
-            topicName = "Sự Nghiệp 💼";
-        } else {
-            spread = SPREADS.money;
-            topicName = "Tiền Bạc 💰";
-        }
+        if (isProcessing) return;
+        isProcessing = true;
 
         collector.stop('selected');
 
-        // Kiểm tra ví lại một lần nữa đề phòng trường hợp rút ví trong lúc đang chọn
-        let curBal = await getBalance(userId);
-        if (curBal < cost) {
+        try {
+            let spread: SpreadType;
+            let topicName = "";
+            if (i.customId === 'tarot_love') {
+                spread = SPREADS.love;
+                topicName = "Tình Duyên 💕";
+            } else if (i.customId === 'tarot_career') {
+                spread = SPREADS.career;
+                topicName = "Sự Nghiệp 💼";
+            } else {
+                spread = SPREADS.money;
+                topicName = "Tiền Bạc 💰";
+            }
+
+            // Kiểm tra ví lại một lần nữa đề phòng trường hợp rút ví trong lúc đang chọn
+            let curBal = await getBalance(userId);
+            if (curBal < cost) {
+                await i.update({
+                    content: `❌ **Đột nhiên nghèo đi à?** Lệ phí bói bài là **${formatMoney(cost)}** nhưng ví mày hiện tại chỉ có **${formatMoney(curBal)}**!`,
+                    embeds: [],
+                    components: []
+                }).catch(() => {});
+                return;
+            }
+
+            // Thực hiện trừ tiền
+            curBal -= cost;
+            await updateBalance(userId, curBal);
+
+            // Lưu ngày bói Tarot và cập nhật streak
+            const streak = await recordTarotPlay(userId, todayStr, now);
+
+            // Hiển thị đang xào bài
             await i.update({
-                content: `❌ **Đột nhiên nghèo đi à?** Lệ phí bói bài là **${formatMoney(cost)}** nhưng ví mày hiện tại chỉ có **${formatMoney(curBal)}**!`,
+                content: `🔮 **Mày đã chọn chủ đề: ${topicName}**\n*Thầy Toàn đang xào bài, gieo quẻ và gửi tin nhắn riêng cho mày...*`,
                 embeds: [],
                 components: []
             }).catch(() => {});
-            return;
-        }
 
-        // Thực hiện trừ tiền
-        curBal -= cost;
-        await updateBalance(userId, curBal);
+            if ('sendTyping' in message.channel) {
+                await (message.channel as any).sendTyping().catch(() => {});
+            }
 
-        // Hiển thị đang xào bài
-        await i.update({
-            content: `🔮 **Mày đã chọn chủ đề: ${topicName}**\n*Thầy Toàn đang xào bài, gieo quẻ và gửi tin nhắn riêng cho mày...*`,
-            embeds: [],
-            components: []
-        }).catch(() => {});
+            // Rút 3 lá ngẫu nhiên không trùng
+            const indexes: number[] = [];
+            while (indexes.length < 3) {
+                const rand = trueRandom(0, 21);
+                if (!indexes.includes(rand)) indexes.push(rand);
+            }
 
-        if ('sendTyping' in message.channel) {
-            await (message.channel as any).sendTyping().catch(() => {});
-        }
+            const cards = [TAROT_DECK[indexes[0]], TAROT_DECK[indexes[1]], TAROT_DECK[indexes[2]]];
+            const orients = cards.map(() => trueRandom(1, 2) === 1 ? 'Xuôi ⬆️' : 'Ngược ⬇️');
+            const meanings = cards.map((c, idx) => orients[idx].includes('Xuôi') ? c.meaningUpright : c.meaningReversed);
 
-        // Rút 3 lá ngẫu nhiên không trùng
-        const indexes: number[] = [];
-        while (indexes.length < 3) {
-            const rand = trueRandom(0, 21);
-            if (!indexes.includes(rand)) indexes.push(rand);
-        }
+            // Phân tích tổ hợp 3 lá (đặc trưng của Tarot chuẩn)
+            const allKeywords = cards.flatMap(c => c.keywords).join(', ');
+            const dominantElements = [...new Set(cards.map(c => c.element))].join(' + ');
+            const reversedCount = orients.filter(o => o.includes('Ngược')).length;
+            const energyLevel = reversedCount === 0 ? 'Thuận chiều — năng lượng chảy mạnh' :
+                                reversedCount === 1 ? 'Nhẹ cản — có một trở ngại cần vượt' :
+                                reversedCount === 2 ? 'Cản trở rõ — cần xem xét lại kỹ' :
+                                'Nghịch toàn bộ — đang đi ngược dòng chảy của vũ trụ';
 
-        const cards = [TAROT_DECK[indexes[0]], TAROT_DECK[indexes[1]], TAROT_DECK[indexes[2]]];
-        const orients = cards.map(() => trueRandom(1, 2) === 1 ? 'Xuôi ⬆️' : 'Ngược ⬇️');
-        const meanings = cards.map((c, idx) => orients[idx].includes('Xuôi') ? c.meaningUpright : c.meaningReversed);
-
-        // Phân tích tổ hợp 3 lá (đặc trưng của Tarot chuẩn)
-        const allKeywords = cards.flatMap(c => c.keywords).join(', ');
-        const dominantElements = [...new Set(cards.map(c => c.element))].join(' + ');
-        const reversedCount = orients.filter(o => o.includes('Ngược')).length;
-        const energyLevel = reversedCount === 0 ? 'Thuận chiều — năng lượng chảy mạnh' :
-                            reversedCount === 1 ? 'Nhẹ cản — có một trở ngại cần vượt' :
-                            reversedCount === 2 ? 'Cản trở rõ — cần xem xét lại kỹ' :
-                            'Nghịch toàn bộ — đang đi ngược dòng chảy của vũ trụ';
-
-        // Prompt Gemini siêu chuẩn Tarot chuyên nghiệp và sâu sắc theo yêu cầu nâng cấp của user
-        const geminiPrompt = `
+            // Prompt Gemini siêu chuẩn Tarot chuyên nghiệp và sâu sắc theo yêu cầu nâng cấp của user
+            const geminiPrompt = `
 Bạn là một Tarot Reader chuyên nghiệp, sắc sảo, điềm tĩnh và có khả năng đọc vị tâm lý bậc thầy. Bạn không ở đây để làm hài lòng người nghe bằng những lời tán dương sáo rỗng hay những dự đoán tích cực mù quáng. Mục tiêu của bạn là bóc trần sự thật.
 
 ===== THÔNG TIN NGƯỜI XEM =====
@@ -356,132 +398,151 @@ Hãy trả lời theo ĐÚNG FORMAT sau (không viết thêm bất kỳ văn b�
 Giới hạn: tổng độ dài cả 4 phần khoảng 1500 - 3000 ký tự.
 `;
 
-        let explanation = '';
-        try {
-            explanation = await getTarotReading(geminiPrompt);
-        } catch (err) {
-            console.error('[TAROT LỖI] Gemini:', err);
-        }
+            let explanation = '';
+            try {
+                explanation = await getTarotReading(geminiPrompt);
+            } catch (err) {
+                console.error('[TAROT LỖI] Gemini:', err);
+            }
 
-        // Parse kết quả Gemini
-        let texts = ['', '', '', ''];
-        if (explanation) {
-            const patterns = [
-                /\[LA_1\]([\s\S]*?)(?=\[LA_2\]|$)/i,
-                /\[LA_2\]([\s\S]*?)(?=\[LA_3\]|$)/i,
-                /\[LA_3\]([\s\S]*?)(?=\[TONG_KET\]|$)/i,
-                /\[TONG_KET\]([\s\S]*?)$/i
+            // Parse kết quả Gemini
+            let texts = ['', '', '', ''];
+            if (explanation) {
+                const patterns = [
+                    /\[LA_1\]([\s\S]*?)(?=\[LA_2\]|$)/i,
+                    /\[LA_2\]([\s\S]*?)(?=\[LA_3\]|$)/i,
+                    /\[LA_3\]([\s\S]*?)(?=\[TONG_KET\]|$)/i,
+                    /\[TONG_KET\]([\s\S]*?)$/i
+                ];
+                patterns.forEach((p, index) => {
+                    const m = explanation.match(p);
+                    if (m) texts[index] = m[1].trim();
+                });
+            }
+
+            // Fallback theo card nếu Gemini fail
+            const fallbacks = [
+                `Lá **${cards[0].name}** (${orients[0]}) ở vị trí "${spread.positions[0]}" đang nói với bạn rằng: ${meanings[0].split('.')[0]}. Trải nghiệm này mang đến cho bạn bài học quý giá về nhận thức.`,
+                `Lá **${cards[1].name}** (${orients[1]}) cảnh báo vị trí "${spread.positions[1]}": ${meanings[1].split('.')[0]}. Đây là thời điểm thích hợp để xem xét lại các hành động.`,
+                `Lá **${cards[2].name}** (${orients[2]}) báo trước "${spread.positions[2]}": ${meanings[2].split('.')[0]}. Hướng đi tương lai phụ thuộc vào cách bạn chuyển hóa năng lượng hiện tại.`,
+                `Đọc tổng quẻ ${spread.name}: ${energyLevel}. Năng lượng ${dominantElements} đang tác động mạnh mẽ đến bạn. Hãy giữ tâm trí tĩnh lặng và lắng nghe trực giác.`
             ];
-            patterns.forEach((p, index) => {
-                const m = explanation.match(p);
-                if (m) texts[index] = m[1].trim();
+            texts = texts.map((t, index) => t || fallbacks[index]);
+
+            // Màu embed theo tổng thể năng lượng
+            const dangerousIds = ['13', '15', '16'];
+            const hasDanger = cards.some(c => dangerousIds.includes(c.id));
+            const hasPositive = cards.some((c, idx) => ['19', '17', '21', '10'].includes(c.id) && orients[idx].includes('Xuôi'));
+
+            let embedColor: number;
+            if (hasDanger) embedColor = 0x7C0A02;       // Đỏ máu — hung
+            else if (reversedCount >= 2) embedColor = 0xE67E22; // Cam — cản trở
+            else if (hasPositive) embedColor = 0xF1C40F;  // Vàng — tốt lành
+            else embedColor = 0x9B59B6;                   // Tím — bình thường
+
+            // Chuẩn bị attachments ảnh
+            const attachments: AttachmentBuilder[] = [];
+            const imgNames = ['card1.jpg', 'card2.jpg', 'card3.jpg'];
+            cards.forEach((c, index) => {
+                const p = path.join(ASSETS_DIR, `${c.id}.jpg`);
+                if (fs.existsSync(p)) attachments.push(new AttachmentBuilder(p, { name: imgNames[index] }));
             });
-        }
 
-        // Fallback theo card nếu Gemini fail
-        const fallbacks = [
-            `Lá **${cards[0].name}** (${orients[0]}) ở vị trí "${spread.positions[0]}" đang nói với bạn rằng: ${meanings[0].split('.')[0]}. Trải nghiệm này mang đến cho bạn bài học quý giá về nhận thức.`,
-            `Lá **${cards[1].name}** (${orients[1]}) cảnh báo vị trí "${spread.positions[1]}": ${meanings[1].split('.')[0]}. Đây là thời điểm thích hợp để xem xét lại các hành động.`,
-            `Lá **${cards[2].name}** (${orients[2]}) báo trước "${spread.positions[2]}": ${meanings[2].split('.')[0]}. Hướng đi tương lai phụ thuộc vào cách bạn chuyển hóa năng lượng hiện tại.`,
-            `Đọc tổng quẻ ${spread.name}: ${energyLevel}. Năng lượng ${dominantElements} đang tác động mạnh mẽ đến bạn. Hãy giữ tâm trí tĩnh lặng và lắng nghe trực giác.`
-        ];
-        texts = texts.map((t, index) => t || fallbacks[index]);
+            // Dựng 4 Embeds
+            const buildCardEmbed = (cardIdx: number, posLabel: string, posIcon: string) => {
+                const c = cards[cardIdx];
+                const o = orients[cardIdx];
+                const m = meanings[cardIdx];
+                const t = texts[cardIdx];
+                const imgName = imgNames[cardIdx];
+                const embed = new EmbedBuilder()
+                    .setTitle(`${posIcon} ${posLabel.toUpperCase()}`)
+                    .setColor(embedColor)
+                    .setDescription(
+                        `**🃏 ${c.name}** *(${c.englishName})* — Hướng: ${o}\n` +
+                        `**🌀 Nguyên tố:** ${c.element} | **🔑 Từ khóa:** ${c.keywords.slice(0, 3).join(' · ')}\n\n` +
+                        `**📖 Ý nghĩa chuẩn RWS:**\n*${m}*\n\n` +
+                        `**🔮 Lời giải mã:**\n${t}`
+                    );
+                const imgPath = path.join(ASSETS_DIR, `${c.id}.jpg`);
+                if (fs.existsSync(imgPath)) embed.setImage(`attachment://${imgName}`);
+                return embed;
+            };
 
-        // Màu embed theo tổng thể năng lượng
-        const dangerousIds = ['13', '15', '16'];
-        const hasDanger = cards.some(c => dangerousIds.includes(c.id));
-        const hasPositive = cards.some((c, idx) => ['19', '17', '21', '10'].includes(c.id) && orients[idx].includes('Xuôi'));
+            const posIcons = ['🕰️', '⚡', '🔭'];
+            const embeds = [
+                buildCardEmbed(0, `Lá 1 — ${spread.positions[0]}`, posIcons[0]),
+                buildCardEmbed(1, `Lá 2 — ${spread.positions[1]}`, posIcons[1]),
+                buildCardEmbed(2, `Lá 3 — ${spread.positions[2]}`, posIcons[2]),
+            ];
 
-        let embedColor: number;
-        if (hasDanger) embedColor = 0x7C0A02;       // Đỏ máu — hung
-        else if (reversedCount >= 2) embedColor = 0xE67E22; // Cam — cản trở
-        else if (hasPositive) embedColor = 0xF1C40F;  // Vàng — tốt lành
-        else embedColor = 0x9B59B6;                   // Tím — bình thường
+            // Cảnh báo đặc biệt
+            let warningText = '';
+            if (hasDanger) {
+                const dangerCards = cards.filter(c => dangerousIds.includes(c.id)).map(c => `**${c.name}**`).join(', ');
+                warningText = `⚠️ **CẢNH BÁO NĂNG LƯỢNG MẢNH!** Trải bài xuất hiện lá bài mang năng lượng chuyển biến mạnh: ${dangerCards}\nMột số khó khăn hoặc bước ngoặt lớn đang cận kề, hãy vững vàng đối mặt. 🕯️✨\n\n`;
+            }
 
-        // Chuẩn bị attachments ảnh
-        const attachments: AttachmentBuilder[] = [];
-        const imgNames = ['card1.jpg', 'card2.jpg', 'card3.jpg'];
-        cards.forEach((c, index) => {
-            const p = path.join(ASSETS_DIR, `${c.id}.jpg`);
-            if (fs.existsSync(p)) attachments.push(new AttachmentBuilder(p, { name: imgNames[index] }));
-        });
-
-        // Dựng 4 Embeds
-        const buildCardEmbed = (cardIdx: number, posLabel: string, posIcon: string) => {
-            const c = cards[cardIdx];
-            const o = orients[cardIdx];
-            const m = meanings[cardIdx];
-            const t = texts[cardIdx];
-            const imgName = imgNames[cardIdx];
-            const embed = new EmbedBuilder()
-                .setTitle(`${posIcon} ${posLabel.toUpperCase()}`)
+            const embedSummary = new EmbedBuilder()
+                .setTitle(`🃏 ${spread.name} — TỔNG KẾT QUẺ BÓI`)
                 .setColor(embedColor)
                 .setDescription(
-                    `**🃏 ${c.name}** *(${c.englishName})* — Hướng: ${o}\n` +
-                    `**🌀 Nguyên tố:** ${c.element} | **🔑 Từ khóa:** ${c.keywords.slice(0, 3).join(' · ')}\n\n` +
-                    `**📖 Ý nghĩa chuẩn RWS:**\n*${m}*\n\n` +
-                    `**🔮 Lời giải mã:**\n${t}`
-                );
-            const imgPath = path.join(ASSETS_DIR, `${c.id}.jpg`);
-            if (fs.existsSync(imgPath)) embed.setImage(`attachment://${imgName}`);
-            return embed;
-        };
+                    `${warningText}` +
+                    `**❓ Câu hỏi:** *"${userQuestion || 'Xem tổng quan vận mệnh'}"*\n\n` +
+                    `**⚡ Phân tích năng lượng tổng:** ${energyLevel}\n` +
+                    `**🌀 Nguyên tố kết hợp:** ${dominantElements}\n\n` +
+                    `**📜 Thông điệp cốt lõi:**\n${texts[3]}`
+                )
+                .setFooter({ text: 'BotToan Tarot — Giải bài chuyên nghiệp & riêng tư', iconURL: message.client.user?.displayAvatarURL() })
+                .setTimestamp();
 
-        const posIcons = ['🕰️', '⚡', '🔭'];
-        const embeds = [
-            buildCardEmbed(0, `Lá 1 — ${spread.positions[0]}`, posIcons[0]),
-            buildCardEmbed(1, `Lá 2 — ${spread.positions[1]}`, posIcons[1]),
-            buildCardEmbed(2, `Lá 3 — ${spread.positions[2]}`, posIcons[2]),
-        ];
+            // Định nghĩa câu châm biếm theo streak
+            let sarcasticRemark = "";
+            if (streak === 3) {
+                sarcasticRemark = `\n💬 *Thầy Toàn cà khịa:* "Á à, con vợ này bắt đầu vã Tarot rồi! Mới 3 ngày thông mà đã tự nguyện nôn tiền cúng thầy, dính bùa lú rồi hay gì?"`;
+            } else if (streak === 4) {
+                sarcasticRemark = `\n💬 *Thầy Toàn cà khịa:* "Ngày thứ 4 rồi nha con giời! Định soi nát bộ bài của thầy để kiếm cớ trốn việc à? Tỉnh mộng giùm, xách mông đi làm ăn lương thiện đi!"`;
+            } else if (streak === 5) {
+                sarcasticRemark = `\n💬 *Thầy Toàn cà khịa:* "5 ngày liên tiếp nhẵn mặt ở đây! Tính dọn hộ khẩu qua nhà thầy Toàn ở luôn, hay định khởi nghĩa lật đổ thầy lên làm giáo chủ thế?"`;
+            } else if (streak === 6) {
+                sarcasticRemark = `\n💬 *Thầy Toàn cà khịa:* "6 ngày cúng tiền bói toán! Tao thề là vũ trụ đang nhìn mày sùi bọt mép gào lên: 'Con lạy mẹ, mẹ tha cho vũ trụ nghỉ ngơi đi mẹ!'"`;
+            } else if (streak >= 7) {
+                sarcasticRemark = `\n💬 *Thầy Toàn cà khịa:* "CHỐT SỔ: Ca này ung thư tâm linh giai đoạn cuối, trả về nơi sản xuất! Nghiện lật bài hơn nghiện mai thuý, thần linh cũng block mày luôn rồi. TẮT MÁY, XÁCH CÁI ĐÍT LÊN ĐI LÀM NGAY VÀ LUÔN ĐÊ CON VỢ!"`;
+            }
 
-        // Cảnh báo đặc biệt
-        let warningText = '';
-        if (hasDanger) {
-            const dangerCards = cards.filter(c => dangerousIds.includes(c.id)).map(c => `**${c.name}**`).join(', ');
-            warningText = `⚠️ **CẢNH BÁO NĂNG LƯỢNG MẠNH!** Trải bài xuất hiện lá bài mang năng lượng chuyển biến mạnh: ${dangerCards}\nMột số khó khăn hoặc bước ngoặt lớn đang cận kề, hãy vững vàng đối mặt. 🕯️✨\n\n`;
-        }
+            // Gửi DM bảo mật
+            try {
+                await message.author.send({
+                    content: `🔮 **KẾT QUẢ GIẢI BÀI TAROT RIÊNG TƯ — ${spread.name}** 🔮\n*(Thông điệp này được gửi riêng cho bạn — không chia sẻ lên kênh công khai)*`,
+                    embeds: [...embeds, embedSummary],
+                    files: attachments
+                });
 
-        const embedSummary = new EmbedBuilder()
-            .setTitle(`🃏 ${spread.name} — TỔNG KẾT QUẺ BÓI`)
-            .setColor(embedColor)
-            .setDescription(
-                `${warningText}` +
-                `**❓ Câu hỏi:** *"${userQuestion || 'Xem tổng quan vận mệnh'}"*\n\n` +
-                `**⚡ Phân tích năng lượng tổng:** ${energyLevel}\n` +
-                `**🌀 Nguyên tố kết hợp:** ${dominantElements}\n\n` +
-                `**📜 Thông điệp cốt lõi:**\n${texts[3]}`
-            )
-            .setFooter({ text: 'BotToan Tarot — Giải bài chuyên nghiệp & riêng tư', iconURL: message.client.user?.displayAvatarURL() })
-            .setTimestamp();
-
-        // Gửi DM bảo mật
-        try {
-            await message.author.send({
-                content: `🔮 **KẾT QUẢ GIẢI BÀI TAROT RIÊNG TƯ — ${spread.name}** 🔮\n*(Thông điệp này được gửi riêng cho bạn — không chia sẻ lên kênh công khai)*`,
-                embeds: [...embeds, embedSummary],
-                files: attachments
-            });
-
-            await tarotPromptMsg.edit({
-                content: `🔮 **Thầy Toàn đã rút bài ${spread.name} và gửi lời giải nghĩa chi tiết vào DM rồi!** Mau kiểm tra tin nhắn riêng của bạn nhé! 😉 *(Lệ phí: -20.000đ)*`,
-                embeds: [],
-                components: []
-            }).catch(() => {});
-        } catch (err: any) {
-            // Hoàn tiền nếu DM bị chặn
-            curBal += cost;
-            await updateBalance(userId, curBal);
-            console.error(`[TAROT LỖI] Không gửi DM được cho ${userId}:`, err.message);
-            await tarotPromptMsg.edit({
-                content: `❌ **Không thể gửi tin nhắn riêng!** Vui lòng mở DM (Direct Messages) từ thành viên server rồi thực hiện lại lệnh bói bài nhé.\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví của bạn. 💸`,
-                embeds: [],
-                components: []
-            }).catch(() => {});
+                await tarotPromptMsg.edit({
+                    content: `🔮 **Thầy Toàn đã rút bài ${spread.name} và gửi lời giải nghĩa chi tiết vào DM rồi!** Mau kiểm tra tin nhắn riêng của bạn nhé! 😉${sarcasticRemark}`,
+                    embeds: [],
+                    components: []
+                }).catch(() => {});
+            } catch (err: any) {
+                // Hoàn tiền nếu DM bị chặn
+                curBal += cost;
+                await updateBalance(userId, curBal);
+                await cancelTarotPlay(userId);
+                console.error(`[TAROT LỖI] Không gửi DM được cho ${userId}:`, err.message);
+                await tarotPromptMsg.edit({
+                    content: `❌ **Không thể gửi tin nhắn riêng!** Vui lòng mở DM (Direct Messages) từ thành viên server rồi thực hiện lại lệnh bói bài nhé.\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví của bạn. 💸`,
+                    embeds: [],
+                    components: []
+                }).catch(() => {});
+            }
+        } finally {
+            activeGamePlayers.delete(userId);
         }
     });
 
     collector.on('end', async (collected, reason) => {
         if (reason !== 'selected') {
+            activeGamePlayers.delete(userId);
             await tarotPromptMsg.edit({
                 content: `❌ **Hết thời gian chọn chủ đề!** Mày lề mề quá cút đi cho thầy bói người khác! ⏳`,
                 embeds: [],

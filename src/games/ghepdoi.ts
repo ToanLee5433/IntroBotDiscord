@@ -1,4 +1,4 @@
-import { Message, EmbedBuilder } from 'discord.js';
+import { Message, EmbedBuilder, PermissionFlagsBits, UserSelectMenuBuilder, ActionRowBuilder, ComponentType } from 'discord.js';
 import { Solar } from 'lunar-javascript';
 import { 
     saveProfile, getProfile, updateCrush, getCrush, 
@@ -6,7 +6,7 @@ import {
     getWhoCrushedMe, incrementCrushChange, incrementFailedMatch,
     setSimpLo, getSimpLoExpires, hasGieoQueToday, markGieoQueToday
 } from '../database';
-import { removeAccents, formatMoney, sendToJail, trueRandom } from '../utils';
+import { removeAccents, formatMoney, sendToJail, trueRandom, activeGamePlayers } from '../utils';
 import { getMatchmakingFortune } from '../services/gemini';
 
 // ================= DỊCH NGHĨA PHONG THỦY =================
@@ -422,183 +422,331 @@ export async function handleProfileRegistration(message: Message, rawInput: stri
 
 // ================= XỬ LÝ LỆNH CRUSH MẬT =================
 
+const crushCooldowns = new Map<string, number>();
+
 export async function handleCrushCommand(message: Message) {
-    const userA = message.author;
-    const targetUser = message.mentions.users.filter(u => u.id !== message.client.user?.id).first();
+    const userIdA = message.author.id;
+    const botMember = message.guild?.members.me;
 
-    if (!targetUser) {
-        await message.reply("❌ **Mày thầm thương trộm nhớ ai?** Tag nó vào! Ví dụ: `@BotToan crush @Ten_Doi_Phuong`.").catch(()=>{});
+    // 1. Kiểm tra quyền xóa tin nhắn (ManageMessages)
+    const canManageMessages = botMember && 
+        message.channel.isTextBased() && 
+        (message.channel as any).permissionsFor(botMember)?.has(PermissionFlagsBits.ManageMessages);
+
+    if (!canManageMessages) {
+        await message.reply("❌ **Thầy Toàn không có quyền xóa tin nhắn ở đây (cần quyền Quản lý tin nhắn - Manage Messages) nên không thể thực hiện lệnh Crush Mật bảo mật được! Lộ hết cưng ơi!**").catch(()=>{});
         return;
     }
 
-    const userIdA = userA.id;
-    const userIdB = targetUser.id;
-
-    if (userIdA === userIdB) {
-        await message.reply("❌ **Tự luyến vừa thôi con giời!** Thèm hơi người quá thì ra đường kiếm bồ đi, tự thầm thương trộm nhớ mình để hóa điên à? 🤪").catch(()=>{});
+    // 2. Kiểm tra xem người dùng có gõ nhầm (Accidental Ping) hay không
+    // Mentions không tính bot
+    const otherMentions = message.mentions.users.filter(u => u.id !== message.client.user?.id);
+    if (otherMentions.size > 0) {
+        await message.delete().catch(() => {});
+        try {
+            await message.author.send(`⚠️ **LỘ HẾT CẢ BÍ MẬT RỒI CON VỢ!** Thầy bảo gõ \`@BotToan crush\` thôi rồi chọn trong menu, sao lại đi tag thẳng tên người ta vào thế? Discord gửi thông báo rung máy người ta rồi kìa! Lần sau rút kinh nghiệm nhé! 🤫`);
+        } catch (err) {
+            await (message.channel as any).send(`❌ <@${userIdA}> ơi, đã bảo là tuyệt mật mà sao lại đi tag thẳng tên người ta vào thế? Lộ hết rồi kìa! (Tin nhắn đã được xoá để giảm thiệt hại)`).catch(()=>{});
+        }
         return;
     }
 
-    if (userIdB === message.client.user?.id) {
-        await message.reply("❌ **Bỏ ngay cái ý định gạ gẫm tao đi!** Tao chỉ yêu ví tiền của mày thôi, đừng có mà mơ mộng hão huyền! 💸🤖").catch(()=>{});
+    // 3. Xoá tin nhắn gốc lập tức để bảo mật
+    await message.delete().catch(() => {});
+
+    // 4. Kiểm tra Cooldown (5 phút)
+    const cooldownTime = 5 * 60 * 1000;
+    const lastUse = crushCooldowns.get(userIdA) || 0;
+    if (Date.now() - lastUse < cooldownTime) {
+        const timeLeft = Math.ceil((cooldownTime - (Date.now() - lastUse)) / 1000);
+        try {
+            await message.author.send(`❌ **Từ từ thôi con giời!** Lệnh Crush Mật chỉ được dùng tối đa 5 phút một lần. Thử lại sau **${timeLeft} giây** nhé!`);
+        } catch (err) {
+            await (message.channel as any).send(`❌ <@${userIdA}> ơi, lệnh thích đang trong thời gian chờ (cooldown). Vui lòng thử lại sau vài phút! (Tin nhắn đã được xoá để bảo mật)`).catch(()=>{});
+        }
         return;
     }
 
+    // 5. Kiểm tra Profile của người thích (A)
     const profileA = await getProfile(userIdA);
     if (!profileA) {
-        await message.reply(`❌ **Mày còn chưa khai báo lý lịch (profile) mà đòi đi thích người ta à?**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(()=>{});
+        try {
+            await message.author.send(`❌ **Mày còn chưa khai báo lý lịch (profile) mà đòi đi thích người ta à?**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``);
+        } catch (err) {
+            await (message.channel as any).send(`❌ <@${userIdA}> ơi, mày chưa khai báo lý lịch (profile). Hãy gõ \`@BotToan profile ...\` để đăng ký trước nhé! (Tin nhắn gốc đã được xoá để bảo mật)`).catch(()=>{});
+        }
         return;
     }
     profileA.birthday = profileA.birthday.replace(/\-/g, '/');
 
-    const profileB = await getProfile(userIdB);
-    if (!profileB) {
-        await message.reply(`❌ **Thằng/Con <@${userIdB}> sống ngoài vòng pháp luật, trốn khai báo lý lịch!**\nTao không có thông tin của nó để cho mày thích! Bảo nó gõ '@BotToan profile ...' để đăng ký đi rồi mới chơi được!`).catch(()=>{});
+    // 6. Kiểm tra xem người dùng có đang bận chơi game khác hay không
+    if (activeGamePlayers.has(userIdA)) {
+        try {
+            await message.author.send("❌ **Mày đang bận việc khác rồi con giời!** Đang chơi game bói toán khác thì xong đi đã chứ!");
+        } catch (err) {
+            await (message.channel as any).send(`❌ <@${userIdA}> ơi, mày đang bận chơi game khác. Vui lòng kết thúc game trước khi dùng lệnh thích nhé!`).catch(()=>{});
+        }
         return;
     }
-    profileB.birthday = profileB.birthday.replace(/\-/g, '/');
+    activeGamePlayers.add(userIdA);
 
-    // --- CHECK PHỐT NGOẠI TÌNH (Betrayal detection) ---
-    const oldCrushOfA = await getCrush(userIdA);
-    if (oldCrushOfA && oldCrushOfA !== userIdB) {
-        const crushOfOld = await getCrush(oldCrushOfA);
-        if (crushOfOld === userIdA) {
-            // A và oldCrushOfA từng khớp lệnh yêu nhau ngọt ngào mà nay A thay lòng!
-            await (message.channel as any).send(`🚨 **PHỐT NGOẠI TÌNH CỰC CĂNG!** 🚨\nCon chó <@${userIdA}> vừa thay lòng đổi dạ! Nó đã âm thầm hủy Crush với <@${oldCrushOfA}> để đi thả thính con/thằng <@${userIdB}> rồi! <@${oldCrushOfA}> ơi vào gõ lệnh \`@BotToan bao cong an <@${userIdA}>\` tống cổ kẻ phản bội này vào tù ngay cho tao! 🚔🔒`).catch(()=>{});
-        }
+    // 7. Tạo Embed và Dropdown
+    const selectMenu = new UserSelectMenuBuilder()
+        .setCustomId('crush_select')
+        .setPlaceholder('Chọn người thương trong bóng tối...');
+
+    const row = new ActionRowBuilder<UserSelectMenuBuilder>()
+        .addComponents(selectMenu);
+
+    const embed = new EmbedBuilder()
+        .setTitle("🤫 SE DUYÊN MẬT — THẦY TOÀN GIANG HỒ")
+        .setDescription(`Chào **${profileA.name}**, hãy chọn con giời mày thầm thương trộm nhớ ở menu bên dưới.\nThầy Toàn sẽ ghi sổ đen bảo mật cho mày!\n\n*(Lưu ý: Lựa chọn của mày chỉ có một mình mày nhìn thấy khi chọn, thời gian chọn: 30 giây)*`)
+        .setColor(0xFF69B4)
+        .setFooter({ text: "Thời gian chọn: 30 giây" });
+
+    const promptMsg = await (message.channel as any).send({
+        content: `👋 <@${userIdA}> ơi, chọn người trong mộng đi cưng:`,
+        embeds: [embed],
+        components: [row]
+    }).catch(() => null);
+
+    if (!promptMsg) {
+        activeGamePlayers.delete(userIdA);
+        return;
     }
 
-    // Lưu crush mới
-    await updateCrush(userIdA, userIdB);
+    const collector = promptMsg.createMessageComponentCollector({
+        componentType: ComponentType.UserSelect,
+        time: 30000
+    });
 
-    // --- XỬ LÝ CHÚA TỂ SIMP LỎ (Đổi crush quá 3 lần/ngày) ---
-    const now = Date.now();
-    const d = new Date(now + 7 * 60 * 60 * 1000);
-    const todayStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    
-    const crushChanges = await incrementCrushChange(userIdA, todayStr);
-    if (crushChanges > 3) {
-        await setSimpLo(userIdA, now + 24 * 60 * 60 * 1000);
-        const memberA = message.member;
-        if (memberA) {
-            const currentNick = memberA.displayName;
-            if (!currentNick.includes("[🤡 Simp Lỏ]")) {
-                const newNick = `[🤡 Simp Lỏ] ${currentNick.substring(0, 18)}`;
-                let nickChanged = false;
-                try {
-                    await memberA.setNickname(newNick);
-                    nickChanged = true;
-                } catch (err) {
-                    await (message.channel as any).send(`🤡 Định gắn mác Simp Lỏ cho sếp lớn <@${userIdA}> mà quyền tao bé quá đéo làm được! Nhưng cả server nhớ nhé, nó là Chúa Tể Simp Lỏ hôm nay!`).catch(()=>{});
-                }
-                if (nickChanged) {
-                    await (message.channel as any).send(`🤡 **PHONG HIỆU CHÚA TỂ SIMP LỎ!** <@${userIdA}> đã thay đổi crush quá 3 lần hôm nay. Tao ban tặng phong hiệu **[🤡 Simp Lỏ]** khóa đầu 24 giờ cho chừa thói bắt cá nhiều tay! 🤡`).catch(()=>{});
+    let isProcessed = false;
+
+    collector.on('collect', async (i: any) => {
+        if (i.user.id !== userIdA) {
+            await i.reply({ content: "❌ Đéo phải lượt chọn của mày! Tự gõ \`@BotToan crush\` để tự tìm bồ đi cưng!", ephemeral: true }).catch(() => {});
+            return;
+        }
+
+        if (isProcessed) return;
+        isProcessed = true;
+
+        collector.stop('selected');
+
+        try {
+            const userIdB = i.values[0];
+
+            if (userIdB === userIdA) {
+                await i.reply({ content: "❌ **Tự luyến vừa thôi con giời!** Thầm thương trộm nhớ mình để hóa điên à? 🤪", ephemeral: true }).catch(() => {});
+                await promptMsg.edit({
+                    content: `❌ <@${userIdA}> tự bóp dái tự yêu bản thân nên thầy hủy quẻ se duyên này!`,
+                    embeds: [],
+                    components: []
+                }).catch(() => {});
+                return;
+            }
+
+            if (userIdB === message.client.user?.id) {
+                await i.reply({ content: "❌ **Bỏ ngay cái ý định gạ gẫm tao đi!** Tao chỉ yêu ví tiền của mày thôi, đừng có mà mơ mộng hão huyền! 💸🤖", ephemeral: true }).catch(() => {});
+                await promptMsg.edit({
+                    content: `❌ <@${userIdA}> định gạ gẫm BotToan nhưng bị thầy vả cho tỉnh ngộ!`,
+                    embeds: [],
+                    components: []
+                }).catch(() => {});
+                return;
+            }
+
+            const profileB = await getProfile(userIdB);
+            if (!profileB) {
+                await i.reply({ content: `❌ **Đối phương sống ngoài vòng pháp luật, trốn khai báo lý lịch!** Bảo họ gõ \`@BotToan profile ...\` đi rồi mới thích được!`, ephemeral: true }).catch(() => {});
+                await promptMsg.edit({
+                    content: `❌ <@${userIdA}> ơi, đối phương chưa khai báo lý lịch nên thầy chịu không se duyên được!`,
+                    embeds: [],
+                    components: []
+                }).catch(() => {});
+                return;
+            }
+            profileB.birthday = profileB.birthday.replace(/\-/g, '/');
+
+            // --- CHECK PHỐT NGOẠI TÌNH (Betrayal detection) ---
+            const oldCrushOfA = await getCrush(userIdA);
+            if (oldCrushOfA && oldCrushOfA !== userIdB) {
+                const crushOfOld = await getCrush(oldCrushOfA);
+                if (crushOfOld === userIdA) {
+                    // A và oldCrushOfA từng khớp lệnh yêu nhau ngọt ngào mà nay A thay lòng!
+                    await (message.channel as any).send(`🚨 **PHỐT NGOẠI TÌNH CỰC CĂNG!** 🚨\nCon chó <@${userIdA}> vừa thay lòng đổi dạ! Nó đã âm thầm hủy Crush để đi thả thính đối tượng khác rồi! <@${oldCrushOfA}> ơi vào gõ lệnh \`@BotToan bao cong an <@${userIdA}>\` tống cổ kẻ phản bội này vào tù ngay cho tao! 🚔🔒`).catch(()=>{});
                 }
             }
-        }
-    }
 
-    // Kiểm tra tương hỗ
-    const crushOfB = await getCrush(userIdB);
+            // Lưu crush mới và cập nhật cooldown
+            await updateCrush(userIdA, userIdB);
+            crushCooldowns.set(userIdA, Date.now());
 
-    if (crushOfB === userIdA) {
-        // MATCH THÀNH CÔNG!
-        const yearA = parseInt(profileA.birthday.split('/')[2], 10);
-        const yearB = parseInt(profileB.birthday.split('/')[2], 10);
-
-        let matchmakingComment = "";
-
-        if (profileA.gender === 'Nam' && profileB.gender === 'Nam') {
-            const gayQuotes = [
-                "Ủa hai thằng đực rựa đều crush nhau à? Thông đít cúc hoa khai mở vận mệnh mới à? Chúc hai khứa dầu ăn trơn tru nhé! 👬🧴",
-                "Gay cấn chưa! Sòng bạc của tao tự nhiên lòi ra cặp đôi dầu ăn Neptun uy tín thế này. Hai thằng bê đê chúng mày dắt nhau đi mua dầu ăn rồi về thông cúc đi chứ crush cái gì nữa! 🌈🧴",
-                "Đoạt hồn đoạt cúc! Hai khứa đực rựa này lưỡng tình tương duyệt rồi nhé. Một thằng làm công, một thằng làm thụ, nồi nào úp vung nấy, cúc hoa tàn héo đêm nay rồi! 🍑👈"
-            ];
-            matchmakingComment = gayQuotes[Math.floor(Math.random() * gayQuotes.length)];
-        }
-        else if (profileA.gender === 'Nữ' && profileB.gender === 'Nữ') {
-            const lesQuotes = [
-                "Kéo kéo cắt cắt à hai cô nương? Thôi hai đứa tự cọ cọ chăm sóc nhau đi, sòng bài bớt đi hai con nợ nữ rồi! 👭✂️",
-                "Âm dương cách biệt? Không, đây là hai cực âm hút nhau! Hai cô nương định làm trò cọ cọ kéo cắt tỉa cành hoa hồng à? Mở sới đấu kiếm nữ đi tao làm trọng tài! ✂️🌺",
-                "Húp sò húp hến à hai cô bé? Hai đứa mày thầm thích nhau thì dắt nhau đi ăn lẩu cua đồng hay cọ kéo gì đi, cấm rủ rê tao tham gia nhé! 🦀👭"
-            ];
-            matchmakingComment = lesQuotes[Math.floor(Math.random() * lesQuotes.length)];
-        }
-        else {
-            const maleProfile = profileA.gender === 'Nam' ? profileA : profileB;
-            const femaleProfile = profileA.gender === 'Nữ' ? profileA : profileB;
-            const maleId = profileA.gender === 'Nam' ? userIdA : userIdB;
-            const femaleId = profileA.gender === 'Nữ' ? userIdA : userIdB;
+            // --- XỬ LÝ CHÚA TỂ SIMP LỎ (Đổi crush quá 3 lần/ngày) ---
+            const now = Date.now();
+            const d = new Date(now + 7 * 60 * 60 * 1000);
+            const todayStr = `${d.getUTCFullYear()}-\$${String(d.getUTCMonth() + 1).padStart(2, '0')}-\$${String(d.getUTCDate()).padStart(2, '0')}`;
             
-            const yearMale = parseInt(maleProfile.birthday.split('/')[2], 10);
-            const yearFemale = parseInt(femaleProfile.birthday.split('/')[2], 10);
-
-            if (yearMale > yearFemale) {
-                // Nam trẻ tuổi hơn Nữ -> Phi công
-                const pilotQuotes = [
-                    `Ơ thế thằng <@${maleId}> thích làm phi công trẻ à? Con <@${femaleId}> hơn mày ${yearMale - yearFemale} tuổi đấy! Máy bay này động cơ phản lực hơi bị khỏe, khôn hồn thì thắt dây an toàn vào kẻo rớt phi đạo con ạ! ✈️👩‍👦`,
-                    `Thằng cu <@${maleId}> non choẹt đòi cưỡi máy bay bà già <@${femaleId}> hơn ${yearMale - yearFemale} tuổi. Máy bay này bay lâu năm động cơ rệu rã hay là phản lực hạng nặng? Coi chừng gãy cánh giữa đường nhé em trai! 🛩️👵`,
-                    `Khẩu vị mặn mà đấy khứa <@${maleId}>! Thích máy bay ném bom <@${femaleId}> hơn tận ${yearMale - yearFemale} tuổi. Lái máy bay này thì không lo thiếu sữa mẹ, nhưng coi chừng bị đè bẹp dí đéo ngóc đầu lên nổi! ✈️🍼`
-                ];
-                matchmakingComment = pilotQuotes[Math.floor(Math.random() * pilotQuotes.length)];
+            const crushChanges = await incrementCrushChange(userIdA, todayStr);
+            if (crushChanges > 3) {
+                await setSimpLo(userIdA, now + 24 * 60 * 60 * 1000);
+                const memberA = message.member;
+                if (memberA) {
+                    const currentNick = memberA.displayName;
+                    if (!currentNick.includes("[🤡 Simp Lỏ]")) {
+                        const newNick = `[🤡 Simp Lỏ] ${currentNick.substring(0, 18)}`;
+                        let nickChanged = false;
+                        try {
+                            await memberA.setNickname(newNick);
+                            nickChanged = true;
+                        } catch (err) {
+                            await (message.channel as any).send(`🤡 Định gắn mác Simp Lỏ cho sếp lớn <@${userIdA}> mà quyền tao bé quá đéo làm được! Nhưng cả server nhớ nhé, nó là Chúa Tể Simp Lỏ hôm nay!`).catch(()=>{});
+                        }
+                        if (nickChanged) {
+                            await (message.channel as any).send(`🤡 **PHONG HIỆU CHÚA TỂ SIMP LỎ!** <@${userIdA}> đã thay đổi crush quá 3 lần hôm nay. Tao ban tặng phong hiệu **[🤡 Simp Lỏ]** khóa đầu 24 giờ cho chừa thói bắt cá nhiều tay! 🤡`).catch(()=>{});
+                        }
+                    }
+                }
             }
-            else if (yearMale < yearFemale - 4) {
-                // Nam lớn tuổi hơn Nữ >= 5 tuổi -> Trâu già
-                const oldCowQuotes = [
-                    `Thằng già <@${maleId}> lại thích gặm cỏ non à? Con bé <@${femaleId}> kém mày tận ${yearFemale - yearMale} tuổi. Đúng là trâu già thích cỏ non, liệu hồn kẻo bố nó vác dao rượt nhé! 👴🌱`,
-                    `Cảnh sát ơi có biến thái! Thằng <@${maleId}> tuổi cao sức yếu lại đòi gặm cỏ non xanh mướt <@${femaleId}> kém tận ${yearFemale - yearMale} tuổi. Liệu mà mua bảo hiểm thân thể đi, phụ huynh nó biết là thiến làm thái giám đấy! 🚔👴`,
-                    `Mày định làm daddy nuôi sinh viên nghèo vượt khó à thằng <@${maleId}>? Bé <@${femaleId}> kém mày ${yearFemale - yearMale} tuổi đầu, yêu đương đéo gì tầm này, dắt nó đi mua bim bim rồi đưa về nhà trước 9h tối đi con giời! 🍭🌱`
-                ];
-                matchmakingComment = oldCowQuotes[Math.floor(Math.random() * oldCowQuotes.length)];
-            }
-            else {
-                // Cặp đôi nam nữ bình thường
-                const straightQuotes = [
-                    `Tình trong như đã mặt ngoài còn e! Thằng <@${maleId}> thì thèm nhỏ dãi, con <@${femaleId}> thì cũng chết mê chết mệt. Crush làm cái mẹ gì nữa, dắt nhau ra sòng xóc đĩa làm lễ thành hôn, kiếm cọc tiền nợ rồi bỏ trốn chung đi các con giời! 💍🚔`,
-                    `Ối giời đất ơi cẩu lương ngập sòng bạc rồi! Hai đứa mày thầm thương trộm nhớ nhau bấy lâu nay mà cứ làm màu. <@${maleId}> và <@${femaleId}> chính thức khớp lệnh! Cưới lẹ đi rồi đẻ con ra nuôi sới bạc cho tao! 👶🎲`,
-                    `Hợp đồng tình ái đã được ký kết! <@${maleId}> chính thức cắm cọc vào tim <@${femaleId}> và ngược lại. Khỏi crush thầm lặng nữa, dắt nhau đi nhà nghỉ hay đi tù chung thì tùy hai đứa mày, tao không cản! 🏨🚔`,
-                    `Kinh điển chưa, hai đứa câm nín crush nhau nay đã lộ tẩy! <@${maleId}> và <@${femaleId}> lưỡng tình tương duyệt, nồi nào úp vung nấy, một đứa báo thủ gặp một đứa cái bang. Chúc hai đứa trăm năm hạnh phúc dưới chân cầu! 🌉💸`
-                ];
-                matchmakingComment = straightQuotes[Math.floor(Math.random() * straightQuotes.length)];
-            }
-        }
 
-        const messageA = `💕 **KHỚP LỆNH THÀNH CÔNG!** 💕\n\nCon giời <@${userIdB}> (\`${profileB.name}\`) cũng đang thầm thương trộm nhớ mày đấy!\n\n💬 **Lời phán từ thầy bói BotToan:**\n${matchmakingComment}`;
-        const messageB = `💕 **KHỚP LỆNH THÀNH CÔNG!** 💕\n\nCon giời <@${userIdA}> (\`${profileA.name}\`) cũng đang thầm thương trộm nhớ mày đấy!\n\n💬 **Lời phán từ thầy bói BotToan:**\n${matchmakingComment}`;
+            // Kiểm tra tương hỗ
+            const crushOfB = await getCrush(userIdB);
 
-        let sentA = false;
-        let sentB = false;
+            if (crushOfB === userIdA) {
+                // MATCH THÀNH CÔNG!
+                const yearA = parseInt(profileA.birthday.split('/')[2], 10);
+                const yearB = parseInt(profileB.birthday.split('/')[2], 10);
 
-        try {
-            await userA.send(messageA);
-            sentA = true;
-        } catch (err) {
-            console.error(`Không thể gửi DM cho User A (${userIdA}):`, err);
-        }
+                let matchmakingComment = "";
 
-        try {
-            await targetUser.send(messageB);
-            sentB = true;
-        } catch (err) {
-            console.error(`Không thể gửi DM cho User B (${userIdB}):`, err);
-        }
+                if (profileA.gender === 'Nam' && profileB.gender === 'Nam') {
+                    const gayQuotes = [
+                        "Ủa hai thằng đực rựa đều crush nhau à? Thông đít cúc hoa khai mở vận mệnh mới à? Chúc hai khứa dầu ăn trơn tru nhé! 👬🧴",
+                        "Gay cấn chưa! Sòng bạc của tao tự nhiên lòi ra cặp đôi dầu ăn Neptun uy tín thế này. Hai thằng bê đê chúng mày dắt nhau đi mua dầu ăn rồi về thông cúc đi chứ crush cái gì nữa! 🌈🧴",
+                        "Đoạt hồn đoạt cúc! Hai khứa đực rựa này lưỡng tình tương duyệt rồi nhé. Một thằng làm công, một thằng làm thụ, nồi nào úp vung nấy, cúc hoa tàn héo đêm nay rồi! 🍑👈"
+                    ];
+                    matchmakingComment = gayQuotes[Math.floor(Math.random() * gayQuotes.length)];
+                }
+                else if (profileA.gender === 'Nữ' && profileB.gender === 'Nữ') {
+                    const lesQuotes = [
+                        "Kéo kéo cắt cắt à hai cô nương? Thôi hai đứa tự cọ cọ chăm sóc nhau đi, sòng bài bớt đi hai con nợ nữ rồi! 👭✂️",
+                        "Âm dương cách biệt? Không, đây là hai cực âm hút nhau! Hai cô nương định làm trò cọ cọ kéo cắt tỉa cành hoa hồng à? Mở sới đấu kiếm nữ đi tao làm trọng tài! ✂️🌺",
+                        "Húp sò húp hến à hai cô bé? Hai đứa mày thầm thích nhau thì dắt nhau đi ăn lẩu cua đồng hay cọ kéo gì đi, cấm rủ rê tao tham gia nhé! 🦀👭"
+                    ];
+                    matchmakingComment = lesQuotes[Math.floor(Math.random() * lesQuotes.length)];
+                }
+                else {
+                    const maleProfile = profileA.gender === 'Nam' ? profileA : profileB;
+                    const femaleProfile = profileA.gender === 'Nữ' ? profileA : profileB;
+                    const maleId = profileA.gender === 'Nam' ? userIdA : userIdB;
+                    const femaleId = profileA.gender === 'Nữ' ? userIdA : userIdB;
+                    
+                    const yearMale = parseInt(maleProfile.birthday.split('/')[2], 10);
+                    const yearFemale = parseInt(femaleProfile.birthday.split('/')[2], 10);
 
-        if (!sentA || !sentB) {
-            let responseText = `🚨 **LƯỠNG TÌNH TƯƠNG DUYỆT RỒI NHÉ!** \n`;
-            if (!sentA && !sentB) {
-                responseText += `Nhưng cả hai đứa <@${userIdA}> và <@${userIdB}> đều đang khóa DM nên tao đéo gửi tin nhắn mật được. Mở khóa nhận DM từ thành viên chung server ra đi rồi chơi tiếp!`;
-            } else if (!sentA) {
-                responseText += `Nhưng <@${userIdA}> đang khóa DM nên tao đéo gửi tin nhắn mật được. Mở DM ra đi con giời!`;
+                    if (yearMale > yearFemale) {
+                        // Nam trẻ tuổi hơn Nữ -> Phi công
+                        const pilotQuotes = [
+                            `Ơ thế thằng <@${maleId}> thích làm phi công trẻ à? Con <@${femaleId}> hơn mày ${yearMale - yearFemale} tuổi đấy! Máy bay này động cơ phản lực hơi bị khỏe, khôn hồn thì thắt dây an toàn vào kẻo rớt phi đạo con ạ! ✈️👩‍👦`,
+                            `Thằng cu <@${maleId}> non choẹt đòi cưỡi máy bay bà già <@${femaleId}> hơn ${yearMale - yearFemale} tuổi. Máy bay này bay lâu năm động cơ rệu rã hay là phản lực hạng nặng? Coi chừng gãy cánh giữa đường nhé em trai! 🛩️👵`,
+                            `Khẩu vị mặn mà đấy khứa <@${maleId}>! Thích máy bay ném bom <@${femaleId}> hơn tận ${yearMale - yearFemale} tuổi. Lái máy bay này thì không lo thiếu sữa mẹ, nhưng coi chừng bị đè bẹp dí đéo ngóc đầu lên nổi! ✈️🍼`
+                        ];
+                        matchmakingComment = pilotQuotes[Math.floor(Math.random() * pilotQuotes.length)];
+                    }
+                    else if (yearMale < yearFemale - 4) {
+                        // Nam lớn tuổi hơn Nữ >= 5 tuổi -> Trâu già
+                        const oldCowQuotes = [
+                            `Thằng già <@${maleId}> lại thích gặm cỏ non à? Con bé <@${femaleId}> kém mày tận ${yearFemale - yearMale} tuổi. Đúng là trâu già thích cỏ non, liệu hồn kẻo bố nó vác dao rượt nhé! 👴🌱`,
+                            `Cảnh sát ơi có biến thái! Thằng <@${maleId}> tuổi cao sức yếu lại đòi gặm cỏ non xanh mướt <@${femaleId}> kém tận ${yearFemale - yearMale} tuổi. Liệu mà mua bảo hiểm thân thể đi, phụ huynh nó biết là thiến làm thái giám đấy! 🚔👴`,
+                            `Mày định làm daddy nuôi sinh viên nghèo vượt khó à thằng <@${maleId}>? Bé <@${femaleId}> kém mày ${yearFemale - yearMale} tuổi đầu, yêu đương đéo gì tầm này, dắt nó đi mua bim bim rồi đưa về nhà trước 9h tối đi con giời! 🍭🌱`
+                        ];
+                        matchmakingComment = oldCowQuotes[Math.floor(Math.random() * oldCowQuotes.length)];
+                    }
+                    else {
+                        // Cặp đôi nam nữ bình thường
+                        const straightQuotes = [
+                            `Tình trong như đã mặt ngoài còn e! Thằng <@${maleId}> thì thèm nhỏ dãi, con <@${femaleId}> thì cũng chết mê chết mệt. Crush làm cái mẹ gì nữa, dắt nhau ra sòng xóc đĩa làm lễ thành hôn, kiếm cọc tiền nợ rồi bỏ trốn chung đi các con giời! 💍🚔`,
+                            `Ối giời đất ơi cẩu lương ngập sòng bạc rồi! Hai đứa mày thầm thương trộm nhớ nhau bấy lâu nay mà cứ làm màu. <@${maleId}> và <@${femaleId}> chính thức khớp lệnh! Cưới lẹ đi rồi đẻ con ra nuôi sới bạc cho tao! 👶🎲`,
+                            `Hợp đồng tình ái đã được ký kết! <@${maleId}> chính thức cắm cọc vào tim <@${femaleId}> và ngược lại. Khỏi crush thầm lặng nữa, dắt nhau đi nhà nghỉ hay đi tù chung thì tùy hai đứa mày, tao không cản! 🏨🚔`,
+                            `Kinh điển chưa, hai đứa câm nín crush nhau nay đã lộ tẩy! <@${maleId}> và ${femaleId} chính thức khớp lệnh! Cưới lẹ đi rồi đẻ con ra nuôi sới bạc cho tao!`,
+                            `Hợp đồng tình ái đã được ký kết! <@${maleId}> và <@${femaleId}> chính thức kết duyên lành, tao không cản!`
+                        ];
+                        matchmakingComment = straightQuotes[Math.floor(Math.random() * straightQuotes.length)];
+                    }
+                }
+
+                const messageA = `💕 **KHỚP LỆNH THÀNH CÔNG!** 💕\n\nCon giời <@${userIdB}> (\`${profileB.name}\`) cũng đang thầm thương trộm nhớ mày đấy!\n\n💬 **Lời phán từ thầy bói BotToan:**\n${matchmakingComment}`;
+                const messageB = `💕 **KHỚP LỆNH THÀNH CÔNG!** 💕\n\nCon giời <@${userIdA}> (\`${profileA.name}\`) cũng đang thầm thương trộm nhớ mày đấy!\n\n💬 **Lời phán từ thầy bói BotToan:**\n${matchmakingComment}`;
+
+                let sentA = false;
+                let sentB = false;
+
+                try {
+                    await message.author.send(messageA);
+                    sentA = true;
+                } catch (err) {
+                    console.error(`Không thể gửi DM cho User A (${userIdA}):`, err);
+                }
+
+                try {
+                    const fetchedUserB = await message.client.users.fetch(userIdB);
+                    await fetchedUserB.send(messageB);
+                    sentB = true;
+                } catch (err) {
+                    console.error(`Không thể gửi DM cho User B (${userIdB}):`, err);
+                }
+
+                await i.reply({ content: "💕 **KHỚP LỆNH THÀNH CÔNG!** Thầy Toàn đã tác hợp cho hai đứa bay!", ephemeral: true }).catch(() => {});
+
+                if (!sentA || !sentB) {
+                    let responseText = `🚨 **LƯỠNG TÌNH TƯƠNG DUYỆT RỒI NHÉ!** \n`;
+                    if (!sentA && !sentB) {
+                        responseText += `Nhưng cả hai đứa <@${userIdA}> và <@${userIdB}> đều đang khóa DM nên tao đéo gửi tin nhắn mật được. Mở khóa nhận DM từ thành viên chung server ra đi rồi chơi tiếp!`;
+                    } else if (!sentA) {
+                        responseText += `Nhưng <@${userIdA}> đang khóa DM nên tao đéo gửi tin nhắn mật được. Mở DM ra đi con giời!`;
+                    } else {
+                        responseText += `Nhưng <@${userIdB}> đang khóa DM nên tao đéo gửi tin nhắn mật được. Mở DM ra đi con giời!`;
+                    }
+                    await promptMsg.edit({
+                        content: responseText,
+                        embeds: [],
+                        components: []
+                    }).catch(() => {});
+                } else {
+                    await promptMsg.edit({
+                        content: `🎉 **KHỚP LỆNH THÀNH CÔNG!** Thầy Toàn đã se duyên thành công cho <@${userIdA}> và <@${userIdB}>! Mau vào check DM ngay kẻo nguội! 💕`,
+                        embeds: [],
+                        components: []
+                    }).catch(()=>{});
+                }
             } else {
-                responseText += `Nhưng <@${userIdB}> đang khóa DM nên tao đéo gửi tin nhắn mật được. Mở DM ra đi con giời!`;
+                // Chỉ thích một phía
+                await i.reply({
+                    content: `🤫 **Ghi sổ đen thành công!** Tao đã lưu trữ mối tình đầu của mày dành cho đối phương vào hệ thống. Chờ khi nào họ cũng thích mày thì sẽ khớp lệnh mật nhé! Nằm im góc tối tương tư tiếp đi con giời!`,
+                    ephemeral: true
+                }).catch(() => {});
+
+                await promptMsg.edit({
+                    content: `🤫 <@${userIdA}> vừa âm thầm gửi gắm một tâm tư tình cảm... Thầy Toàn đã ghi nhận và lưu vào sổ đen mật! 🔮`,
+                    embeds: [],
+                    components: []
+                }).catch(()=>{});
             }
-            await message.reply(responseText).catch(() => {});
-        } else {
-            await message.reply("🤫 **KHỚP LỆNH THÀNH CÔNG!** Tao đã gửi tin nhắn mật đến hòm thư riêng (DM) của hai đứa mày rồi nhé. Vào check ngay kẻo nguội!").catch(()=>{});
+        } finally {
+            activeGamePlayers.delete(userIdA);
         }
-    } else {
-        await message.reply(`🤫 **Ghi sổ đen thành công!** Tao đã lưu trữ mối tình đầu của mày dành cho <@${userIdB}> vào hệ thống. Chờ khi nào nó cũng thích mày rồi gõ lệnh thích thì tao mới kích hoạt khớp lệnh mật nhé! Nằm im góc tối tương tư tiếp đi con giời!`).catch(()=>{});
-    }
+    });
+
+    collector.on('end', async (collected: any, reason: string) => {
+        if (reason !== 'selected') {
+            activeGamePlayers.delete(userIdA);
+            await promptMsg.edit({
+                content: `❌ **Hết thời gian chọn!** <@${userIdA}> lề mề quá cút đi cho thầy se duyên người khác! ⏳`,
+                embeds: [],
+                components: []
+            }).catch(() => {});
+        }
+    });
 }
 
 // ================= XỬ LÝ LỆNH GHÉP ĐÔI PHONG THỦY =================
@@ -1004,234 +1152,245 @@ export async function handleBuaYeu(message: Message) {
 
 export async function handleGieoQue(message: Message) {
     const userId = message.author.id;
-    const profile = await getProfile(userId);
 
-    if (!profile) {
-        await message.reply(`❌ **Mày chưa khai báo lý lịch (profile) bói toán!**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(()=>{});
+    if (activeGamePlayers.has(userId)) {
+        await message.reply("❌ **Mày đang bận việc khác rồi con giời!** Đang chơi game bói toán khác thì xong đi đã chứ!").catch(()=>{});
         return;
     }
-    profile.birthday = profile.birthday.replace(/\-/g, '/');
+    activeGamePlayers.add(userId);
 
-    const now = Date.now();
-    const d = new Date(now + 7 * 60 * 60 * 1000);
-    const todayStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    try {
+        const profile = await getProfile(userId);
 
-    // 1. Kiểm tra xem hôm nay gieo quẻ chưa
-    const hasGieo = await hasGieoQueToday(userId, todayStr);
-    if (hasGieo) {
-        const vnTomorrow = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
-        const timeLeftMs = (vnTomorrow - 7 * 60 * 60 * 1000) - now;
-        const hours = Math.floor(timeLeftMs / (60 * 60 * 1000));
-        const minutes = Math.floor((timeLeftMs % (60 * 60 * 1000)) / (60 * 1000));
+        if (!profile) {
+            await message.reply(`❌ **Mày chưa khai báo lý lịch (profile) bói toán!**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(()=>{});
+            return;
+        }
+        profile.birthday = profile.birthday.replace(/\-/g, '/');
+
+        const now = Date.now();
+        const d = new Date(now + 7 * 60 * 60 * 1000);
+        const todayStr = `${d.getUTCFullYear()}-\$${String(d.getUTCMonth() + 1).padStart(2, '0')}-\$${String(d.getUTCDate()).padStart(2, '0')}`;
+
+        // 1. Kiểm tra xem hôm nay gieo quẻ chưa
+        const hasGieo = await hasGieoQueToday(userId, todayStr);
+        if (hasGieo) {
+            const vnTomorrow = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+            const timeLeftMs = (vnTomorrow - 7 * 60 * 60 * 1000) - now;
+            const hours = Math.floor(timeLeftMs / (60 * 60 * 1000));
+            const minutes = Math.floor((timeLeftMs % (60 * 60 * 1000)) / (60 * 1000));
+
+            const embed = new EmbedBuilder()
+                .setTitle("🚫 XIN QUẺ THẤT BẠI - HÔM NAY XEM THẾ ĐỦ RỒI!")
+                .setDescription(`⚠️ **Mày đã xin quẻ vận mệnh hôm nay rồi con giời!**\n\nQuy tắc giang hồ mỗi ngày chỉ được xin **1 lượt duy nhất** thôi. Xem lắm quẻ hóa quẻ hung đấy!\nHãy quay lại sau **${hours} giờ ${minutes} phút** nữa nhé!`)
+                .setColor(0xFF0000)
+                .setFooter({ text: "BotToan - Thầy bói giang hồ", iconURL: message.client.user?.displayAvatarURL() });
+
+            await message.reply({ embeds: [embed] }).catch(()=>{});
+            return;
+        }
+
+        // 2. Khóa lập tức để tránh race condition
+        await markGieoQueToday(userId, todayStr);
+
+        let balance = await getBalance(userId);
+        const debt = await getDebt(userId);
+
+        // Roll quẻ (1 - 100)
+        const roll = trueRandom(1, 100);
+        let queName = "";
+        let queDesc = "";
+        let queAction = "";
+        let color = 0x00FF00;
+        let balanceChange = 0;
+        let rewardOrPenaltyText = "";
+        let jailNote = "";
+        let isJailTriggered = false;
+
+        if (roll <= 10) {
+            queName = "🧧 ĐẠI CÁT";
+            queDesc = "Cực kỳ cát tường, vận khí ngập trời, thần tài gõ cửa!";
+            balanceChange = trueRandom(15, 30);
+            queAction = `Nhặt được ví tiền đánh rơi ở sòng blackjack (+\$${balanceChange}k)`;
+            color = 0xFF00FF;
+        } else if (roll <= 30) {
+            queName = "🍊 TRUNG CÁT";
+            queDesc = "Khá cát lành, làm việc hanh thông, cờ bạc dễ trúng.";
+            balanceChange = trueRandom(5, 15);
+            queAction = `Được chiến hữu cùng sòng bài chia lộc (+\$${balanceChange}k)`;
+            color = 0x2ECC71;
+        } else if (roll <= 50) {
+            queName = "🌾 TIỂU CÁT";
+            queDesc = "Hơi cát lành, có chút lộc nhỏ ăn sáng.";
+            balanceChange = trueRandom(1, 5);
+            queAction = `Nhặt được tiền lẻ rơi ven đường đê (+\$${balanceChange}k)`;
+            color = 0x3498DB;
+        } else if (roll <= 75) {
+            queName = "⚖️ BÌNH HÒA";
+            queDesc = "Mọi việc bình bình, sóng yên biển lặng, bảo toàn lực lượng.";
+            balanceChange = 0;
+            queAction = "Vẫn là con nợ nhưng hôm nay không thấy chủ nợ đòi tiền (0k)";
+            color = 0x95A5A6;
+        } else if (roll <= 90) {
+            queName = "🍂 TIỂU HUNG";
+            queDesc = "Hơi xui xẻo, hao tài tốn của nhẹ, cẩn thận mất đồ.";
+            const penalty = trueRandom(1, 10);
+            balanceChange = -Math.min(balance, penalty);
+            queAction = `Bị giang hồ xin đểu tiền nước hoặc làm rơi tiền (\$${balanceChange}k)`;
+            color = 0xE67E22;
+        } else {
+            queName = "☠️ ĐẠI HUNG";
+            queDesc = "Vô cùng hung hiểm! Nghiệp quật sấp mặt, tai họa rập rình!";
+            const penalty = trueRandom(15, 30);
+            balanceChange = -Math.min(balance, penalty);
+            queAction = `Bị đàn em giang hồ của BotToan quây chặn đường trấn lột (\$${balanceChange}k)`;
+            color = 0xFF0000;
+
+            if (Math.random() < 0.2 && message.guild) {
+                isJailTriggered = true;
+                jailNote = "\n🚔 **Nghiệp quật tàn bạo:** Bị cảnh sát tóm cổ tống giam 1 phút để cải tạo!";
+            }
+        }
+
+        balance += balanceChange;
+        await updateBalance(userId, balance);
+
+        if (balanceChange > 0) {
+            rewardOrPenaltyText = `Cộng **\$${formatMoney(balanceChange)}**`;
+        } else if (balanceChange < 0) {
+            rewardOrPenaltyText = `Trừ **\$${formatMoney(Math.abs(balanceChange))}**`;
+        } else {
+            rewardOrPenaltyText = "Không biến động";
+        }
+
+        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+
+        const dobParts = profile.birthday.split('/');
+        const solar = Solar.fromYmd(parseInt(dobParts[2]), parseInt(dobParts[1]), parseInt(dobParts[0]));
+        const lunar = solar.getLunar();
+        const zodiac = translateShengXiao(lunar.getYearShengXiao());
+        const ganChi = translateGanChi(lunar.getYearInGanChi());
+        const menh = translateNaYin(lunar.getYearNaYin());
+        const cungPhi = getCungPhi(profile.birthday, profile.gender);
+
+        const luckyNumber = trueRandom(0, 99).toString().padStart(2, '0');
+        const loveMeters = [
+            "🖤🖤🖤🖤🖤 (Đen như đêm ba mươi, cút ngay kẻo bị lừa tình)", 
+            "💔💔💔🖤🖤 (Simp lỏ vô vọng, liếm chân người ta cũng đéo cho)", 
+            "🍻🍻🚬🚬🚬 (Bạn nhậu qua đường, hợp nhau lúc trên sòng cờ bạc)", 
+            "❤️❤️❤️🖤🖤 (Có tiến triển nhẹ, lo nạp tiền cúng crush đi)", 
+            "💖💖💖💖💖 (Lưỡng tình tương duyệt, nồi nào úp vung nấy, cưới lẹ)"
+        ];
+        const loveMeter = loveMeters[Math.floor(roll / 21)];
+
+        let policeMeter = "🟢 Rất an toàn (Không ai thèm bắt)";
+        if (roll > 75 && roll <= 90) {
+            policeMeter = "🟡 Hơi báo động (Đi xe nhớ đội mũ bảo hiểm)";
+        } else if (roll > 90) {
+            policeMeter = "🔴 CỰC KỲ NGUY HIỂM (SWAT đang rình trước nhà)";
+        }
+
+        const geminiPrompt = `
+            Hãy phán quẻ xem bói hàng ngày cho người chơi này:
+            Họ tên: "\${profile.name}"
+            Giới tính: "\${profile.gender}"
+            Tuổi: "\${ganChi} (\${zodiac})"
+            Mệnh ngũ hành: "\${menh}"
+            Cung Phi Bát Trạch: "\${cungPhi.name} (\${cungPhi.group})"
+            Loại quẻ gieo được hôm nay: "\${queName}" (\${queDesc})
+            Biến động tài sản: "\${queAction}"
+            Số dư ví: \${balance}k, nợ: \${debt}k.
+            
+            Hãy đưa ra lời phán vận hạn hôm nay gồm đúng 3 mục sau:
+            - 🎰 Vận Đỏ Đen: [phán cực bựa xem đánh con đề nào hay chơi Blackjack/Xóc Đĩa ra sao]
+            - 💔 Tình Duyên: [phán cực gắt xem có bị cắm sừng hay làm simp lỏ liếm láp không]
+            - 🚔 Tai Ương: [cảnh báo trốn nợ ngân hàng, công an bế đi tù]
+            
+            Yêu cầu bắt buộc: Viết cực kỳ ngắn gọn, bộc lộ tính cà khịa bựa, hài hước châm biếm sâu cay, xưng mày tao, đúng phong cách thầy bói giang hồ BotToan. Tổng độ dài phản hồi dưới 300 ký tự.
+        `;
+
+        let explanation = "";
+        try {
+            explanation = await getMatchmakingFortune(geminiPrompt);
+        } catch (err) {
+            console.error("Lỗi Gemini giải quẻ:", err);
+            const fallbacks: Record<string, string> = {
+                "🧧 ĐẠI CÁT": 
+                    "- 🎰 **Vận Đỏ Đen:** Đỏ như đít khỉ! Xuống xác ngay con lô đề hoặc tất tay xóc đĩa đi con giời, thần bài đang độ mày rồi!\n" +
+                    "- 💔 **Tình Duyên:** Vận đào hoa nở rộ, đi thả thính dạo không lo bị chửi, nồi nào úp vung nấy.\n" +
+                    "- 🚔 **Tai Ương:** Chủ nợ tự động quên tên mày, đi đứng hiên ngang đéo sợ bố con thằng nào bắt bớ!",
+                "🍊 TRUNG CÁT":
+                    "- 🎰 **Vận Đỏ Đen:** Có chút lộc ăn uống nhẹ. Vào Blackjack kiếm vài ván cơm gạo là có tiền đi ăn lẩu cua đồng.\n" +
+                    "- 💔 **Tình Duyên:** Người ta đang chú ý nhẹ, lo nạp thẻ cúng crush lẹ đi kẻo nó đi thích đứa khác.\n" +
+                    "- 🚔 **Tai Ương:** Đi đứng cẩn thận không ngã xước cái nịt, cơ bản hôm nay vẫn bình an vô sự.",
+                "🌾 TIỂU CÁT":
+                    "- 🎰 **Vận Đỏ Đen:** Gặp lộc rơi lộc rụng đủ tiền bao anh em sòng bài uống trà đá. Theo nhẹ tay thôi kẻo sập sới.\n" +
+                    "- 💔 **Tình Duyên:** Không bị cắm sừng hay làm simp lỏ ăn bơ đã là phước đức ba đời hôm nay của mày rồi.\n" +
+                    "- 🚔 **Tai Ương:** Coi chừng chó dữ đuổi theo đớp rách quần ngoài đê.",
+                "⚖️ BÌNH HÒA":
+                    "- 🎰 **Vận Đỏ Đen:** Tiền vào cửa trước ra cửa sau, đánh chỉ có hòa hoặc lỗ nhẹ. Cất tiền cờ bạc đi ngủ giùm tao cái!\n" +
+                    "- 💔 **Tình Duyên:** Vẫn ế ẩm chỏng chơ như cũ, đéo ai thèm nhìn mặt đâu mà mơ mộng.\n" +
+                    "- 🚔 **Tai Ương:** Bình yên đến lạnh sống lưng, không ai thèm đòi nợ cũng chẳng ai thèm rủ rê bài bạc.",
+                "🍂 TIỂU HUNG":
+                    "- 🎰 **Vận Đỏ Đen:** Đen như mõm chó! Vào blackjack chỉ có bị nhà cái bốc 21 nút đục vỡ mồm, cấm gỡ nợ kẻo ra đê!\n" +
+                    "- 💔 **Tình Duyên:** Kiếp simp lỏ cống nạp tiền của mà người ta còn đéo thèm nhìn mặt, đúng là đồ đáng thương.\n" +
+                    "- 🚔 **Tai Ương:** Đi xe máy nhớ đội mũ bảo hiểm kẻo công an tóm cổ cúng 200k phạt hành chính.",
+                "☠️ ĐẠI HUNG":
+                    "- 🎰 **Vận Đỏ Đen:** Nghiệp quật sấp mặt! Đụng vào sới bạc hôm nay là cái nịt cũng đéo còn để mang về.\n" +
+                    "- 💔 **Tình Duyên:** Vừa bị cắm sừng vừa bị bồ cuỗm sạch tiền đi theo thằng khác, kiếp Simp Lỏ cay đắng.\n" +
+                    "- 🚔 **Tai Ương:** SWAT đang rình rập đột kích sòng bài lôi cổ mày đi tù cải tạo nhân phẩm!"
+            };
+            explanation = fallbacks[queName] || "Vận mệnh hôm nay mờ mịt, tốt nhất là nằm im góc tối cờ bạc ít thôi cưng!";
+        }
 
         const embed = new EmbedBuilder()
-            .setTitle("🚫 XIN QUẺ THẤT BẠI - HÔM NAY XEM THẾ ĐỦ RỒI!")
-            .setDescription(`⚠️ **Mày đã xin quẻ vận mệnh hôm nay rồi con giời!**\n\nQuy tắc giang hồ mỗi ngày chỉ được xin **1 lượt duy nhất** thôi. Xem lắm quẻ hóa quẻ hung đấy!\nHãy quay lại sau **${hours} giờ ${minutes} phút** nữa nhé!`)
-            .setColor(0xFF0000)
-            .setFooter({ text: "BotToan - Thầy bói giang hồ", iconURL: message.client.user?.displayAvatarURL() });
+            .setTitle("🔮 BẢN QUẺ GIANG HỒ HÀNG NGÀY 🔮")
+            .setDescription(`Bảng gieo quẻ xem bói vận mệnh của con giời <@${userId}>`)
+            .setColor(color)
+            .addFields(
+                { 
+                    name: "👤 Bản Mệnh Khai Báo", 
+                    value: `• Họ tên: \`${profile.name}\` (${profile.gender})\n• Tuổi: \`${ganChi} (${zodiac})\` | Mệnh: \`${menh}\`\n• Cung Phi: \`${cungPhi.name} (${cungPhi.group})\``, 
+                    inline: false 
+                },
+                { 
+                    name: `🔮 Quẻ Gieo Được: ${queName}`, 
+                    value: `• *Vận mệnh:* ${queDesc}\n• *Biến cố:* ${queAction}${jailNote}`, 
+                    inline: false 
+                },
+                {
+                    name: "📈 Chỉ Số Vận Hạn Hôm Nay",
+                    value: `• 🎯 **Con số thần tài:** \`[ ${luckyNumber} ]\` (Thích lô đề thì quất ngay!)\n• 💘 **Đào Hoa kế:** ${loveMeter}\n• 🚔 **Mức độ an ninh:** \`${policeMeter}\``,
+                    inline: false
+                },
+                { 
+                    name: "💸 Biến Động Tài Chính Thực Tế", 
+                    value: `• Kết quả: **${rewardOrPenaltyText}**\n• Số dư ví hiện tại: **${formatMoney(balance)}** | Đang nợ: **${formatMoney(debt)}**`, 
+                    inline: false 
+                },
+                { 
+                    name: "💬 Lời Sấm Truyền Từ Thầy Bói BotToan", 
+                    value: explanation.trim(), 
+                    inline: false 
+                }
+            )
+            .setFooter({ text: "Gõ @BotToan gieo que hàng ngày để xem vận hạn (1 lượt/ngày)", iconURL: message.client.user?.displayAvatarURL() })
+            .setTimestamp();
 
         await message.reply({ embeds: [embed] }).catch(()=>{});
-        return;
-    }
 
-    // 2. Khóa lập tức để tránh race condition
-    await markGieoQueToday(userId, todayStr);
-
-    let balance = await getBalance(userId);
-    const debt = await getDebt(userId);
-
-    // Roll quẻ (1 - 100)
-    const roll = trueRandom(1, 100);
-    let queName = "";
-    let queDesc = "";
-    let queAction = "";
-    let color = 0x00FF00;
-    let balanceChange = 0;
-    let rewardOrPenaltyText = "";
-    let jailNote = "";
-    let isJailTriggered = false;
-
-    if (roll <= 10) {
-        queName = "🧧 ĐẠI CÁT";
-        queDesc = "Cực kỳ cát tường, vận khí ngập trời, thần tài gõ cửa!";
-        balanceChange = trueRandom(15, 30);
-        queAction = `Nhặt được ví tiền đánh rơi ở sòng blackjack (+${balanceChange}k)`;
-        color = 0xFF00FF;
-    } else if (roll <= 30) {
-        queName = "🍊 TRUNG CÁT";
-        queDesc = "Khá cát lành, làm việc hanh thông, cờ bạc dễ trúng.";
-        balanceChange = trueRandom(5, 15);
-        queAction = `Được chiến hữu cùng sòng bài chia lộc (+${balanceChange}k)`;
-        color = 0x2ECC71;
-    } else if (roll <= 50) {
-        queName = "🌾 TIỂU CÁT";
-        queDesc = "Hơi cát lành, có chút lộc nhỏ ăn sáng.";
-        balanceChange = trueRandom(1, 5);
-        queAction = `Nhặt được tiền lẻ rơi ven đường đê (+${balanceChange}k)`;
-        color = 0x3498DB;
-    } else if (roll <= 75) {
-        queName = "⚖️ BÌNH HÒA";
-        queDesc = "Mọi việc bình bình, sóng yên biển lặng, bảo toàn lực lượng.";
-        balanceChange = 0;
-        queAction = "Vẫn là con nợ nhưng hôm nay không thấy chủ nợ đòi tiền (0k)";
-        color = 0x95A5A6;
-    } else if (roll <= 90) {
-        queName = "🍂 TIỂU HUNG";
-        queDesc = "Hơi xui xẻo, hao tài tốn của nhẹ, cẩn thận mất đồ.";
-        const penalty = trueRandom(1, 10);
-        balanceChange = -Math.min(balance, penalty);
-        queAction = `Bị giang hồ xin đểu tiền nước hoặc làm rơi tiền (${balanceChange}k)`;
-        color = 0xE67E22;
-    } else {
-        queName = "☠️ ĐẠI HUNG";
-        queDesc = "Vô cùng hung hiểm! Nghiệp quật sấp mặt, tai họa rập rình!";
-        const penalty = trueRandom(15, 30);
-        balanceChange = -Math.min(balance, penalty);
-        queAction = `Bị đàn em giang hồ của BotToan quây chặn đường trấn lột (${balanceChange}k)`;
-        color = 0xFF0000;
-
-        if (Math.random() < 0.2 && message.guild) {
-            isJailTriggered = true;
-            jailNote = "\n🚔 **Nghiệp quật tàn bạo:** Bị cảnh sát tóm cổ tống giam 1 phút để cải tạo!";
+        if (isJailTriggered && message.guild) {
+            setTimeout(async () => {
+                try {
+                    await sendToJail(message.guild!, userId, "Nghiệp quật quẻ Đại Hung!");
+                    await banChat(userId, 60000);
+                    await (message.channel as any).send(`🚔 Đã áp giải khứa <@${userId}> vào Nhà Tù 1 phút vì bốc trúng quẻ **Đại Hung** nghiệp chướng quá nặng!`).catch(()=>{});
+                } catch (err) {
+                    console.error("Lỗi tống giam Đại Hung:", err);
+                }
+            }, 3000);
         }
-    }
-
-    balance += balanceChange;
-    await updateBalance(userId, balance);
-
-    if (balanceChange > 0) {
-        rewardOrPenaltyText = `Cộng **${formatMoney(balanceChange)}**`;
-    } else if (balanceChange < 0) {
-        rewardOrPenaltyText = `Trừ **${formatMoney(Math.abs(balanceChange))}**`;
-    } else {
-        rewardOrPenaltyText = "Không biến động";
-    }
-
-    if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
-
-    const dobParts = profile.birthday.split('/');
-    const solar = Solar.fromYmd(parseInt(dobParts[2]), parseInt(dobParts[1]), parseInt(dobParts[0]));
-    const lunar = solar.getLunar();
-    const zodiac = translateShengXiao(lunar.getYearShengXiao());
-    const ganChi = translateGanChi(lunar.getYearInGanChi());
-    const menh = translateNaYin(lunar.getYearNaYin());
-    const cungPhi = getCungPhi(profile.birthday, profile.gender);
-
-    const luckyNumber = trueRandom(0, 99).toString().padStart(2, '0');
-    const loveMeters = [
-        "🖤🖤🖤🖤🖤 (Đen như đêm ba mươi, cút ngay kẻo bị lừa tình)", 
-        "💔💔💔🖤🖤 (Simp lỏ vô vọng, liếm chân người ta cũng đéo cho)", 
-        "🍻🍻🚬🚬🚬 (Bạn nhậu qua đường, hợp nhau lúc trên sòng cờ bạc)", 
-        "❤️❤️❤️🖤🖤 (Có tiến triển nhẹ, lo nạp tiền cúng crush đi)", 
-        "💖💖💖💖💖 (Lưỡng tình tương duyệt, nồi nào úp vung nấy, cưới lẹ)"
-    ];
-    const loveMeter = loveMeters[Math.floor(roll / 21)];
-
-    let policeMeter = "🟢 Rất an toàn (Không ai thèm bắt)";
-    if (roll > 75 && roll <= 90) {
-        policeMeter = "🟡 Hơi báo động (Đi xe nhớ đội mũ bảo hiểm)";
-    } else if (roll > 90) {
-        policeMeter = "🔴 CỰC KỲ NGUY HIỂM (SWAT đang rình trước nhà)";
-    }
-
-    const geminiPrompt = `
-        Hãy phán quẻ xem bói hàng ngày cho người chơi này:
-        Họ tên: "${profile.name}"
-        Giới tính: "${profile.gender}"
-        Tuổi: "${ganChi} (${zodiac})"
-        Mệnh ngũ hành: "${menh}"
-        Cung Phi Bát Trạch: "${cungPhi.name} (${cungPhi.group})"
-        Loại quẻ gieo được hôm nay: "${queName}" (${queDesc})
-        Biến động tài sản: "${queAction}"
-        Số dư ví: ${balance}k, nợ: ${debt}k.
-        
-        Hãy đưa ra lời phán vận hạn hôm nay gồm đúng 3 mục sau:
-        - 🎰 Vận Đỏ Đen: [phán cực bựa xem đánh con đề nào hay chơi Blackjack/Xóc Đĩa ra sao]
-        - 💔 Tình Duyên: [phán cực gắt xem có bị cắm sừng hay làm simp lỏ liếm láp không]
-        - 🚔 Tai Ương: [cảnh báo trốn nợ ngân hàng, công an bế đi tù]
-        
-        Yêu cầu bắt buộc: Viết cực kỳ ngắn gọn, bộc lộ tính cà khịa bựa, hài hước châm biếm sâu cay, xưng mày tao, đúng phong cách thầy bói giang hồ BotToan. Tổng độ dài phản hồi dưới 300 ký tự.
-    `;
-
-    let explanation = "";
-    try {
-        explanation = await getMatchmakingFortune(geminiPrompt);
-    } catch (err) {
-        console.error("Lỗi Gemini giải quẻ:", err);
-        const fallbacks: { [key: string]: string } = {
-            "🧧 ĐẠI CÁT": 
-                "- 🎰 **Vận Đỏ Đen:** Đỏ như đít khỉ! Xuống xác ngay con lô đề hoặc tất tay xóc đĩa đi con giời, thần bài đang độ mày rồi!\n" +
-                "- 💔 **Tình Duyên:** Vận đào hoa nở rộ, đi thả thính dạo không lo bị chửi, nồi nào úp vung nấy.\n" +
-                "- 🚔 **Tai Ương:** Chủ nợ tự động quên tên mày, đi đứng hiên ngang đéo sợ bố con thằng nào bắt bớ!",
-            "🍊 TRUNG CÁT":
-                "- 🎰 **Vận Đỏ Đen:** Có chút lộc ăn uống nhẹ. Vào Blackjack kiếm vài ván cơm gạo là có tiền đi ăn lẩu cua đồng.\n" +
-                "- 💔 **Tình Duyên:** Người ta đang chú ý nhẹ, lo nạp thẻ cúng crush lẹ đi kẻo nó đi thích đứa khác.\n" +
-                "- 🚔 **Tai Ương:** Đi đứng cẩn thận không ngã xước cái nịt, cơ bản hôm nay vẫn bình an vô sự.",
-            "🌾 TIỂU CÁT":
-                "- 🎰 **Vận Đỏ Đen:** Gặp lộc rơi lộc rụng đủ tiền bao anh em sòng bài uống trà đá. Theo nhẹ tay thôi kẻo sập sới.\n" +
-                "- 💔 **Tình Duyên:** Không bị cắm sừng hay làm simp lỏ ăn bơ đã là phước đức ba đời hôm nay của mày rồi.\n" +
-                "- 🚔 **Tai Ương:** Coi chừng chó dữ đuổi theo đớp rách quần ngoài đê.",
-            "⚖️ BÌNH HÒA":
-                "- 🎰 **Vận Đỏ Đen:** Tiền vào cửa trước ra cửa sau, đánh chỉ có hòa hoặc lỗ nhẹ. Cất tiền cờ bạc đi ngủ giùm tao cái!\n" +
-                "- 💔 **Tình Duyên:** Vẫn ế ẩm chỏng chơ như cũ, đéo ai thèm nhìn mặt đâu mà mơ mộng.\n" +
-                "- 🚔 **Tai Ương:** Bình yên đến lạnh sống lưng, không ai thèm đòi nợ cũng chẳng ai thèm rủ rê bài bạc.",
-            "🍂 TIỂU HUNG":
-                "- 🎰 **Vận Đỏ Đen:** Đen như mõm chó! Vào blackjack chỉ có bị nhà cái bốc 21 nút đục vỡ mồm, cấm gỡ nợ kẻo ra đê!\n" +
-                "- 💔 **Tình Duyên:** Kiếp simp lỏ cống nạp tiền của mà người ta còn đéo thèm nhìn mặt, đúng là đồ đáng thương.\n" +
-                "- 🚔 **Tai Ương:** Đi xe máy nhớ đội mũ bảo hiểm kẻo công an tóm cổ cúng 200k phạt hành chính.",
-            "☠️ ĐẠI HUNG":
-                "- 🎰 **Vận Đỏ Đen:** Nghiệp quật sấp mặt! Đụng vào sới bạc hôm nay là cái nịt cũng đéo còn để mang về.\n" +
-                "- 💔 **Tình Duyên:** Vừa bị cắm sừng vừa bị bồ cuỗm sạch tiền đi theo thằng khác, kiếp Simp Lỏ cay đắng.\n" +
-                "- 🚔 **Tai Ương:** SWAT đang rình rập đột kích sòng bài lôi cổ mày đi tù cải tạo nhân phẩm!"
-        };
-        explanation = fallbacks[queName] || "Vận mệnh hôm nay mờ mịt, tốt nhất là nằm im góc tối cờ bạc ít thôi cưng!";
-    }
-
-    const embed = new EmbedBuilder()
-        .setTitle("🔮 BẢN QUẺ GIANG HỒ HÀNG NGÀY 🔮")
-        .setDescription(`Bảng gieo quẻ xem bói vận mệnh của con giời <@${userId}>`)
-        .setColor(color)
-        .addFields(
-            { 
-                name: "👤 Bản Mệnh Khai Báo", 
-                value: `• Họ tên: \`${profile.name}\` (${profile.gender})\n• Tuổi: \`${ganChi} (${zodiac})\` | Mệnh: \`${menh}\`\n• Cung Phi: \`${cungPhi.name} (${cungPhi.group})\``, 
-                inline: false 
-            },
-            { 
-                name: `🔮 Quẻ Gieo Được: ${queName}`, 
-                value: `• *Vận mệnh:* ${queDesc}\n• *Biến cố:* ${queAction}${jailNote}`, 
-                inline: false 
-            },
-            {
-                name: "📈 Chỉ Số Vận Hạn Hôm Nay",
-                value: `• 🎯 **Con số thần tài:** \`[ ${luckyNumber} ]\` (Thích lô đề thì quất ngay!)\n• 💘 **Đào Hoa kế:** ${loveMeter}\n• 🚔 **Mức độ an ninh:** \`${policeMeter}\``,
-                inline: false
-            },
-            { 
-                name: "💸 Biến Động Tài Chính Thực Tế", 
-                value: `• Kết quả: **${rewardOrPenaltyText}**\n• Số dư ví hiện tại: **${formatMoney(balance)}** | Đang nợ: **${formatMoney(debt)}**`, 
-                inline: false 
-            },
-            { 
-                name: "💬 Lời Sấm Truyền Từ Thầy Bói BotToan", 
-                value: explanation.trim(), 
-                inline: false 
-            }
-        )
-        .setFooter({ text: "Gõ @BotToan gieo que hàng ngày để xem vận hạn (1 lượt/ngày)", iconURL: message.client.user?.displayAvatarURL() })
-        .setTimestamp();
-
-    await message.reply({ embeds: [embed] }).catch(()=>{});
-
-    if (isJailTriggered && message.guild) {
-        setTimeout(async () => {
-            try {
-                await sendToJail(message.guild!, userId, "Nghiệp quật quẻ Đại Hung!");
-                await banChat(userId, 60000);
-                await (message.channel as any).send(`🚔 Đã áp giải khứa <@${userId}> vào Nhà Tù 1 phút vì bốc trúng quẻ **Đại Hung** nghiệp chướng quá nặng!`).catch(()=>{});
-            } catch (err) {
-                console.error("Lỗi tống giam Đại Hung:", err);
-            }
-        }, 3000);
+    } finally {
+        activeGamePlayers.delete(userId);
     }
 }
