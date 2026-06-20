@@ -98,3 +98,26 @@ export async function getMatchmakingFortune(prompt: string): Promise<string> {
     return result.response.text();
 }
 
+/**
+ * Giải nghĩa Tarot chuyên nghiệp và sâu sắc
+ */
+export async function getTarotReading(prompt: string): Promise<string> {
+    if (!GEMINI_KEY) {
+        throw new Error("Missing Gemini key");
+    }
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là một Tarot Reader chuyên nghiệp, uyên bác và giàu lòng trắc ẩn.
+            Nhiệm vụ của bạn là giải mã trải bài Tarot 3 lá của người xem theo chuẩn Rider-Waite-Smith (RWS) một cách sâu sắc, có chiều sâu tâm lý, đưa ra những lời khuyên hữu ích và mở ra góc nhìn định hướng giúp họ tự thấu hiểu bản thân và tình huống của mình.
+            TUYỆT ĐỐI KHÔNG nhắc đến bất kỳ thông tin nào liên quan đến sòng bạc, cờ bạc, tiền ảo, nợ nần, cờ bạc, hay các trò vui chơi cá độ Discord.
+            Hãy xưng hô lịch sự với người xem (bằng tên của họ hoặc xưng 'bạn' và 'tôi').
+            Giọng văn: Sâu lắng, chân thành, truyền tải tri thức huyền bí và triết học Tarot một cách trang trọng, thấu cảm, giống như một app bói bài Tarot chuyên nghiệp cao cấp.
+        `
+    });
+
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}
+
+

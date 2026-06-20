@@ -5,7 +5,7 @@ import {
     getProfile, getBalance, updateBalance, getDebt
 } from '../database';
 import { formatMoney, trueRandom } from '../utils';
-import { getMatchmakingFortune } from '../services/gemini';
+import { getTarotReading } from '../services/gemini';
 
 // Định nghĩa thư mục lưu trữ ảnh cục bộ
 const ASSETS_DIR = path.join(process.cwd(), 'assets', 'tarot');
@@ -143,17 +143,17 @@ interface SpreadType {
 const SPREADS: { [key: string]: SpreadType } = {
     love: {
         name: "Trải Bài Tình Duyên 💕",
-        positions: ["Tình trạng hiện tại của mối quan hệ", "Trở ngại / Thử thách đang đối mặt", "Kết quả / Tương lai của tình duyên"],
+        positions: ["Quá khứ (Nguồn tình cảm & Nền tảng cũ)", "Hiện tại (Thực trạng mối quan hệ & Trở ngại)", "Tương lai (Hệ quả logic & Lời khuyên thực tế)"],
         description: "tình duyên và tình yêu"
     },
     career: {
         name: "Trải Bài Sự Nghiệp 💼",
-        positions: ["Năng lực / Tài nguyên hiện có", "Cơ hội / Thách thức trong công việc", "Định hướng / Kết quả sự nghiệp"],
+        positions: ["Quá khứ (Quyết định cũ & Nền tảng công việc)", "Hiện tại (Thực trạng công việc & Thử thách đối mặt)", "Tương lai (Hệ quả logic & Hướng đi phát triển)"],
         description: "sự nghiệp và công việc"
     },
     money: {
         name: "Trải Bài Tài Lộc & Tiền Bạc 💰",
-        positions: ["Tình hình tài chính hiện tại", "Khó khăn / Rủi ro mất mát tiền bạc", "Cơ hội gia tăng tài lộc / Lời khuyên tài chính"],
+        positions: ["Quá khứ (Thói quen chi tiêu & Tích lũy cũ)", "Hiện tại (Thực tế tài sản & Khó khăn tài chính)", "Tương lai (Hệ quả logic & Lời khuyên thực tế)"],
         description: "tài chính và tiền bạc"
     }
 };
@@ -303,61 +303,62 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
                             reversedCount === 2 ? 'Cản trở rõ — cần xem xét lại kỹ' :
                             'Nghịch toàn bộ — đang đi ngược dòng chảy của vũ trụ';
 
-        const debt = await getDebt(userId);
-
-        // Prompt Gemini siêu chuẩn Tarot + hài bựa
+        // Prompt Gemini siêu chuẩn Tarot chuyên nghiệp và sâu sắc theo yêu cầu nâng cấp của user
         const geminiPrompt = `
-Bạn là BotToan — thầy bói Tarot giang hồ bựa nhất Việt Nam, vừa nắm chắc kiến thức Tarot học thuật RWS, vừa cà khịa hài hước.
+Bạn là một Tarot Reader chuyên nghiệp, sắc sảo, điềm tĩnh và có khả năng đọc vị tâm lý bậc thầy. Bạn không ở đây để làm hài lòng người nghe bằng những lời tán dương sáo rỗng hay những dự đoán tích cực mù quáng. Mục tiêu của bạn là bóc trần sự thật.
 
-===== THÔNG TIN NGƯỜI XEM BÓI =====
-Tên: "${profile.name}" | Giới tính: ${profile.gender} | Sinh: ${profile.birthday}
-Ví tiền: ${curBal}k | Đang nợ: ${debt}k
-Câu hỏi: "${userQuestion || 'Xem tổng quan vận mệnh'}"
+===== THÔNG TIN NGƯỜI XEM =====
+Tên người xem: "${profile.name}"
+Giới tính: ${profile.gender}
+Ngày sinh: ${profile.birthday}
+Chủ đề trải bài: ${spread.name} (${spread.description})
+Câu hỏi riêng biệt (nếu có): "${userQuestion || 'Giải nghĩa tổng quan vận mệnh theo chủ đề đã chọn'}"
 
-===== KIỂU TRẢI BÀI ĐÃ CHỌN =====
-${spread.name} (phù hợp với chủ đề: ${spread.description})
+===== 3 LÁ BÀI TAROT ĐÃ RÚT (Rider-Waite-Smith) =====
+🃏 Lá 1 — Vị trí Quá khứ (${spread.positions[0]}):
+   Tên lá bài: "${cards[0].name}" (${cards[0].englishName}) | Hướng: ${orients[0]} | Nguyên tố: ${cards[0].element}
+   Từ khóa cốt lõi: ${cards[0].keywords.join(', ')}
+   Ý nghĩa cơ bản của lá bài: ${meanings[0]}
 
-===== 3 LÁ BÀI ĐÃ RÚT =====
-🃏 Lá 1 — ${spread.positions[0]}:
-   "${cards[0].name}" (${cards[0].englishName}) | Hướng: ${orients[0]} | Nguyên tố: ${cards[0].element}
-   Từ khóa: ${cards[0].keywords.join(', ')}
-   Ý nghĩa: ${meanings[0]}
+🃏 Lá 2 — Vị trí Hiện tại (${spread.positions[1]}):
+   Tên lá bài: "${cards[1].name}" (${cards[1].englishName}) | Hướng: ${orients[1]} | Nguyên tố: ${cards[1].element}
+   Từ khóa cốt lõi: ${cards[1].keywords.join(', ')}
+   Ý nghĩa cơ bản của lá bài: ${meanings[1]}
 
-🃏 Lá 2 — ${spread.positions[1]}:
-   "${cards[1].name}" (${cards[1].englishName}) | Hướng: ${orients[1]} | Nguyên tố: ${cards[1].element}
-   Từ khóa: ${cards[1].keywords.join(', ')}
-   Ý nghĩa: ${meanings[1]}
-
-🃏 Lá 3 — ${spread.positions[2]}:
-   "${cards[2].name}" (${cards[2].englishName}) | Hướng: ${orients[2]} | Nguyên tố: ${cards[2].element}
-   Từ khóa: ${cards[2].keywords.join(', ')}
-   Ý nghĩa: ${meanings[2]}
+🃏 Lá 3 — Vị trí Tương lai (${spread.positions[2]}):
+   Tên lá bài: "${cards[2].name}" (${cards[2].englishName}) | Hướng: ${orients[2]} | Nguyên tố: ${cards[2].element}
+   Từ khóa cốt lõi: ${cards[2].keywords.join(', ')}
+   Ý nghĩa cơ bản của lá bài: ${meanings[2]}
 
 ===== PHÂN TÍCH TỔ HỢP =====
-Nguyên tố tổng: ${dominantElements}
-Từ khóa chủ đề: ${allKeywords}
-Năng lượng quẻ: ${energyLevel}
+Nguyên tố tổng hợp: ${dominantElements}
+Từ khóa kết nối: ${allKeywords}
+Năng lượng tổng quan: ${energyLevel}
 
-===== NHIỆM VỤ =====
-Hãy phân tích BÓI TAROT CHUẨN theo từng vị trí trải bài, rồi kết hợp tương tác giữa 3 lá để đưa ra lời tổng kết.
-Phong cách: học thuật Tarot nhưng trình bày theo kiểu hài bựa cà khịa giang hồ, xưng mày-tao, troll nhẹ về tài chính nợ nần.
+===== NHIỆM VỤ GIẢI BÀI =====
+Hãy thực hiện giải nghĩa chi tiết dựa trên cấu trúc thời gian: Quá khứ - Hiện tại - Tương lai. Kết nối logic chặt chẽ, tạo ra câu chuyện liền mạch nguyên nhân - kết quả giữa 3 lá bài (quá khứ đã tạo ra hiện tại thế nào, hiện tại sẽ dẫn đến tương lai ra sao).
 
-Trả lời theo ĐÚNG FORMAT sau (không thêm gì bên ngoài):
+Nguyên tắc cốt lõi:
+- TUYỆT ĐỐI KHÔNG nhắc đến sòng bạc, cờ bạc, tiền ảo, nợ nần, cá độ, hay các trò chơi Discord.
+- Không chiều chuộng cảm xúc: Nếu trải bài trì trệ hay cảnh báo, hãy nói thẳng. Đừng cố gắng an ủi bằng những câu như "mọi chuyện rồi sẽ ổn".
+- Giọng văn: Điềm đạm, lạnh lùng, thấu cảm theo kiểu một người đã nhìn thấu nhân tình thế thái, không dùng ngôn ngữ của một chatbot "tốt bụng". Xưng hô lịch sự, gọi "${profile.name}" là bạn/anh/chị tùy giới tính hoặc dùng tên riêng, xưng 'tôi'.
+
+Hãy trả lời theo ĐÚNG FORMAT sau (không viết thêm bất kỳ văn bản nào khác ngoài các khối này):
 [LA_1]
-(2-3 câu: giải nghĩa lá 1 theo vị trí "${spread.positions[0]}", kết hợp ý nghĩa RWS thực sự + troll bựa)
+(Một đoạn văn từ 4-6 câu: Phân tích chính xác những sự kiện, tổn thương, hay quyết định sai lầm/đúng đắn đã xảy ra trong quá khứ làm nền tảng cho tình huống hiện tại. Đọc vị sâu sắc để người xem phải giật mình nhận ra bạn đang nói trúng những gì họ đã trải qua.)
 [LA_2]
-(2-3 câu: giải nghĩa lá 2 theo vị trí "${spread.positions[1]}", phân tích tương tác với lá 1 + hài hước)
+(Một đoạn văn từ 4-6 câu: Chỉ rõ hoàn cảnh thực tế và trạng thái tâm lý ngay lúc này của người xem. Họ đang tự lừa dối bản thân, đang bế tắc, hay đang trốn tránh điều gì? Gọi tên chính xác cảm xúc và tình huống của họ một cách thẳng thắn, không tô hồng, không giảm nhẹ.)
 [LA_3]
-(2-3 câu: giải nghĩa lá 3 theo vị trí "${spread.positions[2]}", kết nối câu chuyện 3 lá + cà khịa)
+(Một đoạn văn từ 4-6 câu: Dựa trên hệ quả logic từ Quá khứ và Hiện tại, dự đoán những diễn biến sắp tới nếu người xem giữ nguyên quỹ đạo. Đưa ra lời khuyên mang tính thực tế, sắc bén (pragmatic approach) để họ tự định hướng, không đưa ra lời tiên tri định mệnh hay hứa hẹn viển vông.)
 [TONG_KET]
-(Tổng kết toàn quẻ: đọc câu chuyện 3 lá như một mạch chảy, lời khuyên thực tế từ Tarot + "lời sấm giang hồ" bựa cuối cùng. Tối đa 4 câu.)
+(Một đoạn văn từ 5-7 câu: Tổng hợp thông điệp cốt lõi của cả 3 lá bài như một mạch chảy nguyên nhân - kết quả hoàn hảo. Đưa ra thông điệp chiêm nghiệm sâu sắc và lời khuyên thực tế sắc sảo từ vũ trụ dành riêng cho "${profile.name}".)
 
-Giới hạn: tổng dưới 1000 ký tự.
+Giới hạn: tổng độ dài cả 4 phần khoảng 1500 - 3000 ký tự.
 `;
 
         let explanation = '';
         try {
-            explanation = await getMatchmakingFortune(geminiPrompt);
+            explanation = await getTarotReading(geminiPrompt);
         } catch (err) {
             console.error('[TAROT LỖI] Gemini:', err);
         }
@@ -379,10 +380,10 @@ Giới hạn: tổng dưới 1000 ký tự.
 
         // Fallback theo card nếu Gemini fail
         const fallbacks = [
-            `Lá **${cards[0].name}** (${orients[0]}) ở vị trí "${spread.positions[0]}" đang nói với mày rằng: ${meanings[0].split('.')[0]}. Nghe không hay nhỉ con?`,
-            `Lá **${cards[1].name}** (${orients[1]}) cảnh báo vị trí "${spread.positions[1]}": ${meanings[1].split('.')[0]}. Thầy nói mày có nghe không?`,
-            `Lá **${cards[2].name}** (${orients[2]}) báo trước "${spread.positions[2]}": ${meanings[2].split('.')[0]}. Cầu trời đừng ứng nghiệm nhé!`,
-            `Đọc tổng quẻ ${spread.name}: ${energyLevel}. Năng lượng ${dominantElements} đang bao quanh. Thầy khuyên mày bớt cờ bạc lại đi con!`
+            `Lá **${cards[0].name}** (${orients[0]}) ở vị trí "${spread.positions[0]}" đang nói với bạn rằng: ${meanings[0].split('.')[0]}. Trải nghiệm này mang đến cho bạn bài học quý giá về nhận thức.`,
+            `Lá **${cards[1].name}** (${orients[1]}) cảnh báo vị trí "${spread.positions[1]}": ${meanings[1].split('.')[0]}. Đây là thời điểm thích hợp để xem xét lại các hành động.`,
+            `Lá **${cards[2].name}** (${orients[2]}) báo trước "${spread.positions[2]}": ${meanings[2].split('.')[0]}. Hướng đi tương lai phụ thuộc vào cách bạn chuyển hóa năng lượng hiện tại.`,
+            `Đọc tổng quẻ ${spread.name}: ${energyLevel}. Năng lượng ${dominantElements} đang tác động mạnh mẽ đến bạn. Hãy giữ tâm trí tĩnh lặng và lắng nghe trực giác.`
         ];
         texts = texts.map((t, index) => t || fallbacks[index]);
 
@@ -419,7 +420,7 @@ Giới hạn: tổng dưới 1000 ký tự.
                     `**🃏 ${c.name}** *(${c.englishName})* — Hướng: ${o}\n` +
                     `**🌀 Nguyên tố:** ${c.element} | **🔑 Từ khóa:** ${c.keywords.slice(0, 3).join(' · ')}\n\n` +
                     `**📖 Ý nghĩa chuẩn RWS:**\n*${m}*\n\n` +
-                    `**🔮 Lời phán của thầy Toàn:**\n${t}`
+                    `**🔮 Lời giải mã:**\n${t}`
                 );
             const imgPath = path.join(ASSETS_DIR, `${c.id}.jpg`);
             if (fs.existsSync(imgPath)) embed.setImage(`attachment://${imgName}`);
@@ -437,7 +438,7 @@ Giới hạn: tổng dưới 1000 ký tự.
         let warningText = '';
         if (hasDanger) {
             const dangerCards = cards.filter(c => dangerousIds.includes(c.id)).map(c => `**${c.name}**`).join(', ');
-            warningText = `⚠️ **CẢNH BÁO ĐẠI HUNG!** Quẻ bài chứa hung tinh: ${dangerCards}\nNghiệp nặng sắp giáng — tích đức gấp hoặc cúng sòng bài đi con giời! 💀🔥\n\n`;
+            warningText = `⚠️ **CẢNH BÁO NĂNG LƯỢNG MẠNH!** Trải bài xuất hiện lá bài mang năng lượng chuyển biến mạnh: ${dangerCards}\nMột số khó khăn hoặc bước ngoặt lớn đang cận kề, hãy vững vàng đối mặt. 🕯️✨\n\n`;
         }
 
         const embedSummary = new EmbedBuilder()
@@ -448,25 +449,21 @@ Giới hạn: tổng dưới 1000 ký tự.
                 `**❓ Câu hỏi:** *"${userQuestion || 'Xem tổng quan vận mệnh'}"*\n\n` +
                 `**⚡ Phân tích năng lượng tổng:** ${energyLevel}\n` +
                 `**🌀 Nguyên tố kết hợp:** ${dominantElements}\n\n` +
-                `**📜 Lời sấm truyền của thầy Toàn:**\n${texts[3]}`
+                `**📜 Thông điệp cốt lõi:**\n${texts[3]}`
             )
-            .addFields({
-                name: '💸 Biến Động Tài Chính',
-                value: `• Lệ phí bói bài: **-20.000đ**\n• Số dư ví: **${formatMoney(curBal)}** | Nợ: **${formatMoney(debt)}**`
-            })
-            .setFooter({ text: 'BotToan Tarot — Kết quả bảo mật trong DM', iconURL: message.client.user?.displayAvatarURL() })
+            .setFooter({ text: 'BotToan Tarot — Giải bài chuyên nghiệp & riêng tư', iconURL: message.client.user?.displayAvatarURL() })
             .setTimestamp();
 
         // Gửi DM bảo mật
         try {
             await message.author.send({
-                content: `🔮 **KẾT QUẢ BÓI TAROT RIÊNG TƯ — ${spread.name}** 🔮\n*(Quẻ bài này chỉ mày thấy — không ai ở server nhìn được đâu cưng!)*`,
+                content: `🔮 **KẾT QUẢ GIẢI BÀI TAROT RIÊNG TƯ — ${spread.name}** 🔮\n*(Thông điệp này được gửi riêng cho bạn — không chia sẻ lên kênh công khai)*`,
                 embeds: [...embeds, embedSummary],
                 files: attachments
             });
 
             await tarotPromptMsg.edit({
-                content: `🔮 **Thầy Toàn đã rút bài ${spread.name} và gửi quẻ kín vào DM rồi!** Mau chui vào góc tối mở tin nhắn riêng ra xem vận mệnh đi con giời! 😉`,
+                content: `🔮 **Thầy Toàn đã rút bài ${spread.name} và gửi lời giải nghĩa chi tiết vào DM rồi!** Mau kiểm tra tin nhắn riêng của bạn nhé! 😉 *(Lệ phí: -20.000đ)*`,
                 embeds: [],
                 components: []
             }).catch(() => {});
@@ -476,7 +473,7 @@ Giới hạn: tổng dưới 1000 ký tự.
             await updateBalance(userId, curBal);
             console.error(`[TAROT LỖI] Không gửi DM được cho ${userId}:`, err.message);
             await tarotPromptMsg.edit({
-                content: `❌ **Đéo bói được!** Mày đang chặn DM rồi.\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví. Mở DM lên rồi bói lại nhé! 💸`,
+                content: `❌ **Không thể gửi tin nhắn riêng!** Vui lòng mở DM (Direct Messages) từ thành viên server rồi thực hiện lại lệnh bói bài nhé.\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví của bạn. 💸`,
                 embeds: [],
                 components: []
             }).catch(() => {});
