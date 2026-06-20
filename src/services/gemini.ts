@@ -41,8 +41,8 @@ setInterval(() => {
  * Gửi câu hỏi đến Gemini và nhận phản hồi theo phong cách BotToan bựa, giữ lịch sử 10 câu gần nhất.
  */
 export async function chatWithGemini(userId: string, userQuestion: string): Promise<string> {
-    const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.0-flash-lite",
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
         systemInstruction: `
             Bạn là BotToan, trợ lý Discord "bựa", hài hước, dùng từ lóng, cà khịa bạn bè.
             QUY TẮC: 
@@ -80,8 +80,8 @@ export async function getMatchmakingFortune(prompt: string): Promise<string> {
     if (!GEMINI_KEY) {
         throw new Error("Missing Gemini key");
     }
-    const model = genAI.getGenerativeModel({ 
-        model: "gemini-2.0-flash-lite",
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
         systemInstruction: `
             Bạn là BotToan, một thầy bói giang hồ, chuyên bói toán cờ bạc, ăn nói bựa, chợ búa, hay dùng từ lóng cờ bạc, nợ nần, giang hồ Việt Nam.
             Nhiệm vụ của bạn là phán xét độ hợp nhau giữa hai người chơi dựa trên các thông số thực tế của họ trong cơ sở dữ liệu (tiền ví, tiền nợ, tuổi, mệnh ngũ hành).
