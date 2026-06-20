@@ -72,3 +72,29 @@ export async function chatWithGemini(userId: string, userQuestion: string): Prom
 
     return responseText;
 }
+
+/**
+ * Phán độ hợp nhau của 2 người theo phong cách BotToan bựa
+ */
+export async function getMatchmakingFortune(prompt: string): Promise<string> {
+    if (!GEMINI_KEY) {
+        throw new Error("Missing Gemini key");
+    }
+    const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.0-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan, một thầy bói giang hồ, chuyên bói toán cờ bạc, ăn nói bựa, chợ búa, hay dùng từ lóng cờ bạc, nợ nần, giang hồ Việt Nam.
+            Nhiệm vụ của bạn là phán xét độ hợp nhau giữa hai người chơi dựa trên các thông số thực tế của họ trong cơ sở dữ liệu (tiền ví, tiền nợ, tuổi, mệnh ngũ hành).
+            Hãy đưa ra một phán quyết cực kỳ hài hước, bựa, phũ phàng, sặc mùi vật chất và cờ bạc, tìm ra lý do xàm xí nào đó để troll bọn họ.
+            QUY TẮC:
+            1. Dùng Tiếng Việt, xưng hô mày-tao hoặc các danh xưng giang hồ phù hợp.
+            2. Viết ngắn gọn, súc tích (khoảng 3-4 câu, dưới 500 ký tự).
+            3. Tuyệt đối không gửi bất kỳ link/URL nào.
+            4. Trả lời bằng văn bản thuần túy.
+        `
+    });
+
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}
+

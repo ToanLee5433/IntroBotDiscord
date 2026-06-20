@@ -20,10 +20,12 @@ import { playRussianRoulette } from './games/russianroulette';
 import { playPokerRoulette } from './games/pokerroulette';
 import { chatWithGemini } from './services/gemini';
 import { fetchValorantRank } from './services/valorant';
+import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
+import { initTarot, handleTarot } from './games/tarot';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw, getSnitchCooldown, updateSnitchDate, getBalance, updateBalance } from './database';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw, getSnitchCooldown, updateSnitchDate, getBalance, updateBalance, getSimpLoExpires, setSimpLo } from './database';
 
 
 
@@ -52,7 +54,24 @@ const client = new Client({
 
 // ================= LẮNG NGHE LỆNH & CHAT =================
 client.on('messageCreate', async (message: Message) => {
-    if (message.author.bot || !client.user || !message.mentions.has(client.user)) return;
+    if (message.author.bot || !client.user) return;
+
+    // ----------------- TỰ ĐỘNG GIẢI TRỪ NICKNAME SIMP LỎ -----------------
+    try {
+        const simpLoExpires = await getSimpLoExpires(message.author.id);
+        if (simpLoExpires > 0 && Date.now() > simpLoExpires) {
+            const member = message.member;
+            if (member && member.nickname && member.nickname.includes("[🤡 Simp Lỏ]")) {
+                const cleanNick = member.nickname.replace("[🤡 Simp Lỏ]", "").trim();
+                await member.setNickname(cleanNick).catch(() => {});
+            }
+            await setSimpLo(message.author.id, 0);
+        }
+    } catch (err) {
+        console.error("Lỗi giải trừ Nickname Simp Lỏ:", err);
+    }
+
+    if (!message.mentions.has(client.user)) return;
 
     // ----------------- KIỂM TRA CẤM CHAT (BOT LEVEL) -----------------
     const banExpires = await getChatBanExpires(message.author.id);
@@ -77,6 +96,66 @@ client.on('messageCreate', async (message: Message) => {
     const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
     const cleanInput = removeAccents(rawInput).toLowerCase();
     
+    // ----------------- TÍNH NĂNG ĐĂNG KÝ HỒ SƠ -----------------
+    const profileTriggers = [
+        'profile', 'thong tin ca nhan', 'ttcn', 
+        'dang ky ho so', 'dang ky profile', 'dang ky', 
+        'cap nhat ho so', 'cap nhat thong tin', 'cap nhat'
+    ];
+    if (profileTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleProfileRegistration(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG CRUSH MẬT -----------------
+    const crushTriggers = ['crush', 'thich'];
+    if (crushTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleCrushCommand(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG GHÉP ĐÔI TÌNH DUYÊN -----------------
+    const matchmakingTriggers = ['ghep doi', 'ghep cap', 'bo duyen', 'tinh duyen', 'ghep'];
+    if (matchmakingTriggers.some(t => cleanInput.startsWith(t))) {
+        await playMatchmaking(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG THÁM TỬ TƯ -----------------
+    const detectiveTriggers = ['tham tu', 'dich vu tham tu', 'thue tham tu'];
+    if (detectiveTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleDetectiveServices(message, 'thamtu');
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG BÁN ĐỨNG ĐỒNG BỌN -----------------
+    const sellInfoTriggers = ['ban dung', 'mua tin', 'chi mat'];
+    if (sellInfoTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleDetectiveServices(message, 'bandung');
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG BÙA YÊU ÉP DUYÊN -----------------
+    const buaYeuTriggers = ['mua bua', 'ep duyen', 'bua yeu'];
+    if (buaYeuTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleBuaYeu(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG BÓI BÀI TAROT (kiểm tra trước gieo quẻ để tránh 'boi' match nhầm) -----------------
+    const tarotTriggers = ['boi tarot', 'tarot', 'xem tarot', 'trai bai tarot'];
+    if (tarotTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleTarot(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG GIEO QUẺ HÀNG NGÀY -----------------
+    const gieoQueTriggers = ['gieo que', 'xin que', 'boi ca nhan', 'xem boi', 'boi'];
+    if (gieoQueTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleGieoQue(message);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG "CÂM" -----------------
     const shutUpTriggers = ['cam', 'im', 'nin', 'ngung sua', 'cam mom', 'im di', 'im mom'];
     if (shutUpTriggers.some(t => cleanInput.includes(t))) {
@@ -770,6 +849,7 @@ cron.schedule('30 18 * * *', async () => {
     await connectDB();
     await loadAgentIcons();
     registerValorantCollector(client);
+    await initTarot();
     client.login(TOKEN);
 })();
 

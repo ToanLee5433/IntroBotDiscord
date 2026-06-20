@@ -11,6 +11,14 @@ const playerValorantIdsInMemory: { [userId: string]: string } = {};
 const playerChatBansInMemory: { [userId: string]: number } = {};
 const playerLastDodgeDebtInMemory: { [userId: string]: number } = {};
 const playerLastSnitchDatesInMemory: { [userId: string]: string } = {};
+const playerProfilesInMemory: { [userId: string]: { name: string; gender: string; birthday: string } } = {};
+const playerCrushesInMemory: { [userId: string]: string } = {};
+const playerCrushChangesTodayInMemory: { [userId: string]: number } = {};
+const playerLastCrushChangeDateInMemory: { [userId: string]: string } = {};
+const playerFailedMatchesTodayInMemory: { [userId: string]: number } = {};
+const playerLastFailedMatchDateInMemory: { [userId: string]: string } = {};
+const playerSimpLoUntilInMemory: { [userId: string]: number } = {};
+const playerLastQueDateInMemory: { [userId: string]: string } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -23,6 +31,16 @@ interface IUser {
     chatBanUntil: number;
     lastDodgeDebt: number;
     lastSnitchDate: string;
+    name?: string;
+    gender?: string;
+    birthday?: string;
+    crushUserId?: string;
+    crushChangesToday?: number;
+    lastCrushChangeDate?: string;
+    failedMatchesToday?: number;
+    lastFailedMatchDate?: string;
+    simpLoUntil?: number;
+    lastQueDate?: string;
 }
 
 const userSchema = new Schema<IUser>({
@@ -34,7 +52,17 @@ const userSchema = new Schema<IUser>({
     valorantId: { type: String, default: "" },
     chatBanUntil: { type: Number, default: 0 },
     lastDodgeDebt: { type: Number, default: 0 },
-    lastSnitchDate: { type: String, default: "" }
+    lastSnitchDate: { type: String, default: "" },
+    name: { type: String, default: "" },
+    gender: { type: String, default: "" },
+    birthday: { type: String, default: "" },
+    crushUserId: { type: String, default: "" },
+    crushChangesToday: { type: Number, default: 0 },
+    lastCrushChangeDate: { type: String, default: "" },
+    failedMatchesToday: { type: Number, default: 0 },
+    lastFailedMatchDate: { type: String, default: "" },
+    simpLoUntil: { type: Number, default: 0 },
+    lastQueDate: { type: String, default: "" }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -1209,4 +1237,236 @@ export async function updateSnitchDate(userId: string, todayStr: string): Promis
         playerLastSnitchDatesInMemory[userId] = todayStr;
     }
 }
+
+/**
+ * Lưu hồ sơ thông tin cá nhân của người dùng
+ */
+export async function saveProfile(userId: string, name: string, gender: string, birthday: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { name, gender, birthday },
+                { upsert: true, new: true }
+            );
+            return;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lưu hồ sơ trên MongoDB:", error);
+        }
+    }
+    playerProfilesInMemory[userId] = { name, gender, birthday };
+}
+
+/**
+ * Lấy hồ sơ thông tin cá nhân của người dùng
+ */
+export async function getProfile(userId: string): Promise<{ name: string; gender: string; birthday: string } | null> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            if (user && user.name && user.gender && user.birthday) {
+                return {
+                    name: user.name,
+                    gender: user.gender,
+                    birthday: user.birthday
+                };
+            }
+            return null;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy hồ sơ từ MongoDB:", error);
+        }
+    }
+    const local = playerProfilesInMemory[userId];
+    return local || null;
+}
+
+/**
+ * Cập nhật thông tin crush của người dùng
+ */
+export async function updateCrush(userId: string, crushId: string): Promise<string> {
+    let oldCrush = "";
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            oldCrush = user && user.crushUserId ? user.crushUserId : "";
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { crushUserId: crushId },
+                { upsert: true, new: true }
+            );
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cập nhật crush trên MongoDB:", error);
+        }
+    } else {
+        oldCrush = playerCrushesInMemory[userId] || "";
+        playerCrushesInMemory[userId] = crushId;
+    }
+    return oldCrush;
+}
+
+/**
+ * Lấy thông tin crush hiện tại của người dùng
+ */
+export async function getCrush(userId: string): Promise<string> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user && user.crushUserId ? user.crushUserId : "";
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy thông tin crush từ MongoDB:", error);
+        }
+    }
+    return playerCrushesInMemory[userId] || "";
+}
+
+/**
+ * Lấy danh sách ID những người đang thích userId này (Thám tử / Bán đứng)
+ */
+export async function getWhoCrushedMe(userId: string): Promise<string[]> {
+    if (useMongoDB) {
+        try {
+            const users = await UserModel.find({ crushUserId: userId });
+            return users.map(u => u.userId);
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy danh sách crush từ MongoDB:", error);
+        }
+    }
+    // Fallback to RAM
+    return Object.keys(playerCrushesInMemory).filter(k => playerCrushesInMemory[k] === userId);
+}
+
+/**
+ * Tăng số lần thay đổi crush của người dùng trong ngày và trả về số lần hiện tại
+ */
+export async function incrementCrushChange(userId: string, todayStr: string): Promise<number> {
+    if (useMongoDB) {
+        try {
+            let user = await UserModel.findOne({ userId });
+            if (!user) {
+                user = await UserModel.create({ userId });
+            }
+            if (user.lastCrushChangeDate !== todayStr) {
+                user.crushChangesToday = 1;
+                user.lastCrushChangeDate = todayStr;
+            } else {
+                user.crushChangesToday = (user.crushChangesToday || 0) + 1;
+            }
+            await user.save();
+            return user.crushChangesToday || 1;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cập nhật số lần đổi crush trên MongoDB:", error);
+        }
+    }
+    // Fallback to RAM
+    if (playerLastCrushChangeDateInMemory[userId] !== todayStr) {
+        playerCrushChangesTodayInMemory[userId] = 1;
+        playerLastCrushChangeDateInMemory[userId] = todayStr;
+    } else {
+        playerCrushChangesTodayInMemory[userId] = (playerCrushChangesTodayInMemory[userId] || 0) + 1;
+    }
+    return playerCrushChangesTodayInMemory[userId];
+}
+
+/**
+ * Tăng số lần ghép đôi thất bại (< 20%) trong ngày và trả về số lần hiện tại
+ */
+export async function incrementFailedMatch(userId: string, todayStr: string): Promise<number> {
+    if (useMongoDB) {
+        try {
+            let user = await UserModel.findOne({ userId });
+            if (!user) {
+                user = await UserModel.create({ userId });
+            }
+            if (user.lastFailedMatchDate !== todayStr) {
+                user.failedMatchesToday = 1;
+                user.lastFailedMatchDate = todayStr;
+            } else {
+                user.failedMatchesToday = (user.failedMatchesToday || 0) + 1;
+            }
+            await user.save();
+            return user.failedMatchesToday || 1;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cập nhật ghép đôi thất bại trên MongoDB:", error);
+        }
+    }
+    // Fallback to RAM
+    if (playerLastFailedMatchDateInMemory[userId] !== todayStr) {
+        playerFailedMatchesTodayInMemory[userId] = 1;
+        playerLastFailedMatchDateInMemory[userId] = todayStr;
+    } else {
+        playerFailedMatchesTodayInMemory[userId] = (playerFailedMatchesTodayInMemory[userId] || 0) + 1;
+    }
+    return playerFailedMatchesTodayInMemory[userId];
+}
+
+/**
+ * Set thời gian chịu phạt Simp Lỏ của người dùng
+ */
+export async function setSimpLo(userId: string, expires: number): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { simpLoUntil: expires },
+                { upsert: true }
+            );
+            return;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cập nhật trạng thái Simp Lỏ trên MongoDB:", error);
+        }
+    }
+    playerSimpLoUntilInMemory[userId] = expires;
+}
+
+/**
+ * Lấy thời gian hết hạn chịu phạt Simp Lỏ của người dùng
+ */
+export async function getSimpLoExpires(userId: string): Promise<number> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user && user.simpLoUntil ? user.simpLoUntil : 0;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy thời gian hết hạn Simp Lỏ từ MongoDB:", error);
+        }
+    }
+    return playerSimpLoUntilInMemory[userId] || 0;
+}
+
+/**
+ * Kiểm tra xem người dùng đã gieo quẻ hôm nay chưa
+ */
+export async function hasGieoQueToday(userId: string, todayStr: string): Promise<boolean> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user && user.lastQueDate === todayStr ? true : false;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi kiểm tra ngày gieo quẻ từ MongoDB:", error);
+        }
+    }
+    return playerLastQueDateInMemory[userId] === todayStr;
+}
+
+/**
+ * Đánh dấu người dùng đã gieo quẻ hôm nay (lưu ngày gieo quẻ lập tức)
+ */
+export async function markGieoQueToday(userId: string, todayStr: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { lastQueDate: todayStr },
+                { upsert: true, new: true }
+            );
+            return;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lưu ngày gieo quẻ lên MongoDB:", error);
+        }
+    }
+    playerLastQueDateInMemory[userId] = todayStr;
+}
+
+
+
 
