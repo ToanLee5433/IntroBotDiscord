@@ -11,345 +11,431 @@ import { getMatchmakingFortune } from '../services/gemini';
 const ASSETS_DIR = path.join(process.cwd(), 'assets', 'tarot');
 
 export interface TarotCard {
-    id: string; // Chuỗi 2 chữ số (ví dụ: "00", "01", ..., "21")
-    name: string; // Tên tiếng Việt
+    id: string;
+    name: string;        // Tên tiếng Việt
     englishName: string; // Tên tiếng Anh
-    wikiName: string; // Tên trên wiki để tải ảnh
-    meaningUpright: string; // Nghĩa xuôi
-    meaningReversed: string; // Nghĩa ngược
+    element: string;     // Nguyên tố liên quan (dùng khi phân tích tổ hợp)
+    meaningUpright: string;  // Nghĩa xuôi đầy đủ
+    meaningReversed: string; // Nghĩa ngược đầy đủ
+    keywords: string[];  // Từ khóa cốt lõi để Gemini phân tích sâu hơn
 }
 
-// Khai báo 22 lá bài Major Arcana chuẩn Rider-Waite-Smith
+// 22 lá bài Major Arcana chuẩn Rider-Waite-Smith với đầy đủ thông tin phong thủy
 export const TAROT_DECK: TarotCard[] = [
-    { id: "00", name: "Chàng Khờ", englishName: "The Fool", wikiName: "The_Fool", meaningUpright: "Khởi đầu mới, tự do, phiêu lưu, ngây thơ, tin tưởng vào cuộc sống.", meaningReversed: "Liều lĩnh, bất cẩn, ngây ngô, trì hoãn, sợ hãi rủi ro." },
-    { id: "01", name: "Pháp Sư", englishName: "The Magician", wikiName: "The_Magician", meaningUpright: "Sức mạnh ý chí, sáng tạo, tập trung, hành động, biến ước mơ thành hiện thực.", meaningReversed: "Thao túng, ảo tưởng, tài năng bị lãng phí, lập kế hoạch tồi." },
-    { id: "02", name: "Nữ Tư Tế", englishName: "The High Priestess", wikiName: "The_High_Priestess", meaningUpright: "Trực giác, tiềm thức, bí ẩn, tri thức bên trong, sự tĩnh lặng.", meaningReversed: "Thiếu trực giác, nông cạn, bí mật bị che giấu, bất ổn cảm xúc." },
-    { id: "03", name: "Nữ Hoàng", englishName: "The Empress", wikiName: "The_Empress", meaningUpright: "Sự sung túc, thiên nhiên, sinh sản, nuôi dưỡng, nghệ thuật và vẻ đẹp.", meaningReversed: "Thiếu sáng tạo, phụ thuộc cảm xúc, hoang phí, kiểm soát quá mức." },
-    { id: "04", name: "Hoàng Đế", englishName: "The Emperor", wikiName: "The_Emperor", meaningUpright: "Quyền lực, trật tự, kỷ luật, bảo vệ, sự ổn định, tư duy lý trí.", meaningReversed: "Độc đoán, kiểm soát quá đà, bất lực, thiếu tổ chức." },
-    { id: "05", name: "Giáo Hoàng", englishName: "The Hierophant", wikiName: "The_Hierophant", meaningUpright: "Truyền thống, niềm tin, giáo dục, sự phù hợp, hướng dẫn tinh thần.", meaningReversed: "Nổi loạn, tự do tư tưởng, giáo điều, phá vỡ quy chuẩn cũ." },
-    { id: "06", name: "Tình Nhân", englishName: "The Lovers", wikiName: "The_Lovers", meaningUpright: "Tình yêu, sự hòa hợp, mối quan hệ, sự lựa chọn quan trọng, sự gắn kết.", meaningReversed: "Mất cân bằng, xung đột, lựa chọn sai lầm, thiếu cam kết." },
-    { id: "07", name: "Chiến Xa", englishName: "The Chariot", wikiName: "The_Chariot", meaningUpright: "Ý chí quyết tâm, chiến thắng, kiểm soát, vượt qua khó khăn, định hướng mục tiêu.", meaningReversed: "Mất kiểm soát, thiếu hướng đi, thất bại trước áp lực, bướng bỉnh." },
-    { id: "08", name: "Sức Mạnh", englishName: "Strength", wikiName: "Strength", meaningUpright: "Sức mạnh nội tâm, lòng dũng cảm, kiên nhẫn, lòng trắc ẩn, chế ngự bản năng.", meaningReversed: "Yếu đuối, tự ti, hung hăng, thiếu tự chủ." },
-    { id: "09", name: "Ẩn Sĩ", englishName: "The Hermit", wikiName: "The_Hermit", meaningUpright: "Sự chiêm nghiệm, hướng nội, tìm kiếm sự thật, cô độc, sự dẫn lối sáng suốt.", meaningReversed: "Cô lập, cô đơn, từ chối lời khuyên, xa cách thực tế." },
-    { id: "10", name: "Vòng Quay Số Phận", englishName: "Wheel of Fortune", wikiName: "Wheel_of_Fortune", meaningUpright: "Sự thay đổi số phận, may mắn, bước ngoặt cuộc đời, định mệnh, nghiệp quả.", meaningReversed: "Vận xui, kháng cự thay đổi, xui xẻo liên tiếp, bài học lặp lại." },
-    { id: "11", name: "Công Lý", englishName: "Justice", wikiName: "Justice", meaningUpright: "Sự công bằng, chân lý, luật nhân quả, quyết định sáng suốt, trung thực.", meaningReversed: "Bất công, dối trá, thiếu trách nhiệm, phán xét thiên lệch." },
-    { id: "12", name: "Người Treo", englishName: "The Hanged Man", wikiName: "The_Hanged_Man", meaningUpright: "Sự hy sinh, buông bỏ, góc nhìn mới, sự trì hoãn có mục đích, kiên nhẫn.", meaningReversed: "Trì trệ vô ích, phản kháng buông bỏ, hy sinh vô nghĩa, ích kỷ." },
-    { id: "13", name: "Tử Thần", englishName: "Death", wikiName: "Death", meaningUpright: "Sự kết thúc, chuyển giao, đổi mới, buông bỏ cái cũ để bắt đầu cái mới.", meaningReversed: "Sợ hãi thay đổi, trì hoãn không thể tránh khỏi, níu kéo quá khứ." },
-    { id: "14", name: "Tiết Độ", englishName: "Temperance", wikiName: "Temperance", meaningUpright: "Sự cân bằng, ôn hòa, kiên nhẫn, sự kết hợp hài hòa, mục đích rõ ràng.", meaningReversed: "Mất cân bằng, thừa thãi, xung đột lợi ích, vội vã thiếu kiên nhẫn." },
-    { id: "15", name: "Ác Quỷ", englishName: "The Devil", wikiName: "The_Devil", meaningUpright: "Sự ràng buộc, cám dỗ, vật chất, nghiện ngập, nỗi sợ hãi vô hình.", meaningReversed: "Giải thoát, nhận thức bản thân, vượt qua cám dỗ, lấy lại tự do." },
-    { id: "16", name: "Tòa Tháp", englishName: "The Tower", wikiName: "The_Tower", meaningUpright: "Sự sụp đổ đột ngột, thảm họa, biến động lớn, vỡ mộng, sự thật phơi bày.", meaningReversed: "Tránh được tai họa lớn, trì hoãn thảm họa, sợ hãi đổ vỡ." },
-    { id: "17", name: "Ngôi Sao", englishName: "The Star", wikiName: "The_Star", meaningUpright: "Hy vọng, niềm tin, chữa lành, nguồn cảm hứng, sự thanh thản tâm hồn.", meaningReversed: "Mất hy vọng, tự ti, thiếu cảm hứng, thất vọng kéo dài." },
-    { id: "18", name: "Mặt Trăng", englishName: "The Moon", wikiName: "The_Moon", meaningUpright: "Sự hoang mang, ảo giác, nỗi sợ hãi tiềm ẩn, trực giác nhạy bén, sự bất an.", meaningReversed: "Giải tỏa nỗi sợ, phơi bày dối trá, trực giác thức tỉnh, vượt qua hoang mang." },
-    { id: "19", name: "Mặt Trời", englishName: "The Sun", wikiName: "The_Sun", meaningUpright: "Niềm vui, thành công, rực rỡ, năng lượng tích cực, sự tự tin, sự thật rõ ràng.", meaningReversed: "Thất vọng tạm thời, kiêu ngạo, thiếu tự tin, thành công bị trì hoãn." },
-    { id: "20", name: "Phán Xét", englishName: "Judgement", wikiName: "Judgement", meaningUpright: "Sự thức tỉnh, tiếng gọi định mệnh, sự tha thứ, phán quyết quan trọng, tái sinh.", meaningReversed: "Nghi ngờ bản thân, từ chối tiếng gọi, phán xét gay gắt, thiếu quyết đoán." },
-    { id: "21", name: "Thế Giới", englishName: "The World", wikiName: "The_World", meaningUpright: "Sự hoàn thành, trọn vẹn, thành công viên mãn, du hành, kết thúc một hành trình.", meaningReversed: "Thiếu hoàn thành, trì hoãn vạch đích, nỗ lực chưa đủ, đi đường tắt thất bại." }
+    { id: "00", name: "Chàng Khờ", englishName: "The Fool", element: "Khí/Không Khí",
+      meaningUpright: "Khởi đầu mới, tự do tuyệt đối, tin tưởng vào vũ trụ, phiêu lưu mạo hiểm, ngây thơ thuần khiết.",
+      meaningReversed: "Liều lĩnh vô trách nhiệm, bất cẩn, đưa ra quyết định ngớ ngẩn, trì hoãn khởi đầu, sống trong ảo tưởng.",
+      keywords: ["khởi đầu", "tự do", "phiêu lưu", "ngây thơ", "vô tư"] },
+
+    { id: "01", name: "Pháp Sư", englishName: "The Magician", element: "Khí/Thủy Ngân",
+      meaningUpright: "Sức mạnh ý chí, sáng tạo, tập trung tuyệt đối, khả năng biến ý tưởng thành hiện thực, nắm giữ đủ tài nguyên.",
+      meaningReversed: "Thao túng, lừa đảo, ảo tưởng sức mạnh, tài năng bị lãng phí, thiếu tập trung, kế hoạch tồi.",
+      keywords: ["ý chí", "sáng tạo", "hành động", "tài năng", "tập trung"] },
+
+    { id: "02", name: "Nữ Tư Tế", englishName: "The High Priestess", element: "Thủy/Mặt Trăng",
+      meaningUpright: "Trực giác sâu sắc, tiềm thức, bí ẩn, tri thức bên trong, kiên nhẫn chờ đợi, sự tĩnh lặng tâm hồn.",
+      meaningReversed: "Thiếu trực giác, nông cạn hời hợt, bí mật bị che giấu hại người, bất ổn cảm xúc, đưa ra quyết định khi chưa đủ thông tin.",
+      keywords: ["trực giác", "bí ẩn", "tiềm thức", "tri thức", "nội tâm"] },
+
+    { id: "03", name: "Nữ Hoàng", englishName: "The Empress", element: "Đất/Kim Tinh",
+      meaningUpright: "Sự sung túc dồi dào, thiên nhiên sinh sôi, nuôi dưỡng yêu thương, sáng tạo nghệ thuật, vẻ đẹp và giác quan.",
+      meaningReversed: "Thiếu sáng tạo, phụ thuộc cảm xúc, hoang phí xa hoa, kiểm soát quá mức, bế tắc sáng tạo.",
+      keywords: ["sung túc", "nuôi dưỡng", "sáng tạo", "thiên nhiên", "phong phú"] },
+
+    { id: "04", name: "Hoàng Đế", englishName: "The Emperor", element: "Lửa/Hỏa Tinh",
+      meaningUpright: "Quyền lực lãnh đạo, trật tự kỷ luật, bảo vệ che chở, sự ổn định vững chắc, tư duy lý trí logic.",
+      meaningReversed: "Độc đoán chuyên quyền, kiểm soát quá đà, bất lực mất uy, thiếu tổ chức linh hoạt, cứng nhắc bảo thủ.",
+      keywords: ["quyền lực", "kỷ luật", "ổn định", "lãnh đạo", "trật tự"] },
+
+    { id: "05", name: "Giáo Hoàng", englishName: "The Hierophant", element: "Đất/Kim Ngưu",
+      meaningUpright: "Truyền thống và niềm tin, giáo dục tâm linh, sự phù hợp với chuẩn mực, hướng dẫn tinh thần, tuân theo lề thói.",
+      meaningReversed: "Nổi loạn chống đối, tự do tư tưởng cực đoan, giáo điều mù quáng, phá vỡ quy chuẩn, không chịu học hỏi.",
+      keywords: ["truyền thống", "niềm tin", "giáo dục", "hướng dẫn", "tâm linh"] },
+
+    { id: "06", name: "Tình Nhân", englishName: "The Lovers", element: "Khí/Song Tử",
+      meaningUpright: "Tình yêu hòa hợp, mối quan hệ đích thực, sự lựa chọn quan trọng từ trái tim, sự gắn kết giá trị, sự liên kết tâm hồn.",
+      meaningReversed: "Mất cân bằng trong quan hệ, xung đột tình cảm, lựa chọn sai lầm, thiếu cam kết, không hòa hợp giá trị.",
+      keywords: ["tình yêu", "lựa chọn", "hòa hợp", "cam kết", "mối quan hệ"] },
+
+    { id: "07", name: "Chiến Xa", englishName: "The Chariot", element: "Thủy/Cự Giải",
+      meaningUpright: "Ý chí sắt đá, chiến thắng qua nỗ lực, kiểm soát bản thân và hoàn cảnh, vượt qua mọi trở ngại, định hướng rõ ràng.",
+      meaningReversed: "Mất kiểm soát hoàn toàn, thiếu hướng đi, thất bại trước áp lực, bướng bỉnh cố chấp, xung đột nội tâm.",
+      keywords: ["ý chí", "chiến thắng", "kiểm soát", "quyết tâm", "vượt khó"] },
+
+    { id: "08", name: "Sức Mạnh", englishName: "Strength", element: "Lửa/Sư Tử",
+      meaningUpright: "Sức mạnh nội tâm bền vững, lòng dũng cảm từ bên trong, kiên nhẫn bất khuất, lòng trắc ẩn chữa lành, chế ngự bản năng thú tính.",
+      meaningReversed: "Yếu đuối thiếu nghị lực, tự ti mặc cảm, hung hăng mất kiểm soát, thiếu lòng trắc ẩn, để bản năng dẫn đường.",
+      keywords: ["nội lực", "dũng cảm", "kiên nhẫn", "trắc ẩn", "kỷ luật bản thân"] },
+
+    { id: "09", name: "Ẩn Sĩ", englishName: "The Hermit", element: "Đất/Xử Nữ",
+      meaningUpright: "Chiêm nghiệm sâu sắc, hướng nội tìm kiếm sự thật, trí tuệ qua cô độc, ánh sáng dẫn đường nội tâm, tạm lui về suy ngẫm.",
+      meaningReversed: "Cô lập tiêu cực, cô đơn không cần thiết, từ chối lời khuyên người khác, xa cách thực tế, thu mình quá mức.",
+      keywords: ["chiêm nghiệm", "cô độc", "trí tuệ", "hướng nội", "tự tìm hiểu"] },
+
+    { id: "10", name: "Vòng Quay Số Phận", englishName: "Wheel of Fortune", element: "Mộc/Mộc Tinh",
+      meaningUpright: "Sự thay đổi không ngừng của số phận, may mắn bất ngờ, bước ngoặt cuộc đời, chu kỳ nhân quả, định mệnh vận hành.",
+      meaningReversed: "Vận xui liên tiếp, kháng cự thay đổi vô ích, xui xẻo kéo dài, bài học cứ lặp lại, không chịu chấp nhận hoàn cảnh.",
+      keywords: ["số phận", "may mắn", "thay đổi", "chu kỳ", "định mệnh"] },
+
+    { id: "11", name: "Công Lý", englishName: "Justice", element: "Khí/Thiên Bình",
+      meaningUpright: "Sự công bằng tuyệt đối, chân lý được phơi bày, luật nhân quả hiển hiện, quyết định sáng suốt công tâm, trung thực minh bạch.",
+      meaningReversed: "Bất công, che giấu sự thật, thiếu trách nhiệm, phán xét thiên lệch, kết quả không xứng đáng với nỗ lực.",
+      keywords: ["công bằng", "sự thật", "nhân quả", "quyết định", "trung thực"] },
+
+    { id: "12", name: "Người Treo", englishName: "The Hanged Man", element: "Thủy/Hải Vương",
+      meaningUpright: "Sự hy sinh có mục đích, buông bỏ để nhận điều lớn hơn, góc nhìn hoàn toàn mới, trì hoãn có lý do, kiên nhẫn chờ thời.",
+      meaningReversed: "Trì trệ vô ích không đến đâu, phản kháng sự buông bỏ cần thiết, hy sinh không xứng đáng, ích kỷ giữ chặt cái cũ.",
+      keywords: ["hy sinh", "buông bỏ", "góc nhìn mới", "kiên nhẫn", "chuyển hóa"] },
+
+    { id: "13", name: "Tử Thần", englishName: "Death", element: "Thủy/Bọ Cạp",
+      meaningUpright: "Kết thúc hoàn toàn một giai đoạn, chuyển hóa sâu sắc không thể đảo ngược, tái sinh từ tro tàn, buông bỏ hoàn toàn cái cũ.",
+      meaningReversed: "Sợ hãi sự thay đổi cần thiết, trì hoãn điều không thể tránh khỏi, mắc kẹt trong quá khứ, kháng cự sự chuyển hóa.",
+      keywords: ["kết thúc", "chuyển hóa", "tái sinh", "buông bỏ", "thay đổi tất yếu"] },
+
+    { id: "14", name: "Tiết Độ", englishName: "Temperance", element: "Lửa/Nhân Mã",
+      meaningUpright: "Cân bằng hoàn hảo, ôn hòa kiên định, kiên nhẫn lâu dài, sự hòa hợp giữa các mặt đối lập, mục đích rõ ràng và bền vững.",
+      meaningReversed: "Mất cân bằng nghiêm trọng, thừa thãi cực đoan, xung đột lợi ích, vội vã thiếu kiên nhẫn, thiếu sự điều hòa.",
+      keywords: ["cân bằng", "ôn hòa", "kiên nhẫn", "hòa hợp", "điều độ"] },
+
+    { id: "15", name: "Ác Quỷ", englishName: "The Devil", element: "Đất/Ma Kết",
+      meaningUpright: "Ràng buộc bởi vật chất và cám dỗ, nghiện ngập mất kiểm soát, nỗi sợ hãi vô hình trói buộc, bị tư duy hạn hẹp giam cầm.",
+      meaningReversed: "Giải thoát khỏi ràng buộc, nhận thức được xiềng xích vô hình, vượt qua cám dỗ, lấy lại tự do ý chí thực sự.",
+      keywords: ["ràng buộc", "cám dỗ", "nghiện ngập", "ảo tưởng", "xiềng xích"] },
+
+    { id: "16", name: "Tòa Tháp", englishName: "The Tower", element: "Lửa/Hỏa Tinh",
+      meaningUpright: "Sụp đổ đột ngột không thể tránh, thảm họa phá vỡ nền tảng sai lầm, biến động lớn lao, vỡ mộng toàn diện, sự thật trần trụi phơi bày.",
+      meaningReversed: "Tránh được tai họa lớn nhờ thay đổi kịp thời, trì hoãn thảm họa, sợ hãi sự đổ vỡ cần thiết, chặn đứng được thảm kịch.",
+      keywords: ["sụp đổ", "thảm họa", "biến động", "vỡ mộng", "phá hủy"] },
+
+    { id: "17", name: "Ngôi Sao", englishName: "The Star", element: "Khí/Bảo Bình",
+      meaningUpright: "Hy vọng rực rỡ sau bóng tối, niềm tin vào tương lai, chữa lành tâm hồn, nguồn cảm hứng bất tận, sự thanh thản và bình yên.",
+      meaningReversed: "Mất hy vọng sâu sắc, tuyệt vọng kéo dài, tự ti không xứng đáng, thiếu cảm hứng sáng tạo, thất vọng về tương lai.",
+      keywords: ["hy vọng", "chữa lành", "cảm hứng", "bình yên", "thanh thản"] },
+
+    { id: "18", name: "Mặt Trăng", englishName: "The Moon", element: "Thủy/Song Ngư",
+      meaningUpright: "Ảo giác và hoang mang, nỗi sợ hãi tiềm ẩn, trực giác nhạy bén dẫn đường trong bóng tối, bất an từ tiềm thức, điều chưa được phơi bày.",
+      meaningReversed: "Giải tỏa nỗi sợ và hoang mang, sự thật dối trá được phơi bày, trực giác thức tỉnh rõ ràng, vượt qua ảo tưởng, minh bạch hóa.",
+      keywords: ["ảo giác", "tiềm thức", "nỗi sợ", "bí ẩn", "trực giác bóng tối"] },
+
+    { id: "19", name: "Mặt Trời", englishName: "The Sun", element: "Lửa/Mặt Trời",
+      meaningUpright: "Niềm vui thuần túy, thành công rực rỡ, năng lượng tích cực tràn đầy, sự tự tin chói sáng, sự thật rõ ràng và trong sáng.",
+      meaningReversed: "Thất vọng tạm thời, kiêu ngạo thái quá, thiếu tự tin vô căn cứ, thành công bị trì hoãn, hào quang nhạt dần.",
+      keywords: ["niềm vui", "thành công", "tự tin", "rực rỡ", "trong sáng"] },
+
+    { id: "20", name: "Phán Xét", englishName: "Judgement", element: "Lửa/Diêm Vương",
+      meaningUpright: "Thức tỉnh tâm linh sâu sắc, tiếng gọi của định mệnh, tha thứ và giải thoát, phán quyết công bằng cuối cùng, tái sinh ở tầng cao hơn.",
+      meaningReversed: "Tự nghi ngờ bản thân, từ chối tiếng gọi định mệnh, phán xét gay gắt không công bằng, thiếu quyết đoán trong bước ngoặt lớn.",
+      keywords: ["thức tỉnh", "tha thứ", "tái sinh", "định mệnh", "phán quyết"] },
+
+    { id: "21", name: "Thế Giới", englishName: "The World", element: "Đất/Thổ Tinh",
+      meaningUpright: "Hoàn thành viên mãn, trọn vẹn không thiếu sót, thành công đỉnh cao, kết thúc một chu kỳ lớn, mở ra khởi đầu mới toàn diện.",
+      meaningReversed: "Thiếu sự hoàn thành, trì hoãn ở vạch đích, nỗ lực chưa đủ để đến đích, chọn đường tắt thất bại, chưa sẵn sàng khép lại.",
+      keywords: ["hoàn thành", "trọn vẹn", "thành công", "kết thúc", "viên mãn"] }
 ];
 
-/**
- * Helper: sleep ms
- */
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+// ================ KIỂU TRẢI BÀI ================
+interface SpreadType {
+    name: string;
+    positions: string[]; // Tên vị trí từng lá
+    description: string;
 }
 
-/**
- * Tải một ảnh với retry logic (tối đa 5 lần) + delay tăng dần khi gặp 429 Rate Limit.
- * Sau mỗi lần tải thành công hoặc thất bại có thể retry, chờ 2s trước khi tải ảnh kế tiếp.
- */
-async function fetchWithRetry(url: string, filePath: string, cardName: string): Promise<void> {
-    const MAX_RETRIES = 5;
-    let lastError: Error | null = null;
+function detectSpreadType(question: string): SpreadType {
+    const q = question.toLowerCase();
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'BotToanDiscord/1.0 (tarot-image-downloader; contact: github.com/ToanLee5433)',
-                    'Accept': 'image/jpeg,image/*;q=0.9,*/*;q=0.8',
-                }
-            });
-
-            if (response.status === 429) {
-                // Rate limited: chờ exponential backoff (4s, 8s, 16s, 32s, 64s)
-                const waitMs = Math.pow(2, attempt + 1) * 1000;
-                console.warn(`[TAROT] Bị rate limit (429) khi tải ${cardName}. Thử lại lần ${attempt}/${MAX_RETRIES} sau ${waitMs / 1000}s...`);
-                await sleep(waitMs);
-                lastError = new Error(`HTTP 429 Too Many Requests`);
-                continue;
-            }
-
-            if (!response.ok) {
-                throw new Error(`HTTP Error: status ${response.status}`);
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            fs.writeFileSync(filePath, buffer);
-            console.log(`[TAROT] ✅ Đã lưu thành công lá bài ${cardName}`);
-
-            // Delay 2s giữa mỗi lần tải để tránh rate limit
-            await sleep(2000);
-            return; // Thành công, thoát
-        } catch (err: any) {
-            lastError = err;
-            if (attempt < MAX_RETRIES) {
-                const waitMs = Math.pow(2, attempt) * 1000;
-                console.warn(`[TAROT] Lỗi tải ${cardName} (lần ${attempt}/${MAX_RETRIES}): ${err.message}. Thử lại sau ${waitMs / 1000}s...`);
-                await sleep(waitMs);
-            }
-        }
+    // Trải bài tình duyên/tình yêu
+    if (/tình|yêu|crush|người thương|bạn trai|bạn gái|hôn nhân|cưới|chia tay|quan hệ|have|bo|bo|mối|duyên/.test(q)) {
+        return {
+            name: "Trải Bài Tình Duyên 💕",
+            positions: ["Tình trạng hiện tại của mối quan hệ", "Trở ngại / Thử thách đang đối mặt", "Kết quả / Tương lai của tình duyên"],
+            description: "tình duyên và tình yêu"
+        };
     }
 
-    throw lastError || new Error('Unknown error after max retries');
+    // Trải bài sự nghiệp/tiền bạc
+    if (/tiền|công việc|sự nghiệp|kinh doanh|làm ăn|lương|thăng tiến|việc làm|thất nghiệp|đầu tư|tài chính|giàu|nghèo|nợ/.test(q)) {
+        return {
+            name: "Trải Bài Sự Nghiệp & Tài Lộc 💰",
+            positions: ["Năng lực / Tài nguyên hiện có", "Cơ hội / Thách thức trước mắt", "Kết quả / Hướng đi nên chọn"],
+            description: "sự nghiệp và tài lộc"
+        };
+    }
+
+    // Trải bài quyết định
+    if (/nên|không nên|có nên|quyết định|chọn|lựa chọn|đi|ở lại|thay đổi|chuyển/.test(q)) {
+        return {
+            name: "Trải Bài Lựa Chọn ⚖️",
+            positions: ["Yếu tố nên làm / Thuận lợi", "Yếu tố không nên / Trở ngại tiềm ẩn", "Lời khuyên cuối cùng từ vũ trụ"],
+            description: "sự lựa chọn và quyết định"
+        };
+    }
+
+    // Mặc định: Quá khứ - Hiện tại - Tương lai
+    return {
+        name: "Trải Bài Thời Gian ⏳",
+        positions: ["Quá khứ (Nền tảng & Bài học)", "Hiện tại (Tình trạng & Thách thức)", "Tương lai (Kết quả nếu tiếp tục)"],
+        description: "tổng quan vận mệnh"
+    };
 }
 
 /**
- * Tải tất cả ảnh từ Wikimedia Commons về máy chủ cục bộ khi bot khởi động.
- * Đảm bảo 100% hiển thị ảnh trên Discord chat mà không bị Cloudflare chặn.
- * Dùng rate-limit-safe sequential download với retry + exponential backoff.
+ * Kiểm tra thư viện ảnh Tarot cục bộ.
+ * Ảnh phải được đặt thủ công vào thư mục: assets/tarot/
+ * Tên file: 00.jpg, 01.jpg, ..., 21.jpg
  */
 export async function initTarot(): Promise<void> {
     if (!fs.existsSync(ASSETS_DIR)) {
         fs.mkdirSync(ASSETS_DIR, { recursive: true });
+        console.log(`[TAROT] 📁 Đã tạo thư mục: ${ASSETS_DIR}`);
     }
 
-    // Đếm số ảnh còn thiếu
-    const missing = TAROT_DECK.filter(c => !fs.existsSync(path.join(ASSETS_DIR, `${c.id}.jpg`)));
-    if (missing.length === 0) {
-        console.log("[TAROT] ✅ Thư viện ảnh Tarot đã đầy đủ 22/22 lá. Bỏ qua bước tải.");
-        return;
-    }
+    let found = 0;
+    const missing: string[] = [];
 
-    console.log(`[TAROT] Đang tải ${missing.length} lá bài còn thiếu (tuần tự, 2s/lá để tránh rate limit)...`);
-    let success = 0;
-    let failed = 0;
-
-    for (const card of missing) {
+    for (const card of TAROT_DECK) {
         const filePath = path.join(ASSETS_DIR, `${card.id}.jpg`);
-        const url = `https://commons.wikimedia.org/wiki/Special:Redirect/file/Pictorial_Key_to_the_Tarot_${card.id}_${card.wikiName}.jpg`;
-        try {
-            await fetchWithRetry(url, filePath, card.englishName);
-            success++;
-        } catch (err: any) {
-            console.error(`[TAROT LỖI] ❌ Bỏ qua lá ${card.englishName} - không tải được sau 5 lần thử: ${err.message}`);
-            failed++;
+        if (fs.existsSync(filePath) && fs.statSync(filePath).size > 1000) {
+            found++;
+        } else {
+            missing.push(`${card.id}.jpg (${card.name})`);
         }
     }
 
-    const total = TAROT_DECK.filter(c => fs.existsSync(path.join(ASSETS_DIR, `${c.id}.jpg`))).length;
-    console.log(`[TAROT] Kiểm tra hoàn tất! Thư viện: ${total}/22 lá có ảnh (tải thành công: ${success}, thất bại: ${failed})`);
+    if (found === TAROT_DECK.length) {
+        console.log(`[TAROT] ✅ Thư viện ảnh đầy đủ ${found}/${TAROT_DECK.length} lá — sẵn sàng!`);
+    } else {
+        console.warn(`[TAROT] ⚠️ Có ${missing.length} lá thiếu ảnh (hiển thị text only): ${missing.join(', ')}`);
+    }
 }
-
 
 /**
  * Xử lý lệnh bói bài Tarot
  */
 export async function handleTarot(message: Message, rawInput: string): Promise<void> {
     const userId = message.author.id;
-    const cost = 20000; // Phí bói bài 20k
+    const cost = 20000;
 
-    // 1. Kiểm tra đăng ký profile
+    // 1. Kiểm tra profile
     const profile = await getProfile(userId);
     if (!profile) {
-        await message.reply(`❌ **Mày chưa khai báo lý lịch (profile) bói toán!**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(()=>{});
+        await message.reply(`❌ **Mày chưa khai báo lý lịch bói toán!**\nGõ lệnh: \`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(() => {});
         return;
     }
     profile.birthday = profile.birthday.replace(/\-/g, '/');
 
-    // 2. Kiểm tra tài chính (ví tiền)
+    // 2. Kiểm tra ví tiền
     let balance = await getBalance(userId);
     if (balance < cost) {
-        await message.reply(`❌ **Đéo đủ tiền xem bói!** Lệ phí cúng thầy Toàn bói Tarot là **${formatMoney(cost)}**.\nVí mày hiện tại chỉ có **${formatMoney(balance)}**, cút đi cày cuốc hoặc xin vay tiền rồi quay lại đây! 💸`).catch(()=>{});
+        await message.reply(`❌ **Đéo đủ tiền xem bói!** Lệ phí cúng thầy Toàn là **${formatMoney(cost)}**.\nVí mày chỉ có **${formatMoney(balance)}**, cút đi cày cuốc rồi quay lại! 💸`).catch(() => {});
         return;
     }
 
-    // 3. Trừ tiền đặt cọc trước
+    // 3. Trừ tiền
     balance -= cost;
     await updateBalance(userId, balance);
 
-    // Báo hiệu đang xử lý
     if ('sendTyping' in message.channel) {
-        await (message.channel as any).sendTyping().catch(()=>{});
+        await (message.channel as any).sendTyping().catch(() => {});
     }
 
-    // 4. Rút 3 lá bài ngẫu nhiên không trùng nhau
+    // 4. Lấy câu hỏi của user (bỏ trigger word)
+    const userQuestion = rawInput
+        .replace(/^(boi tarot|tarot|xem tarot|trai bai tarot)/i, '')
+        .trim();
+
+    // 5. Xác định kiểu trải bài dựa theo câu hỏi
+    const spread = detectSpreadType(userQuestion);
+
+    // 6. Rút 3 lá ngẫu nhiên không trùng
     const indexes: number[] = [];
     while (indexes.length < 3) {
         const rand = trueRandom(0, 21);
-        if (!indexes.includes(rand)) {
-            indexes.push(rand);
-        }
+        if (!indexes.includes(rand)) indexes.push(rand);
     }
 
-    const card1 = TAROT_DECK[indexes[0]];
-    const card2 = TAROT_DECK[indexes[1]];
-    const card3 = TAROT_DECK[indexes[2]];
+    const cards = [TAROT_DECK[indexes[0]], TAROT_DECK[indexes[1]], TAROT_DECK[indexes[2]]];
+    const orients = cards.map(() => trueRandom(1, 2) === 1 ? 'Xuôi ⬆️' : 'Ngược ⬇️');
+    const meanings = cards.map((c, i) => orients[i].includes('Xuôi') ? c.meaningUpright : c.meaningReversed);
 
-    // Roll hướng bài (50% xuôi, 50% ngược)
-    const orient1 = trueRandom(1, 2) === 1 ? 'Xuôi' : 'Ngược';
-    const orient2 = trueRandom(1, 2) === 1 ? 'Xuôi' : 'Ngược';
-    const orient3 = trueRandom(1, 2) === 1 ? 'Xuôi' : 'Ngược';
-
-    const card1Meaning = orient1 === 'Xuôi' ? card1.meaningUpright : card1.meaningReversed;
-    const card2Meaning = orient2 === 'Xuôi' ? card2.meaningUpright : card2.meaningReversed;
-    const card3Meaning = orient3 === 'Xuôi' ? card3.meaningUpright : card3.meaningReversed;
-
-    // Lọc câu hỏi của người dùng
-    const userQuestion = rawInput
-        .replace(/^(boi tarot|tarot|xem tarot|trai bai tarot)/i, "")
-        .trim();
+    // 7. Phân tích tổ hợp 3 lá (đặc trưng của Tarot chuẩn)
+    const allKeywords = cards.flatMap(c => c.keywords).join(', ');
+    const dominantElements = [...new Set(cards.map(c => c.element))].join(' + ');
+    const reversedCount = orients.filter(o => o.includes('Ngược')).length;
+    const energyLevel = reversedCount === 0 ? 'Thuận chiều — năng lượng chảy mạnh' :
+                        reversedCount === 1 ? 'Nhẹ cản — có một trở ngại cần vượt' :
+                        reversedCount === 2 ? 'Cản trở rõ — cần xem xét lại kỹ' :
+                        'Nghịch toàn bộ — đang đi ngược dòng chảy của vũ trụ';
 
     const debt = await getDebt(userId);
 
-    // 5. Gửi prompt cho Gemini giải quẻ bựa
+    // 8. Prompt Gemini siêu chuẩn Tarot + hài bựa
     const geminiPrompt = `
-        Bạn là BotToan, một thầy bói giang hồ bựa, chuyên bói toán cờ bạc, dùng từ lóng giang hồ và cờ bạc Việt Nam.
-        Người chơi "${profile.name}" (${profile.gender}, sinh ngày ${profile.birthday}) vừa cúng 20k để rút 3 lá bài Tarot Major Arcana (vận mệnh quá khứ, hiện tại sự nghiệp, tương lai tình duyên).
-        Câu hỏi của họ: "${userQuestion || "Xem tổng quan vận mệnh"}"
-        Thông số tài chính: Ví ${balance}k, đang nợ bot ${debt}k.
+Bạn là BotToan — thầy bói Tarot giang hồ bựa nhất Việt Nam, vừa nắm chắc kiến thức Tarot học thuật RWS, vừa cà khịa hài hước.
 
-        Thông tin 3 lá bài họ đã rút:
-        1. Quá Khứ (Vận Mệnh): Lá "${card1.name}" (${card1.englishName}) - Hướng: ${orient1}
-           - Ý nghĩa gốc: "${card1Meaning}"
-        2. Hiện Tại (Sự Nghiệp): Lá "${card2.name}" (${card2.englishName}) - Hướng: ${orient2}
-           - Ý nghĩa gốc: "${card2Meaning}"
-        3. Tương Lai (Tình Duyên): Lá "${card3.name}" (${card3.englishName}) - Hướng: ${orient3}
-           - Ý nghĩa gốc: "${card3Meaning}"
+===== THÔNG TIN NGƯỜI XEM BÓI =====
+Tên: "${profile.name}" | Giới tính: ${profile.gender} | Sinh: ${profile.birthday}
+Ví tiền: ${balance}k | Đang nợ: ${debt}k
+Câu hỏi: "${userQuestion || 'Xem tổng quan vận mệnh'}"
 
-        Nhiệm vụ của bạn: Hãy đưa ra lời giải nghĩa cực kỳ hài bựa, châm biếm sâu cay dưới góc nhìn sới bạc giang hồ cho từng lá bài và một lời tổng kết sấm truyền.
-        Hãy trả về câu trả lời có chứa đúng 4 thẻ đánh dấu sau để tôi tách văn bản ra làm các Embed:
-        [LA_1]
-        (Viết 1 đoạn giải thích hài bựa khoảng 2-3 câu cho lá thứ nhất, xưng mày-tao, châm chọc vận mệnh quá khứ cờ bạc)
-        [LA_2]
-        (Viết 1 đoạn giải thích hài bựa khoảng 2-3 câu cho lá thứ hai, cà khịa sự nghiệp hiện tại ăn hại)
-        [LA_3]
-        (Viết 1 đoạn giải thích hài bựa khoảng 2-3 câu cho lá thứ ba, troll tình duyên tương lai simp lỏ)
-        [TONG_KET]
-        (Viết đoạn tổng kết sấm truyền giang hồ cuối cùng, chửi bới khuyên bảo cờ bạc, lô đề)
+===== KIỂU TRẢI BÀI ĐÃ CHỌN =====
+${spread.name} (phù hợp với chủ đề: ${spread.description})
 
-        YÊU CẦU BẮT BUỘC:
-        - Không được viết bất kỳ lời dẫn chào hỏi hay giải thích bên ngoài các thẻ [LA_1], [LA_2], [LA_3], [TONG_KET].
-        - Viết ngắn gọn, súc tích (tổng văn bản dưới 900 ký tự).
-    `;
+===== 3 LÁ BÀI ĐÃ RÚT =====
+🃏 Lá 1 — ${spread.positions[0]}:
+   "${cards[0].name}" (${cards[0].englishName}) | Hướng: ${orients[0]} | Nguyên tố: ${cards[0].element}
+   Từ khóa: ${cards[0].keywords.join(', ')}
+   Ý nghĩa: ${meanings[0]}
 
-    let explanation = "";
+🃏 Lá 2 — ${spread.positions[1]}:
+   "${cards[1].name}" (${cards[1].englishName}) | Hướng: ${orients[1]} | Nguyên tố: ${cards[1].element}
+   Từ khóa: ${cards[1].keywords.join(', ')}
+   Ý nghĩa: ${meanings[1]}
+
+🃏 Lá 3 — ${spread.positions[2]}:
+   "${cards[2].name}" (${cards[2].englishName}) | Hướng: ${orients[2]} | Nguyên tố: ${cards[2].element}
+   Từ khóa: ${cards[2].keywords.join(', ')}
+   Ý nghĩa: ${meanings[2]}
+
+===== PHÂN TÍCH TỔ HỢP =====
+Nguyên tố tổng: ${dominantElements}
+Từ khóa chủ đề: ${allKeywords}
+Năng lượng quẻ: ${energyLevel}
+
+===== NHIỆM VỤ =====
+Hãy phân tích BÓI TAROT CHUẨN theo từng vị trí trải bài, rồi kết hợp tương tác giữa 3 lá để đưa ra lời tổng kết.
+Phong cách: học thuật Tarot nhưng trình bày theo kiểu hài bựa cà khịa giang hồ, xưng mày-tao, troll nhẹ về tài chính nợ nần.
+
+Trả lời theo ĐÚNG FORMAT sau (không thêm gì bên ngoài):
+[LA_1]
+(2-3 câu: giải nghĩa lá 1 theo vị trí "${spread.positions[0]}", kết hợp ý nghĩa RWS thực sự + troll bựa)
+[LA_2]
+(2-3 câu: giải nghĩa lá 2 theo vị trí "${spread.positions[1]}", phân tích tương tác với lá 1 + hài hước)
+[LA_3]
+(2-3 câu: giải nghĩa lá 3 theo vị trí "${spread.positions[2]}", kết nối câu chuyện 3 lá + cà khịa)
+[TONG_KET]
+(Tổng kết toàn quẻ: đọc câu chuyện 3 lá như một mạch chảy, lời khuyên thực tế từ Tarot + "lời sấm giang hồ" bựa cuối cùng. Tối đa 4 câu.)
+
+Giới hạn: tổng dưới 1000 ký tự.
+`;
+
+    let explanation = '';
     try {
         explanation = await getMatchmakingFortune(geminiPrompt);
     } catch (err) {
-        console.error("[TAROT LỖI] Lỗi gọi Gemini giải quẻ:", err);
+        console.error('[TAROT LỖI] Gemini:', err);
     }
 
-    // 6. Phân tách câu trả lời của Gemini
-    let la1Text = "";
-    let la2Text = "";
-    let la3Text = "";
-    let tongKetText = "";
-
+    // 9. Parse kết quả Gemini
+    let texts = ['', '', '', ''];
     if (explanation) {
-        const regex1 = /\[LA_1\]([\s\S]*?)(?:\[LA_2\]|$)/i;
-        const regex2 = /\[LA_2\]([\s\S]*?)(?:\[LA_3\]|$)/i;
-        const regex3 = /\[LA_3\]([\s\S]*?)(?:\[TONG_KET\]|$)/i;
-        const regexTk = /\[TONG_KET\]([\s\S]*?)$/i;
-
-        const m1 = explanation.match(regex1);
-        const m2 = explanation.match(regex2);
-        const m3 = explanation.match(regex3);
-        const mTk = explanation.match(regexTk);
-
-        if (m1) la1Text = m1[1].trim();
-        if (m2) la2Text = m2[1].trim();
-        if (m3) la3Text = m3[1].trim();
-        if (mTk) tongKetText = mTk[1].trim();
+        const patterns = [
+            /\[LA_1\]([\s\S]*?)(?=\[LA_2\]|$)/i,
+            /\[LA_2\]([\s\S]*?)(?=\[LA_3\]|$)/i,
+            /\[LA_3\]([\s\S]*?)(?=\[TONG_KET\]|$)/i,
+            /\[TONG_KET\]([\s\S]*?)$/i
+        ];
+        patterns.forEach((p, i) => {
+            const m = explanation.match(p);
+            if (m) texts[i] = m[1].trim();
+        });
     }
 
-    // Fallback nếu Gemini không trả về đúng định dạng
-    if (!la1Text || !la2Text || !la3Text || !tongKetText) {
-        const paragraphs = explanation ? explanation.split('\n').filter(p => p.trim().length > 0) : [];
-        la1Text = paragraphs[0] || `Vận mệnh quá khứ của mày trôi nổi như cánh bèo, chỉ có bốc bát họ và chơi lô đề thôi con ạ.`;
-        la2Text = paragraphs[1] || `Sự nghiệp hiện tại đang bế tắc, nghèo xơ nghèo xác, ăn mì gói qua ngày đòi làm đại gia à.`;
-        la3Text = paragraphs[2] || `Tình duyên tương lai chán chả buồn nói, kiếp simp lỏ liếm chân người ta cả đời cũng đéo sơ múi được gì.`;
-        tongKetText = paragraphs[3] || `Nói chung là vận mệnh đen tối, thầy khuyên mày nên giải tán sới bài cờ bạc đi kiếm việc đàng hoàng mà làm!`;
-    }
+    // Fallback theo card nếu Gemini fail
+    const fallbacks = [
+        `Lá **${cards[0].name}** (${orients[0]}) ở vị trí "${spread.positions[0]}" đang nói với mày rằng: ${meanings[0].split('.')[0]}. Nghe không hay nhỉ con?`,
+        `Lá **${cards[1].name}** (${orients[1]}) cảnh báo vị trí "${spread.positions[1]}": ${meanings[1].split('.')[0]}. Thầy nói mày có nghe không?`,
+        `Lá **${cards[2].name}** (${orients[2]}) báo trước "${spread.positions[2]}": ${meanings[2].split('.')[0]}. Cầu trời đừng ứng nghiệm nhé!`,
+        `Đọc tổng quẻ ${spread.name}: ${energyLevel}. Năng lượng ${dominantElements} đang bao quanh. Thầy khuyên mày bớt cờ bạc lại đi con!`
+    ];
+    texts = texts.map((t, i) => t || fallbacks[i]);
 
-    // 7. Xác định màu sắc Embed và Cảnh báo Nguy hiểm (Death, Devil, Tower)
-    const dangerousIds = ["13", "15", "16"];
-    const hasDanger = dangerousIds.includes(card1.id) || dangerousIds.includes(card2.id) || dangerousIds.includes(card3.id);
-    const color = hasDanger ? 0x7C0A02 : 0x9B59B6; // Đỏ máu nếu có bài nguy hiểm, Tím huyền bí nếu bình thường
+    // 10. Màu embed theo tổng thể năng lượng
+    const dangerousIds = ['13', '15', '16'];
+    const hasDanger = cards.some(c => dangerousIds.includes(c.id));
+    const hasPositive = cards.some(c => ['19', '17', '21', '10'].includes(c.id) && orients[cards.indexOf(c)].includes('Xuôi'));
 
-    // Tạo các file đính kèm hình ảnh cục bộ
-    const path1 = path.join(ASSETS_DIR, `${card1.id}.jpg`);
-    const path2 = path.join(ASSETS_DIR, `${card2.id}.jpg`);
-    const path3 = path.join(ASSETS_DIR, `${card3.id}.jpg`);
+    let embedColor: number;
+    if (hasDanger) embedColor = 0x7C0A02;       // Đỏ máu — hung
+    else if (reversedCount >= 2) embedColor = 0xE67E22; // Cam — cản trở
+    else if (hasPositive) embedColor = 0xF1C40F;  // Vàng — tốt lành
+    else embedColor = 0x9B59B6;                   // Tím — bình thường
 
+    // 11. Chuẩn bị attachments ảnh
     const attachments: AttachmentBuilder[] = [];
-    if (fs.existsSync(path1)) attachments.push(new AttachmentBuilder(path1, { name: 'card1.jpg' }));
-    if (fs.existsSync(path2)) attachments.push(new AttachmentBuilder(path2, { name: 'card2.jpg' }));
-    if (fs.existsSync(path3)) attachments.push(new AttachmentBuilder(path3, { name: 'card3.jpg' }));
+    const imgNames = ['card1.jpg', 'card2.jpg', 'card3.jpg'];
+    cards.forEach((c, i) => {
+        const p = path.join(ASSETS_DIR, `${c.id}.jpg`);
+        if (fs.existsSync(p)) attachments.push(new AttachmentBuilder(p, { name: imgNames[i] }));
+    });
 
-    // 8. Dựng 4 Embeds
-    const embed1 = new EmbedBuilder()
-        .setTitle(`🔮 LÁ 1 - QUÁ KHỨ (VẬN MỆNH): ${card1.name} (${card1.englishName}) - Hướng ${orient1}`)
-        .setColor(color)
-        .setDescription(`• **Ý nghĩa chuẩn RWS:** *${card1Meaning}*\n\n• **Lời thầy sấm phán:** ${la1Text}`);
-    if (fs.existsSync(path1)) {
-        embed1.setImage('attachment://card1.jpg');
-    }
+    // 12. Dựng 4 Embeds
+    const orientEmoji = (o: string) => o.includes('Xuôi') ? '⬆️' : '⬇️';
 
-    const embed2 = new EmbedBuilder()
-        .setTitle(`🔮 LÁ 2 - HIỆN TẠI (SỰ NGHIỆP): ${card2.name} (${card2.englishName}) - Hướng ${orient2}`)
-        .setColor(color)
-        .setDescription(`• **Ý nghĩa chuẩn RWS:** *${card2Meaning}*\n\n• **Lời thầy sấm phán:** ${la2Text}`);
-    if (fs.existsSync(path2)) {
-        embed2.setImage('attachment://card2.jpg');
-    }
+    const buildCardEmbed = (cardIdx: number, posLabel: string, posIcon: string) => {
+        const c = cards[cardIdx];
+        const o = orients[cardIdx];
+        const m = meanings[cardIdx];
+        const t = texts[cardIdx];
+        const imgName = imgNames[cardIdx];
+        const embed = new EmbedBuilder()
+            .setTitle(`${posIcon} ${posLabel.toUpperCase()}`)
+            .setColor(embedColor)
+            .setDescription(
+                `**🃏 ${c.name}** *(${c.englishName})* — Hướng: ${o}\n` +
+                `**🌀 Nguyên tố:** ${c.element} | **🔑 Từ khóa:** ${c.keywords.slice(0, 3).join(' · ')}\n\n` +
+                `**📖 Ý nghĩa chuẩn RWS:**\n*${m}*\n\n` +
+                `**🔮 Lời phán của thầy Toàn:**\n${t}`
+            );
+        const imgPath = path.join(ASSETS_DIR, `${c.id}.jpg`);
+        if (fs.existsSync(imgPath)) embed.setImage(`attachment://${imgName}`);
+        return embed;
+    };
 
-    const embed3 = new EmbedBuilder()
-        .setTitle(`🔮 LÁ 3 - TƯƠNG LAI (TÌNH DUYÊN): ${card3.name} (${card3.englishName}) - Hướng ${orient3}`)
-        .setColor(color)
-        .setDescription(`• **Ý nghĩa chuẩn RWS:** *${card3Meaning}*\n\n• **Lời thầy sấm phán:** ${la3Text}`);
-    if (fs.existsSync(path3)) {
-        embed3.setImage('attachment://card3.jpg');
-    }
+    const posIcons = ['🕰️', '⚡', '🔭'];
+    const embeds = [
+        buildCardEmbed(0, `Lá 1 — ${spread.positions[0]}`, posIcons[0]),
+        buildCardEmbed(1, `Lá 2 — ${spread.positions[1]}`, posIcons[1]),
+        buildCardEmbed(2, `Lá 3 — ${spread.positions[2]}`, posIcons[2]),
+    ];
 
-    // Embed tổng kết
-    let warningText = "";
+    // Cảnh báo đặc biệt
+    let warningText = '';
     if (hasDanger) {
-        const dangerousPulled = [card1, card2, card3]
-            .filter(c => dangerousIds.includes(c.id))
-            .map(c => `**${c.name}** (${c.englishName})`)
-            .join(", ");
-        warningText = `⚠️ **CẢNH BÁO ĐẠI HUNG - QUẺ BÀI CHẾT CHÓC!**\nMày vừa bốc phải hung tinh chết người: ${dangerousPulled}. Khôn hồn thì tích đức gấp hoặc cúng sòng bài đi con giời, nghiệp nặng sắp giáng xuống đầu rồi! 💀🔥\n\n`;
+        const dangerCards = cards.filter(c => dangerousIds.includes(c.id)).map(c => `**${c.name}**`).join(', ');
+        warningText = `⚠️ **CẢNH BÁO ĐẠI HUNG!** Quẻ bài chứa hung tinh: ${dangerCards}\nNghiệp nặng sắp giáng — tích đức gấp hoặc cúng sòng bài đi con giời! 💀🔥\n\n`;
     }
 
     const embedSummary = new EmbedBuilder()
-        .setTitle(`🃏 BẢN TỔNG KẾT QUẺ TAROT KÍN HÀNG ĐẦU`)
-        .setColor(color)
-        .setDescription(`${warningText}• **Câu hỏi của mày:** *${userQuestion || "Xem tổng quan vận mệnh"}*\n\n• **Lời khuyên sấm truyền từ thầy bói BotToan:**\n${tongKetText}`)
+        .setTitle(`🃏 ${spread.name} — TỔNG KẾT QUẺ BÓI`)
+        .setColor(embedColor)
+        .setDescription(
+            `${warningText}` +
+            `**❓ Câu hỏi:** *"${userQuestion || 'Xem tổng quan vận mệnh'}"*\n\n` +
+            `**⚡ Phân tích năng lượng tổng:** ${energyLevel}\n` +
+            `**🌀 Nguyên tố kết hợp:** ${dominantElements}\n\n` +
+            `**📜 Lời sấm truyền của thầy Toàn:**\n${texts[3]}`
+        )
         .addFields({
-            name: "💸 Biến Động Tài Chính",
-            value: `• Lệ phí bói bài: **-20.000đ**\n• Số dư ví hiện tại: **${formatMoney(balance)}** | Đang nợ: **${formatMoney(debt)}**`
+            name: '💸 Biến Động Tài Chính',
+            value: `• Lệ phí bói bài: **-20.000đ**\n• Số dư ví: **${formatMoney(balance)}** | Nợ: **${formatMoney(debt)}**`
         })
-        .setFooter({ text: "BotToan Tarot - Bói kín trong DM (Thông tin bảo mật tuyệt đối)", iconURL: message.client.user?.displayAvatarURL() })
+        .setFooter({ text: 'BotToan Tarot — Kết quả bảo mật trong DM', iconURL: message.client.user?.displayAvatarURL() })
         .setTimestamp();
 
-    const embedsToSend = [embed1, embed2, embed3, embedSummary];
-
-    // 9. Gửi tin nhắn riêng (DM) bảo mật tuyệt đối cho người gọi bói
+    // 13. Gửi DM bảo mật
     try {
         await message.author.send({
-            content: `🔮 **KẾT QUẢ BÓI TAROT RIÊNG TƯ DÀNH CHO CON GIỜI <@${userId}>** 🔮\n*(Thông tin quẻ bài này được bảo mật hoàn toàn, sới bạc cộng đồng không ai nhìn thấy đâu cưng!)*`,
-            embeds: embedsToSend,
+            content: `🔮 **KẾT QUẢ BÓI TAROT RIÊNG TƯ — ${spread.name}** 🔮\n*(Quẻ bài này chỉ mày thấy — không ai ở server nhìn được đâu cưng!)*`,
+            embeds: [...embeds, embedSummary],
             files: attachments
         });
 
-        // Phản hồi công khai trên sới là đã gửi DM thành công
-        await message.reply(`🔮 **Thầy Toàn đã rút bài và gửi quẻ Tarot kín vào DM của mày rồi!** Mau chui vào góc tối mở tin nhắn riêng ra xem vận hạn đi con giời, ảnh bài load siêu nét siêu đẹp ở trỏng đó. 😉`).catch(()=>{});
+        await message.reply(`🔮 **Thầy Toàn đã rút bài ${spread.name} và gửi quẻ kín vào DM rồi!** Mau chui vào góc tối mở tin nhắn riêng ra xem vận mệnh đi con giời! 😉`).catch(() => {});
     } catch (err: any) {
-        // HOÀN TIỀN NẾU KHÔNG GỬI ĐƯỢC DM
+        // Hoàn tiền nếu DM bị chặn
         balance += cost;
         await updateBalance(userId, balance);
-
-        console.error(`[TAROT LỖI] Không thể gửi DM cho user ${userId}:`, err.message);
-        await message.reply(`❌ **Đéo bói được!** Thầy Toàn không thể gửi tin nhắn riêng (DM) cho mày. Mày đang chặn nhận tin nhắn từ thành viên server đúng không?\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví của mày rồi. Hãy mở cài đặt quyền riêng tư DM lên rồi gõ lệnh bói lại nhé! 💸`).catch(()=>{});
+        console.error(`[TAROT LỖI] Không gửi DM được cho ${userId}:`, err.message);
+        await message.reply(`❌ **Đéo bói được!** Mày đang chặn DM rồi.\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví. Mở DM lên rồi bói lại nhé! 💸`).catch(() => {});
     }
 }
