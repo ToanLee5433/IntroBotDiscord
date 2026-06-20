@@ -93,14 +93,14 @@ const LotteryTicketModel = model<ILotteryTicket>('LotteryTicket', lotteryTicketS
 interface ILotteryState {
     date: string;
     jackpotPool: number;
-    winningNumber: string;
+    winningNumbers: string[];
     drawn: boolean;
 }
 
 const lotteryStateSchema = new Schema<ILotteryState>({
     date: { type: String, required: true, unique: true },
     jackpotPool: { type: Number, default: 200 },
-    winningNumber: { type: String, default: "" },
+    winningNumbers: { type: [String], default: [] },
     drawn: { type: Boolean, default: false }
 });
 
@@ -109,7 +109,7 @@ const LotteryStateModel = model<ILotteryState>('LotteryState', lotteryStateSchem
 // Fallback RAM DB
 let inMemoryJackpotPool = 200; // 200k base
 const inMemoryTickets: ILotteryTicket[] = [];
-const inMemoryLotteryStates: { [date: string]: { winningNumber: string; drawn: boolean } } = {};
+const inMemoryLotteryStates: { [date: string]: { winningNumbers: string[]; drawn: boolean } } = {};
 
 /**
  * Cấm chat người dùng bằng cách lưu thời hạn cấm ở cấp độ Bot (RAM / MongoDB)
@@ -247,7 +247,7 @@ function getVNDate(timestamp: number): Date {
     return new Date(timestamp + 7 * 60 * 60 * 1000);
 }
 
-function getVNDateString(timestamp: number): string {
+export function getVNDateString(timestamp: number): string {
     const d = getVNDate(timestamp);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
@@ -862,6 +862,28 @@ export async function buyLotteryTicket(userId: string, num: string): Promise<{ s
     const now = Date.now();
     const todayStr = getVNDateString(now);
 
+    // Check if already drawn today (Security Loophole block)
+    if (useMongoDB) {
+        try {
+            const state = await LotteryStateModel.findOne({ date: todayStr });
+            if (state && state.drawn) {
+                return {
+                    success: false,
+                    message: "❌ **ĐỢT QUAY HÔM NAY ĐÃ KẾT THÚC!** Đợt quay thưởng lúc 18:30 hôm nay đã kết thúc rồi. Vui lòng quay lại mua vé vào ngày mai!",
+                    jackpotPool: state.jackpotPool
+                };
+            }
+        } catch (err) {}
+    } else {
+        if (inMemoryLotteryStates[todayStr] && inMemoryLotteryStates[todayStr].drawn) {
+            return {
+                success: false,
+                message: "❌ **ĐỢT QUAY HÔM NAY ĐÃ KẾT THÚC!** Đợt quay thưởng lúc 18:30 hôm nay đã kết thúc rồi. Vui lòng quay lại mua vé vào ngày mai!",
+                jackpotPool: inMemoryJackpotPool
+            };
+        }
+    }
+
     // 1. Kiểm tra số dư ví
     let balance = await getBalance(userId);
     if (balance < ticketCost) {
@@ -928,9 +950,6 @@ export async function buyLotteryTicket(userId: string, num: string): Promise<{ s
     };
 }
 
-/**
- * Lấy thông tin vé số hiện tại
- */
 export async function getLotteryInfo(userId: string): Promise<{ jackpotPool: number; myTickets: string[]; lastWinningNum: string; lastDrawDate: string }> {
     const now = Date.now();
     const todayStr = getVNDateString(now);
@@ -958,8 +977,8 @@ export async function getLotteryInfo(userId: string): Promise<{ jackpotPool: num
 
             // Tìm đợt quay thưởng gần nhất trước ngày hôm nay
             const lastState = await LotteryStateModel.findOne({ drawn: true }).sort({ date: -1 });
-            if (lastState) {
-                lastWinningNum = lastState.winningNumber;
+            if (lastState && lastState.winningNumbers && lastState.winningNumbers.length > 0) {
+                lastWinningNum = lastState.winningNumbers.join(" - ");
                 lastDrawDate = lastState.date;
             }
         } catch (err) {}
@@ -971,7 +990,7 @@ export async function getLotteryInfo(userId: string): Promise<{ jackpotPool: num
         const dates = Object.keys(inMemoryLotteryStates).filter(d => inMemoryLotteryStates[d].drawn).sort();
         if (dates.length > 0) {
             const lastD = dates[dates.length - 1];
-            lastWinningNum = inMemoryLotteryStates[lastD].winningNumber;
+            lastWinningNum = inMemoryLotteryStates[lastD].winningNumbers.join(" - ");
             lastDrawDate = lastD;
         }
     }
@@ -984,9 +1003,6 @@ export async function getLotteryInfo(userId: string): Promise<{ jackpotPool: num
     };
 }
 
-/**
- * Hàm phụ trợ lấy giá trị Jackpot hiện tại
- */
 async function getCurrentJackpotPool(dateStr: string): Promise<number> {
     if (useMongoDB) {
         try {
@@ -1000,7 +1016,7 @@ async function getCurrentJackpotPool(dateStr: string): Promise<number> {
 /**
  * Thực hiện quay thưởng xổ số kiến thiết ngày hôm nay
  */
-export async function drawLottery(dateStr: string): Promise<{ success: boolean; winningNumber?: string; winners?: { userId: string; ticketsCount: number }[]; payoutPerTicket?: number; jackpotPool?: number }> {
+export async function drawLottery(dateStr: string): Promise<{ success: boolean; winningNumbers?: string[]; winners?: { userId: string; ticketsCount: number }[]; payoutPerTicket?: number; jackpotPool?: number }> {
     if (useMongoDB) {
         try {
             let state = await LotteryStateModel.findOne({ date: dateStr });
@@ -1016,12 +1032,18 @@ export async function drawLottery(dateStr: string): Promise<{ success: boolean; 
                 return { success: false }; // Đã quay rồi
             }
 
-            // 1. Quay số ngẫu nhiên từ 00 đến 99
-            const winningNumInt = Math.floor(Math.random() * 100);
-            const winningNumber = String(winningNumInt).padStart(2, '0');
+            // 1. Quay 5 số ngẫu nhiên duy nhất từ 00 đến 99
+            const winningNumbers: string[] = [];
+            while (winningNumbers.length < 5) {
+                const rand = Math.floor(Math.random() * 100);
+                const numStr = String(rand).padStart(2, '0');
+                if (!winningNumbers.includes(numStr)) {
+                    winningNumbers.push(numStr);
+                }
+            }
 
             // 2. Tìm tất cả các vé số trúng thưởng ngày hôm nay
-            const matchingTickets = await LotteryTicketModel.find({ date: dateStr, number: winningNumber });
+            const matchingTickets = await LotteryTicketModel.find({ date: dateStr, number: { $in: winningNumbers } });
             const totalWinningTickets = matchingTickets.length;
 
             const pool = state.jackpotPool;
@@ -1052,7 +1074,7 @@ export async function drawLottery(dateStr: string): Promise<{ success: boolean; 
                 nextJackpotPool = 200;
             }
 
-            state.winningNumber = winningNumber;
+            state.winningNumbers = winningNumbers;
             state.drawn = true;
             await state.save();
 
@@ -1065,7 +1087,7 @@ export async function drawLottery(dateStr: string): Promise<{ success: boolean; 
 
             return {
                 success: true,
-                winningNumber,
+                winningNumbers,
                 winners: winnersList,
                 payoutPerTicket,
                 jackpotPool: pool
@@ -1081,10 +1103,16 @@ export async function drawLottery(dateStr: string): Promise<{ success: boolean; 
         return { success: false };
     }
 
-    const winningNumInt = Math.floor(Math.random() * 100);
-    const winningNumber = String(winningNumInt).padStart(2, '0');
+    const winningNumbers: string[] = [];
+    while (winningNumbers.length < 5) {
+        const rand = Math.floor(Math.random() * 100);
+        const numStr = String(rand).padStart(2, '0');
+        if (!winningNumbers.includes(numStr)) {
+            winningNumbers.push(numStr);
+        }
+    }
 
-    const matchingTickets = inMemoryTickets.filter(t => t.date === dateStr && t.number === winningNumber);
+    const matchingTickets = inMemoryTickets.filter(t => t.date === dateStr && winningNumbers.includes(t.number));
     const totalWinningTickets = matchingTickets.length;
 
     const pool = inMemoryJackpotPool;
@@ -1115,26 +1143,23 @@ export async function drawLottery(dateStr: string): Promise<{ success: boolean; 
     }
 
     inMemoryLotteryStates[dateStr] = {
-        winningNumber,
+        winningNumbers,
         drawn: true
     };
 
     return {
         success: true,
-        winningNumber,
+        winningNumbers,
         winners: winnersList,
         payoutPerTicket,
         jackpotPool: pool
     };
 }
 
-/**
- * Lấy thông tin đợt quay xổ số gần nhất đã hoàn thành
- */
 export async function getLastLotteryDraw(): Promise<{
     success: boolean;
     date: string;
-    winningNumber: string;
+    winningNumbers: string[];
     jackpotPool: number;
     winners: { userId: string; ticketsCount: number; payout: number }[];
 } | null> {
@@ -1144,7 +1169,7 @@ export async function getLastLotteryDraw(): Promise<{
             if (!lastState) return null;
 
             // Tìm các vé trúng thưởng vào ngày này
-            const matchingTickets = await LotteryTicketModel.find({ date: lastState.date, number: lastState.winningNumber });
+            const matchingTickets = await LotteryTicketModel.find({ date: lastState.date, number: { $in: lastState.winningNumbers } });
             const totalWinningTickets = matchingTickets.length;
             const payoutPerTicket = totalWinningTickets > 0 ? Math.floor(lastState.jackpotPool / totalWinningTickets) : 0;
 
@@ -1162,7 +1187,7 @@ export async function getLastLotteryDraw(): Promise<{
             return {
                 success: true,
                 date: lastState.date,
-                winningNumber: lastState.winningNumber,
+                winningNumbers: lastState.winningNumbers,
                 jackpotPool: lastState.jackpotPool,
                 winners
             };
@@ -1177,9 +1202,9 @@ export async function getLastLotteryDraw(): Promise<{
     if (drawnDates.length === 0) return null;
 
     const lastDate = drawnDates[drawnDates.length - 1];
-    const winNum = inMemoryLotteryStates[lastDate].winningNumber;
+    const winNums = inMemoryLotteryStates[lastDate].winningNumbers;
 
-    const matchingTickets = inMemoryTickets.filter(t => t.date === lastDate && t.number === winNum);
+    const matchingTickets = inMemoryTickets.filter(t => t.date === lastDate && winNums.includes(t.number));
     const totalWinningTickets = matchingTickets.length;
     const payoutPerTicket = totalWinningTickets > 0 ? Math.floor(inMemoryJackpotPool / totalWinningTickets) : 0;
 
@@ -1197,7 +1222,7 @@ export async function getLastLotteryDraw(): Promise<{
     return {
         success: true,
         date: lastDate,
-        winningNumber: winNum,
+        winningNumbers: winNums,
         jackpotPool: inMemoryJackpotPool,
         winners
     };
@@ -1575,6 +1600,54 @@ export async function cancelTarotPlay(userId: string): Promise<void> {
         playerTarotStreakInMemory[userId] = playerTarotStreakInMemory[userId] - 1;
     }
 }
+
+/**
+ * Lấy tất cả vé số đã mua trong ngày
+ */
+export async function getLotteryTicketsForDate(dateStr: string): Promise<{ userId: string; number: string }[]> {
+    if (useMongoDB) {
+        try {
+            const tickets = await LotteryTicketModel.find({ date: dateStr });
+            return tickets.map(t => ({ userId: t.userId, number: t.number }));
+        } catch (err) {
+            console.error("Lỗi lấy vé số theo ngày trên MongoDB:", err);
+            return [];
+        }
+    }
+    return inMemoryTickets.filter(t => t.date === dateStr).map(t => ({ userId: t.userId, number: t.number }));
+}
+
+/**
+ * Lấy trạng thái xổ số theo ngày
+ */
+export async function getLotteryState(dateStr: string): Promise<{ jackpotPool: number; winningNumbers: string[]; drawn: boolean } | null> {
+    if (useMongoDB) {
+        try {
+            const state = await LotteryStateModel.findOne({ date: dateStr });
+            if (state) {
+                return {
+                    jackpotPool: state.jackpotPool,
+                    winningNumbers: state.winningNumbers,
+                    drawn: state.drawn
+                };
+            }
+            return null;
+        } catch (err) {
+            return null;
+        }
+    }
+    // Fallback RAM
+    const state = inMemoryLotteryStates[dateStr];
+    if (state) {
+        return {
+            jackpotPool: inMemoryJackpotPool,
+            winningNumbers: state.winningNumbers,
+            drawn: state.drawn
+        };
+    }
+    return null;
+}
+
 
 
 

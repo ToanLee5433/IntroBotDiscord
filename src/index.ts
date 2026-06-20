@@ -1,5 +1,6 @@
 import { 
-    Client, GatewayIntentBits, VoiceState, Message, EmbedBuilder, PermissionFlagsBits
+    Client, GatewayIntentBits, VoiceState, Message, EmbedBuilder, PermissionFlagsBits,
+    ActionRowBuilder, ButtonBuilder, ButtonStyle
 } from 'discord.js';
 import { 
     joinVoiceChannel, createAudioPlayer, createAudioResource, 
@@ -25,7 +26,7 @@ import { initTarot, handleTarot } from './games/tarot';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
-import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw, getSnitchCooldown, updateSnitchDate, getBalance, updateBalance, getSimpLoExpires, setSimpLo } from './database';
+import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getBalancesAndDebts, getAllBalancesAndDebts, payDebt, registerValorantId, getValorantId, getChatBanExpires, dodgeDebt, banChat, buyLotteryTicket, getLotteryInfo, drawLottery, getLastLotteryDraw, getSnitchCooldown, updateSnitchDate, getBalance, updateBalance, getSimpLoExpires, setSimpLo, getVNDateString, getLotteryTicketsForDate, getLotteryState } from './database';
 
 
 
@@ -42,6 +43,9 @@ if (!TOKEN) {
     console.error("[LỖI] Thiếu Discord TOKEN trong cấu hình!");
     process.exit(1);
 }
+
+const activeViewers = new Set<string>();
+let isDrawing = false;
 
 const client = new Client({
     intents: [
@@ -289,6 +293,18 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG ADMIN QUAY SỐ (MỚI) -----------------
+    const adminQuaysoTriggers = ['quayso', 'quay so'];
+    if (adminQuaysoTriggers.some(t => cleanInput === t)) {
+        const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
+        if (!isAdmin) {
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Lệnh quay số chỉ dành cho Admin đẹp trai khoai to thôi nhé!");
+            return;
+        }
+        await triggerLotteryDraw(message.channel as any);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG MUA VÉ SỐ KIẾN THIẾT (MỚI) -----------------
     const buyTicketRegex = /^(mua ve|buy ticket)(?:\s+(\S+))?/i;
     const buyTicketMatch = cleanInput.match(buyTicketRegex);
@@ -367,7 +383,7 @@ client.on('messageCreate', async (message: Message) => {
             .setTimestamp();
             
         let desc = `📆 **Đợt quay ngày:** \`${lastDraw.date}\` (Giờ Việt Nam)\n`;
-        desc += `🔮 **Con số thần tài nổ giải:** 🎉 **${lastDraw.winningNumber}** 🎉\n`;
+        desc += `🔮 **Con số thần tài nổ giải:** 🎉 **${lastDraw.winningNumbers.join(" - ")}** 🎉\n`;
         desc += `💰 **Trị giá hũ Jackpot lúc quay:** **${formatMoney(lastDraw.jackpotPool)}**\n\n`;
         
         if (lastDraw.winners && lastDraw.winners.length > 0) {
@@ -771,41 +787,75 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     }
 });
 
-// ================= THIẾT LẬP CRON QUAY SỐ 18:30 HÀNG NGÀY (MỚI) =================
-cron.schedule('30 18 * * *', async () => {
+// ================= HÀM QUAY XỔ SỐ KIẾN THIẾT CHI TIẾT VÀ HIỆU ỨNG TRỰC TIẾP =================
+async function triggerLotteryDraw(initiatorChannel?: any) {
+    if (isDrawing) {
+        if (initiatorChannel) {
+            await initiatorChannel.send("⚠️ **ĐANG QUAY RỒI BA!** Có người đang quay số hoặc đợt quay đang diễn ra, đừng spam!").catch(()=>{});
+        }
+        return;
+    }
+    
+    isDrawing = true;
     try {
         const now = Date.now();
-        // Lấy ngày hôm nay theo múi giờ Việt Nam (UTC+7)
-        const d = new Date(now + 7 * 60 * 60 * 1000);
-        const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        const dateStr = getVNDateString(now);
         
-        const result = await drawLottery(dateStr);
-        if (!result.success) return; // Đợt quay này đã được thực hiện hoặc có lỗi
-
-        // Tạo Embed thông báo kết quả xổ số kiến thiết cực đẹp
-        const embed = new EmbedBuilder()
-            .setTitle("🎰 KẾT QUẢ XỔ SỐ KIẾN THIẾT BOTTOAN 🎰")
-            .setColor(0xF1C40F)
-            .setTimestamp();
-            
-        let desc = `📆 **Ngày quay thưởng:** \`${dateStr}\`\n`;
-        desc += `🔮 **Con số may mắn ngày hôm nay:** 🎉 **${result.winningNumber}** 🎉\n`;
-        desc += `💰 **Tổng hũ tích lũy Jackpot:** **${formatMoney(result.jackpotPool || 200)}**\n\n`;
-        
-        if (result.winners && result.winners.length > 0) {
-            desc += `👑 **DANH SÁCH CHIẾN THẦN TRÚNG GIẢI:**\n`;
-            for (const w of result.winners) {
-                const totalPayout = (result.payoutPerTicket || 0) * w.ticketsCount;
-                desc += `- <@${w.userId}> trúng **${w.ticketsCount} vé** -> nhận về **${formatMoney(totalPayout)}**!\n`;
+        // 1. Kiểm tra xem đợt quay hôm nay đã được vẽ chưa
+        const isDrawn = await getLotteryState(dateStr);
+        if (isDrawn && isDrawn.drawn) {
+            if (initiatorChannel) {
+                await initiatorChannel.send(`⚠️ **ĐỢT QUAY NGÀY ${dateStr} ĐÃ HOÀN THÀNH!** Không thể quay lại.`).catch(()=>{});
             }
-            desc += `\n*Hũ Jackpot đã được chia đều và reset về mốc khởi điểm **200.000đ** cho đợt ngày mai!*`;
-        } else {
-            desc += `💸 **Không có ai trúng thưởng giải đặc biệt ngày hôm nay!**\n*Toàn bộ hũ tích lũy **${formatMoney(result.jackpotPool || 200)}** sẽ được cộng dồn (Rollover) sang ngày mai! Cơ hội làm giàu đang lớn dần!*`;
+            isDrawing = false;
+            return;
         }
         
-        embed.setDescription(desc);
+        // Lấy danh sách những người mua vé hôm nay trước khi quay
+        const todayTickets = await getLotteryTicketsForDate(dateStr);
+        const playerIds = Array.from(new Set(todayTickets.map(t => t.userId)));
         
-        // Broadcast thông báo tới tất cả server
+        // 2. Gọi drawLottery để lưu kết quả vào DB
+        const result = await drawLottery(dateStr);
+        if (!result.success || !result.winningNumbers) {
+            if (initiatorChannel) {
+                await initiatorChannel.send("❌ **CÓ LỖI XẢY RA KHI QUAY SỐ!** Vui lòng thử lại sau.").catch(()=>{});
+            }
+            isDrawing = false;
+            return;
+        }
+        
+        // 3. Gửi tin nhắn DM thông báo cho những người đã mua vé hôm nay
+        for (const pId of playerIds) {
+            try {
+                const user = await client.users.fetch(pId);
+                if (user) {
+                    await user.send(`🔴 **XỔ SỐ KIẾN THIẾT HÔM NAY ĐẠT GIỜ QUAY THƯỞNG!** Mau vào phòng chat chung bấm nút **Xem Quay Số Trực Tiếp** để lật bài bí mật nhé!`).catch(() => {});
+                }
+            } catch (err) {
+                console.error(`Không thể gửi DM cho người chơi ${pId}:`, err);
+            }
+        }
+        
+        // 4. Phát tin nhắn công khai tại tất cả server kèm nút xem quay số
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`watch_lottery_${dateStr}`)
+                .setLabel("🔴 Xem Quay Số Trực Tiếp")
+                .setStyle(ButtonStyle.Danger)
+        );
+        
+        const jackpotPool = result.jackpotPool || 200;
+        
+        const announceEmbed = new EmbedBuilder()
+            .setTitle("🔴 TRỰC TIẾP XỔ SỐ KIẾN THIẾT BOTTOAN 🔴")
+            .setDescription(`🔔 **Đến giờ quay thưởng rồi các con nghiện ơi!**\n💰 **Hũ Jackpot tích lũy hôm nay:** **${formatMoney(jackpotPool)}**\n\n👉 Bấm nút **Xem Quay Số Trực Tiếp** bên dưới để mở màn hình quay số bí mật dành riêng cho bạn! Nút này sẽ biến mất sau **2 phút**!`)
+            .setColor(0xE74C3C)
+            .setFooter({ text: "Chúc các con giời may mắn, thua thì ra đê!" })
+            .setTimestamp();
+            
+        // Tìm tất cả các kênh để gửi thông báo
+        const targetChannels: any[] = [];
         for (const guild of client.guilds.cache.values()) {
             try {
                 let targetChannel = null;
@@ -832,15 +882,197 @@ cron.schedule('30 18 * * *', async () => {
                 }
                 
                 if (targetChannel) {
-                    await (targetChannel as any).send({ embeds: [embed] }).catch(()=>{});
+                    targetChannels.push(targetChannel);
                 }
             } catch (err) {
-                console.error("Lỗi khi gửi kết quả xổ số kiến thiết:", err);
+                console.error("Lỗi khi tìm kênh gửi tin:", err);
             }
         }
+        
+        // Gửi tin nhắn và lưu lại các tin nhắn đã gửi để sửa sau này
+        const announceMessages: any[] = [];
+        for (const chan of targetChannels) {
+            try {
+                const msg = await chan.send({ embeds: [announceEmbed], components: [row] });
+                announceMessages.push(msg);
+            } catch (err) {
+                console.error("Lỗi gửi tin nhắn thông báo:", err);
+            }
+        }
+        
+        // 5. Thiết lập button collector cho từng tin nhắn đã gửi
+        for (const announceMsg of announceMessages) {
+            const filter = (i: any) => i.customId.startsWith(`watch_lottery_`);
+            const collector = announceMsg.createMessageComponentCollector({ filter, time: 120000 });
+            
+            collector.on('collect', async (i: any) => {
+                const clickDate = i.customId.replace("watch_lottery_", "");
+                
+                // Nếu click vé của ngày khác (ngày cũ)
+                if (clickDate !== dateStr) {
+                    const oldState = await getLotteryState(clickDate);
+                    if (oldState && oldState.drawn) {
+                        const oldTickets = await getLotteryTicketsForDate(clickDate);
+                        const myOldTickets = oldTickets.filter(t => t.userId === i.user.id).map(t => t.number);
+                        const matched = myOldTickets.filter(num => oldState.winningNumbers.includes(num));
+                        
+                        let personalResult = "";
+                        if (myOldTickets.length === 0) {
+                            personalResult = `⚠️ Hôm đó mày có mua vé đéo đâu mà đòi xem kết quả!`;
+                        } else if (matched.length > 0) {
+                            const matchingTicketsCount = oldTickets.filter(t => oldState.winningNumbers.includes(t.number)).length;
+                            const payoutPerTicket = matchingTicketsCount > 0 ? Math.floor(oldState.jackpotPool / matchingTicketsCount) : 0;
+                            personalResult = `🎉 Mày đã trúng **${matched.length} vé** húp về **${formatMoney(payoutPerTicket * matched.length)}**!`;
+                        } else {
+                            personalResult = `💸 Mày mua **${myOldTickets.length} vé** nhưng đéo trúng số nào cả!`;
+                        }
+                        
+                        const oldEmbed = new EmbedBuilder()
+                            .setTitle(`🎰 KẾT QUẢ XỔ SỐ NGÀY ${clickDate} 🎰`)
+                            .setDescription(
+                                `🔮 **5 Con số may mắn:** ${oldState.winningNumbers.join(" - ")}\n\n` +
+                                `🎟️ **Các vé mày đã mua:** ${myOldTickets.length > 0 ? myOldTickets.map(t=>`\`[ ${t} ]\``).join(" ") : "*Không có*"}\n\n` +
+                                `${personalResult}`
+                            )
+                            .setColor(matched.length > 0 ? 0x2ECC71 : 0xE74C3C)
+                            .setFooter({ text: "BotToan - Sòng bạc hoàng gia" });
+                            
+                        await i.reply({ embeds: [oldEmbed], ephemeral: true }).catch(()=>{});
+                    } else {
+                        await i.reply({ content: "❌ Không tìm thấy dữ liệu đợt quay số này!", ephemeral: true }).catch(()=>{});
+                    }
+                    return;
+                }
+                
+                // Chống spam: kiểm tra xem người này có đang xem quay số hay không
+                if (activeViewers.has(i.user.id)) {
+                    await i.reply({ content: "⏳ **ĐANG XEM RỒI BA!** Trình chiếu đang chạy, từ từ mà tận hưởng đi!", ephemeral: true }).catch(()=>{});
+                    return;
+                }
+                
+                // Đánh dấu user đang xem
+                activeViewers.add(i.user.id);
+                
+                try {
+                    // Defer reply để lách luật 3s của Discord
+                    await i.deferReply({ ephemeral: true });
+                    
+                    // Chạy hiệu ứng quay số trong 75 giây
+                    const winNums = result.winningNumbers!;
+                    const spinEmoji = "🌀";
+                    const displayNums = ["[  ]", "[  ]", "[  ]", "[  ]", "[  ]"];
+                    
+                    for (let step = 0; step < 15; step++) {
+                        const numberIndex = Math.floor(step / 3); // 0, 1, 2, 3, 4
+                        const subStep = step % 3; // 0, 1, 2
+                        
+                        // Giả lập quay số: cập nhật các ô số
+                        for (let j = 0; j < 5; j++) {
+                            if (j < numberIndex) {
+                                displayNums[j] = `🎉 **${winNums[j]}**`;
+                            } else if (j === numberIndex) {
+                                // Số đang được quay
+                                if (subStep === 0) displayNums[j] = ` ${spinEmoji} [ ⚡ ]`;
+                                else if (subStep === 1) displayNums[j] = ` ${spinEmoji} [ 💥 ]`;
+                                else displayNums[j] = ` ${spinEmoji} [ ✨ ]`;
+                            } else {
+                                displayNums[j] = `[ ⏳ ]`;
+                            }
+                        }
+                        
+                        const progressText = `🎰 **TIẾN TRÌNH QUAY SỐ KIẾN THIẾT** 🎰\n\n` +
+                            `1️⃣ Giải Nhất: ${displayNums[0]}\n` +
+                            `2️⃣ Giải Nhì: ${displayNums[1]}\n` +
+                            `3️⃣ Giải Ba: ${displayNums[2]}\n` +
+                            `4️⃣ Giải Tư: ${displayNums[3]}\n` +
+                            `5️⃣ Giải Đặc Biệt: ${displayNums[4]}\n\n` +
+                            `*📺 Đang truyền hình trực tiếp, mỗi số được phân tích trong 15 giây...*`;
+                            
+                        await i.editReply({ content: progressText }).catch(()=>{});
+                        await sleep(5000);
+                    }
+                    
+                    // Khi kết thúc quay số, reveal kết quả đầy đủ và thống kê xem người xem có trúng không
+                    const myInfo = await getLotteryInfo(i.user.id);
+                    const userTickets = myInfo.myTickets;
+                    const matchedTickets = userTickets.filter(t => winNums.includes(t));
+                    
+                    let personalResult = "";
+                    if (userTickets.length === 0) {
+                        personalResult = `⚠️ **Ơ CÁI THẰNG NÀY!** Hôm nay mày đã mua vé đéo đâu mà đòi trúng thưởng? Định vào xem chùa à? Đi mua vé cúng hũ cho ngày mai đi con: \`@BotToan mua ve 79\``;
+                    } else if (matchedTickets.length > 0) {
+                        const myPayout = (result.payoutPerTicket || 0) * matchedTickets.length;
+                        personalResult = `🎉 **HÚP RỒI CON ƠI!!!** Mày mua **${userTickets.length} vé**, trúng **${matchedTickets.length} vé** (các số trúng: ${matchedTickets.map(t=>`\`${t}\``).join(", ")}).\n💰 Hốt bạc ngân hàng: **+${formatMoney(myPayout)}** đã cộng thẳng vào ví! Gáy to lên!`;
+                    } else {
+                        const loseTrolls = [
+                            "Tiền cúng Jackpot của mày rất thơm, thầy Toàn xin nhận để đi uống bia nhé!",
+                            "Chúc mừng mày đã nhận tấm vé miễn phí ra đê hóng mát tối nay! Quay lại mua tiếp ngày mai đi cưng!",
+                            "Thua rồi con ạ! Lô đề cờ bạc muôn đời nát, tắt máy xách mông đi làm đi!",
+                            "Nghiện lật bài mà đéo có thần linh độ rồi, chia buồn cùng con nợ nhé!"
+                        ];
+                        personalResult = `💸 **XUỐNG HỐ CẢ LŨ!** Mày mua **${userTickets.length} vé** nhưng đéo trúng số nào cả.\n*💬 Lời nhắn từ chủ lô:* "${loseTrolls[Math.floor(Math.random() * loseTrolls.length)]}"`;
+                    }
+                    
+                    const finalEmbed = new EmbedBuilder()
+                        .setTitle("🎰 KẾT QUẢ XỔ SỐ CỦA BẠN 🎰")
+                        .setDescription(
+                            `🔮 **5 Con số may mắn ngày hôm nay:**\n` +
+                            winNums.map((n, idx) => `🔹 Số thứ ${idx+1}: 🎉 **${n}**`).join("\n") + `\n\n` +
+                            `🎟️ **Các vé mày đã mua hôm nay:** ${userTickets.length > 0 ? userTickets.map(t=>`\`[ ${t} ]\``).join(" ") : "*Không có*"}\n\n` +
+                            `${personalResult}`
+                        )
+                        .setColor(matchedTickets.length > 0 ? 0x2ECC71 : 0xE74C3C)
+                        .setFooter({ text: "BotToan - Sòng bạc hoàng gia" })
+                        .setTimestamp();
+                        
+                    await i.editReply({ content: "🏆 **QUAY THƯỞNG HOÀN TẤT!** Dưới đây là kết quả của mày:", embeds: [finalEmbed] }).catch(()=>{});
+                    
+                } catch (err) {
+                    console.error("Lỗi trình chiếu hiệu ứng quay số:", err);
+                } finally {
+                    activeViewers.delete(i.user.id);
+                }
+            });
+            
+            collector.on('end', async () => {
+                // Khi kết thúc 2 phút, gỡ nút bấm và hiển thị kết quả cuối cùng công khai
+                const endEmbed = new EmbedBuilder()
+                    .setTitle("🎰 BẢNG VÀNG XỔ SỐ KIẾN THIẾT BOTTOAN 🎰")
+                    .setColor(0xF1C40F)
+                    .setFooter({ text: "Quay thưởng tự động chính xác lúc 18:30 tối hàng ngày!" })
+                    .setTimestamp();
+                    
+                let desc = `📆 **Đợt quay ngày:** \`${dateStr}\` (Giờ Việt Nam)\n`;
+                desc += `🔮 **5 Con số thần tài nổ giải:** 🎉 **${result.winningNumbers?.join(" - ")}** 🎉\n`;
+                desc += `💰 **Trị giá hũ Jackpot lúc quay:** **${formatMoney(result.jackpotPool || 200)}**\n\n`;
+                
+                if (result.winners && result.winners.length > 0) {
+                    desc += `🏆 **DANH SÁCH CHIẾN THẦN HÚP LỘC:**\n`;
+                    for (const w of result.winners) {
+                        const payout = (result.payoutPerTicket || 0) * w.ticketsCount;
+                        desc += `- <@${w.userId}> trúng **${w.ticketsCount} vé** húp về **${formatMoney(payout)}**!\n`;
+                    }
+                    desc += `\n*Hũ Jackpot đã được chia đều và reset về mốc khởi điểm **200.000đ** cho đợt ngày mai!*`;
+                } else {
+                    desc += `💸 **Toàn bộ con giời cúng tiền hôm nay đã ra đê!** Không có ai trúng số đặc biệt cả.\n` +
+                            `*Toàn bộ hũ tích lũy **${formatMoney(result.jackpotPool || 200)}** sẽ được cộng dồn (Rollover) sang ngày mai! Cơ hội làm giàu đang lớn dần!*`;
+                }
+                
+                endEmbed.setDescription(desc);
+                
+                await announceMsg.edit({ embeds: [endEmbed], components: [] }).catch(()=>{});
+            });
+        }
     } catch (error) {
-        console.error("Lỗi tác vụ quay xổ số kiến thiết:", error);
+        console.error("Lỗi trong triggerLotteryDraw:", error);
+    } finally {
+        isDrawing = false;
     }
+}
+
+// ================= THIẾT LẬP CRON QUAY SỐ 18:30 HÀNG NGÀY (MỚI) =================
+cron.schedule('30 18 * * *', async () => {
+    await triggerLotteryDraw();
 }, {
     timezone: "Asia/Ho_Chi_Minh"
 } as any);
