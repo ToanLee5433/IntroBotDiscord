@@ -425,7 +425,7 @@ client.on('messageCreate', async (message: Message) => {
     const snitchRegex = /^(bao cong an|goi cong an|bao an|snitch)(?:\s+<@!?(\d+)>)?/i;
     const snitchMatch = cleanInput.match(snitchRegex);
     if (snitchMatch) {
-        const targetUser = message.mentions.users.first();
+        const targetUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
         if (!targetUser) {
             await message.reply("❌ **Mày muốn báo án ai?** Tag nó vào! Ví dụ: `@BotToan bao cong an @Ten_Doi_Phuong`.");
             return;
@@ -472,10 +472,11 @@ client.on('messageCreate', async (message: Message) => {
 
         if (isSuccess) {
             // Thành công: Phạt đối phương, thưởng cho người báo
-            const confiscatedAmount = Math.min(trueRandom(15, 30), targetBal);
+            const latestTargetBal = await getBalance(targetId);
+            const confiscatedAmount = Math.min(trueRandom(15, 30), latestTargetBal);
             
             // Cập nhật ví tiền
-            await updateBalance(targetId, targetBal - confiscatedAmount);
+            await updateBalance(targetId, latestTargetBal - confiscatedAmount);
             const reporterBal = await getBalance(reporterId);
             await updateBalance(reporterId, reporterBal + confiscatedAmount);
 
