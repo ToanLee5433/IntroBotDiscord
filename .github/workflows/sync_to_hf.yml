@@ -26,5 +26,5 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          huggingface-cli login --token $HF_TOKEN
-          huggingface-cli upload Toan54/BotToan . . --repo-type=space
+          hf auth login --token $HF_TOKEN
+          hf upload Toan54/BotToan . . --repo-type=space
