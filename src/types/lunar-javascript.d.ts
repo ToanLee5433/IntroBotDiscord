@@ -5,7 +5,7 @@ declare module 'lunar-javascript' {
     }
     export class Lunar {
         getYearShengXiao(): string;
-        getYearInGanChi(): string;
+        getYearInGanZhi(): string;
         getYearNaYin(): string;
         getYear(): number;
     }

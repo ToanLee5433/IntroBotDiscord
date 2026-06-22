@@ -814,14 +814,14 @@ export async function playMatchmaking(message: Message) {
         const solarA = Solar.fromYmd(parseInt(dobPartsA[2]), parseInt(dobPartsA[1]), parseInt(dobPartsA[0]));
         const lunarA = solarA.getLunar();
         zodiacA = translateShengXiao(lunarA.getYearShengXiao());
-        ganChiA = translateGanChi(lunarA.getYearInGanChi());
+        ganChiA = translateGanChi(lunarA.getYearInGanZhi());
         menhA = translateNaYin(lunarA.getYearNaYin());
 
         const dobPartsB = profileB.birthday.split('/');
         const solarB = Solar.fromYmd(parseInt(dobPartsB[2]), parseInt(dobPartsB[1]), parseInt(dobPartsB[0]));
         const lunarB = solarB.getLunar();
         zodiacB = translateShengXiao(lunarB.getYearShengXiao());
-        ganChiB = translateGanChi(lunarB.getYearInGanChi());
+        ganChiB = translateGanChi(lunarB.getYearInGanZhi());
         menhB = translateNaYin(lunarB.getYearNaYin());
     } catch (err) {
         console.error("Lỗi phong thủy lunar-javascript:", err);
@@ -1265,7 +1265,7 @@ export async function handleGieoQue(message: Message) {
         const solar = Solar.fromYmd(parseInt(dobParts[2]), parseInt(dobParts[1]), parseInt(dobParts[0]));
         const lunar = solar.getLunar();
         const zodiac = translateShengXiao(lunar.getYearShengXiao());
-        const ganChi = translateGanChi(lunar.getYearInGanChi());
+        const ganChi = translateGanChi(lunar.getYearInGanZhi());
         const menh = translateNaYin(lunar.getYearNaYin());
         const cungPhi = getCungPhi(profile.birthday, profile.gender);
 
@@ -1389,7 +1389,7 @@ export async function handleGieoQue(message: Message) {
         }
     } catch (error: any) {
         console.error("Lỗi khi xử lý gieo quẻ:", error);
-        await message.reply(`❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này. Chi tiết lỗi:\n\`\`\`${error?.stack || error?.message || error}\`\`\``).catch(()=>{});
+        await message.reply("❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này, hãy thử lại sau!").catch(()=>{});
     } finally {
         activeGamePlayers.delete(userId);
     }
