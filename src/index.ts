@@ -121,10 +121,42 @@ http.createServer((req, res) => {
             </html>
         `);
         res.end();
+    } else if (url === '/test-net') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.write('<h2>🔍 Đang kiểm tra kết nối mạng từ Hugging Face...</h2>');
+        
+        (async () => {
+            const targets = [
+                { name: 'Google (Tổng quát)', url: 'https://www.google.com' },
+                { name: 'Valorant API', url: 'https://valorant-api.com/v1/agents' },
+                { name: 'Discord API Gateway (REST)', url: 'https://discord.com/api/v10/gateway' },
+                { name: 'Discord Gateway (WebSocket)', url: 'https://gateway.discord.gg' }
+            ];
+            
+            for (const target of targets) {
+                const start = Date.now();
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+                    const response = await fetch(target.url, { signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    const duration = Date.now() - start;
+                    res.write(`<p>✅ <b>${target.name}</b>: Kết nối thành công! Code: ${response.status} (${duration}ms)</p>`);
+                } catch (err: any) {
+                    const duration = Date.now() - start;
+                    res.write(`<p>❌ <b>${target.name}</b>: Thất bại sau ${duration}ms! Lỗi: ${err.message || err}</p>`);
+                }
+            }
+            res.write('<p><b>Hoàn tất kiểm tra mạng!</b> Nếu Google và Valorant thành công nhưng Discord thất bại, chắc chắn IP của Hugging Face đã bị Discord chặn.</p>');
+            res.write('<p><a href="/logs">Quay lại trang Logs</a></p>');
+            res.end();
+        })();
+        return;
     } else {
         const protocol = req.headers['x-forwarded-proto'] || 'https';
         const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
         const logsUrl = `${protocol}://${host}/logs`;
+        const testNetUrl = `${protocol}://${host}/test-net`;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.write(`
             <html>
@@ -134,16 +166,22 @@ http.createServer((req, res) => {
                         body { background: #121212; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; text-align: center; }
                         h1 { color: #2ecc71; margin-bottom: 10px; font-size: 28px; }
                         p { font-size: 15px; color: #aaa; margin-bottom: 20px; }
-                        a { color: #9b59b6; text-decoration: none; font-weight: bold; font-size: 16px; border: 2px solid #9b59b6; padding: 12px 24px; border-radius: 6px; transition: all 0.3s; display: inline-block; margin-bottom: 15px; }
+                        a { color: #9b59b6; text-decoration: none; font-weight: bold; font-size: 16px; border: 2px solid #9b59b6; padding: 12px 24px; border-radius: 6px; transition: all 0.3s; display: inline-block; margin: 5px; }
                         a:hover { background: #9b59b6; color: #fff; box-shadow: 0 0 15px rgba(155, 89, 182, 0.4); }
+                        .test-btn { color: #3498db; border-color: #3498db; }
+                        .test-btn:hover { background: #3498db; box-shadow: 0 0 15px rgba(52, 152, 219, 0.4); }
                         .url-box { background: #1a1a1a; padding: 12px 20px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; font-size: 13px; margin-top: 15px; border: 1px solid #2d2d2d; word-break: break-all; max-width: 90%; color: #f1c40f; }
                     </style>
                 </head>
                 <body>
                     <h1>🟢 BotToan đang hoạt động bình thường!</h1>
-                    <p>Nhấp vào nút bên dưới hoặc sao chép liên kết trực tiếp để xem nhật ký hoạt động (miễn phí 100%):</p>
-                    <a href="/logs" target="_blank">🔗 MỞ TRANG NHẬT KÝ (LOGS)</a>
-                    <div class="url-box">Đường dẫn trực tiếp: ${logsUrl}</div>
+                    <p>Nhấp vào nút bên dưới hoặc sao chép liên kết trực tiếp để xem nhật ký hoạt động hoặc kiểm tra kết nối mạng:</p>
+                    <div>
+                        <a href="/logs" target="_blank">🔗 MỞ TRANG NHẬT KÝ (LOGS)</a>
+                        <a href="/test-net" class="test-btn" target="_blank">🔍 TEST KẾT NỐI MẠNG</a>
+                    </div>
+                    <div class="url-box">Đường dẫn trực tiếp Logs: ${logsUrl}</div>
+                    <div class="url-box" style="margin-top: 5px;">Đường dẫn Test Mạng: ${testNetUrl}</div>
                 </body>
             </html>
         `);
