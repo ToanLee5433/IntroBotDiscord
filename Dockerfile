@@ -1,5 +1,5 @@
 # Sử dụng Node.js bản LTS gọn nhẹ
-FROM node:20-slim
+FROM node:22-slim
 
 # Cài đặt các công cụ hệ thống cần thiết cho thư viện Voice (ffmpeg để phát nhạc, python/g++ để build thư viện native)
 RUN apt-get update && apt-get install -y \
