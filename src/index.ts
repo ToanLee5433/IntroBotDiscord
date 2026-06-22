@@ -1116,6 +1116,37 @@ client.once('ready', (readyClient) => {
 
         // Đăng nhập Discord trước để bot online ngay lập tức
         console.log(`[DISCORD] Kiểm tra TOKEN: Độ dài = ${TOKEN?.length || 0}, Bắt đầu bằng = "${TOKEN ? TOKEN.substring(0, 8) : ''}..."`);
+        
+        // Thử kiểm tra kết nối API Discord trực tiếp bằng HTTP Fetch (có timeout 6 giây)
+        (() => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+            fetch("https://discord.com/api/v10/gateway/bot", {
+                headers: {
+                    "Authorization": `Bot ${TOKEN}`
+                },
+                signal: controller.signal
+            }).then(async (res) => {
+                clearTimeout(timeoutId);
+                console.log(`[DISCORD CHẨN ĐOÁN] Kết nối HTTP tới Discord API: Status = ${res.status} ${res.statusText}`);
+                if (res.status !== 200) {
+                    const text = await res.text();
+                    console.error(`[DISCORD CHẨN ĐOÁN] Phản hồi lỗi từ API: ${text.substring(0, 200)}`);
+                } else {
+                    console.log("[DISCORD CHẨN ĐOÁN] Kết nối HTTP API bình thường, thông tin Token hợp lệ.");
+                }
+            }).catch((err: any) => {
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    console.error("[DISCORD CHẨN ĐOÁN] ❌ Kết nối HTTP tới Discord API bị TIMEOUT sau 6 giây.");
+                    console.error("[DISCORD CHẨN ĐOÁN] 👉 Khả năng rất cao là địa chỉ IP của máy chủ Render này đã bị Discord/Cloudflare chặn/drop kết nối!");
+                } else {
+                    console.error("[DISCORD CHẨN ĐOÁN] ❌ Không thể kết nối HTTP tới Discord API:", err.message || err);
+                }
+            });
+        })();
+
         console.log("[DISCORD] Đang kết nối tới Gateway...");
         client.login(TOKEN).then(() => {
             console.log("[DISCORD] Đã gửi yêu cầu đăng nhập.");
