@@ -1079,6 +1079,26 @@ cron.schedule('30 18 * * *', async () => {
 } as any);
 
 // ================= SỰ KIỆN KHI BOT SẴN SÀNG KHỞI ĐỘNG CƠ BẢN =================
+client.on('shardError', (error) => {
+    console.error('[DISCORD SHARD LỖI] Kết nối Shard gặp lỗi:', error);
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+    console.warn(`[DISCORD SHARD] Shard ${shardId} bị mất kết nối:`, event);
+});
+
+client.on('shardReconnecting', (shardId) => {
+    console.log(`[DISCORD SHARD] Shard ${shardId} đang kết nối lại...`);
+});
+
+client.on('error', (error) => {
+    console.error('[DISCORD HỆ THỐNG LỖI]', error);
+});
+
+client.on('warn', (warning) => {
+    console.warn('[DISCORD CẢNH BÁO]', warning);
+});
+
 client.once('ready', (readyClient) => {
     console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
 });
