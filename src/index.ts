@@ -1099,6 +1099,13 @@ client.on('warn', (warning) => {
     console.warn('[DISCORD CẢNH BÁO]', warning);
 });
 
+client.on('debug', (info) => {
+    // Chỉ in những log debug quan trọng liên quan đến kết nối/WebSocket/Rate limit để tránh ngập log
+    if (info.includes('Gateway') || info.includes('Heartbeat') || info.includes('connect') || info.includes('Session') || info.includes('rate') || info.includes('identif') || info.includes('ready')) {
+        console.log(`[DISCORD DEBUG] ${info}`);
+    }
+});
+
 client.once('ready', (readyClient) => {
     console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
 });
@@ -1108,6 +1115,7 @@ client.once('ready', (readyClient) => {
         console.log("[HỆ THỐNG] Đang khởi động bot...");
 
         // Đăng nhập Discord trước để bot online ngay lập tức
+        console.log(`[DISCORD] Kiểm tra TOKEN: Độ dài = ${TOKEN?.length || 0}, Bắt đầu bằng = "${TOKEN ? TOKEN.substring(0, 8) : ''}..."`);
         console.log("[DISCORD] Đang kết nối tới Gateway...");
         client.login(TOKEN).then(() => {
             console.log("[DISCORD] Đã gửi yêu cầu đăng nhập.");
