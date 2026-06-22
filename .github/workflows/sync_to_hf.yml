@@ -1,0 +1,21 @@
+name: Sync to Hugging Face hub
+on:
+  push:
+    branches: [main] # Đổi thành master nếu nhánh chính của bạn tên là master
+
+  # Cho phép bạn chạy đồng bộ bằng tay nếu muốn
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        # Lệnh đẩy code từ GitHub thẳng sang Space BotToan của bạn
+        run: git push --force https://Toan54:$HF_TOKEN@huggingface.co/spaces/Toan54/BotToan main
