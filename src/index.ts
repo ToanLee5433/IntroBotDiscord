@@ -30,11 +30,125 @@ import { connectDB, claimDaily, getLeaderboard, transferMoney, borrowMoney, getB
 
 
 
-// 1. MÁY CHỦ WEB ẢO LÁCH LUẬT RENDER
+// 1. GHI ĐÈ CONSOLE ĐỂ THU THẬP LOGS CHẨN ĐOÁN (MIỄN PHÍ)
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+
+export const systemLogs: string[] = [];
+
+function addSystemLog(type: 'INFO' | 'WARN' | 'ERROR', args: any[]) {
+    // Thời gian định dạng Việt Nam UTC+7
+    const timeStr = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
+    const message = args.map(arg => {
+        if (arg instanceof Error) {
+            return arg.stack || arg.message;
+        }
+        if (typeof arg === 'object') {
+            try {
+                return JSON.stringify(arg);
+            } catch (e) {
+                return String(arg);
+            }
+        }
+        return String(arg);
+    }).join(' ');
+    
+    systemLogs.push(`[${timeStr}] [${type}] ${message}`);
+    if (systemLogs.length > 500) {
+        systemLogs.shift(); // Giới hạn 500 dòng để tránh tràn bộ nhớ
+    }
+}
+
+console.log = (...args: any[]) => {
+    addSystemLog('INFO', args);
+    originalLog(...args);
+};
+
+console.error = (...args: any[]) => {
+    addSystemLog('ERROR', args);
+    originalError(...args);
+};
+
+console.warn = (...args: any[]) => {
+    addSystemLog('WARN', args);
+    originalWarn(...args);
+};
+
+// 2. MÁY CHỦ WEB ẢO LÁCH LUẬT RENDER & PHỤC VỤ LOGS TRỰC TIẾP
 http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.write('BotToan dang hoat dong binh thuong!');
-    res.end();
+    const url = req.url || '';
+    if (url === '/logs' || url === '/debug') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        
+        const logHtml = systemLogs.map(line => {
+            let color = '#ffffff';
+            if (line.includes('[ERROR]')) color = '#ff4d4d';
+            else if (line.includes('[WARN]')) color = '#ffcc00';
+            else if (line.includes('✅') || line.includes('thành công') || line.includes('thành công!')) color = '#4dff4d';
+            else if (line.includes('[DISCORD DEBUG]')) color = '#a0a0ff';
+            else if (line.includes('[DISCORD CHẨN ĐOÁN]')) color = '#ff80df';
+            return `<div style="color: ${color}; font-family: 'Courier New', Courier, monospace; margin-bottom: 5px; white-space: pre-wrap; font-size: 13px; line-height: 1.4;">${line}</div>`;
+        }).join('');
+        
+        res.write(`
+            <html>
+                <head>
+                    <title>BotToan Logs Panel</title>
+                    <meta http-equiv="refresh" content="8">
+                    <style>
+                        body { background: #121212; color: #e0e0e0; padding: 25px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; }
+                        h1 { color: #9b59b6; margin-top: 0; margin-bottom: 5px; font-size: 24px; }
+                        .subtitle { color: #888; font-size: 13px; margin-bottom: 20px; }
+                        .log-container { background: #1a1a1a; border: 1px solid #2d2d2d; padding: 15px; border-radius: 6px; height: 80vh; overflow-y: auto; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+                        .refresh-btn { background: #9b59b6; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; float: right; }
+                        .refresh-btn:hover { background: #8e44ad; }
+                    </style>
+                </head>
+                <body>
+                    <button class="refresh-btn" onclick="window.location.reload()">F5 Làm Mới</button>
+                    <h1>📊 Bảng Điều Khiển Logs - BotToan</h1>
+                    <div class="subtitle">Tự động cập nhật sau mỗi 8 giây. Thiết lập xem logs độc lập không mất phí.</div>
+                    <div class="log-container">
+                        ${logHtml || '<div style="color: #666; font-style: italic;">Chưa có dữ liệu log phát sinh...</div>'}
+                    </div>
+                    <script>
+                        // Tự động cuộn xuống đáy log khi tải trang
+                        const container = document.querySelector('.log-container');
+                        container.scrollTop = container.scrollHeight;
+                    </script>
+                </body>
+            </html>
+        `);
+        res.end();
+    } else {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+        const logsUrl = `${protocol}://${host}/logs`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.write(`
+            <html>
+                <head>
+                    <title>BotToan Status</title>
+                    <style>
+                        body { background: #121212; color: #e0e0e0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; text-align: center; }
+                        h1 { color: #2ecc71; margin-bottom: 10px; font-size: 28px; }
+                        p { font-size: 15px; color: #aaa; margin-bottom: 20px; }
+                        a { color: #9b59b6; text-decoration: none; font-weight: bold; font-size: 16px; border: 2px solid #9b59b6; padding: 12px 24px; border-radius: 6px; transition: all 0.3s; display: inline-block; margin-bottom: 15px; }
+                        a:hover { background: #9b59b6; color: #fff; box-shadow: 0 0 15px rgba(155, 89, 182, 0.4); }
+                        .url-box { background: #1a1a1a; padding: 12px 20px; border-radius: 6px; font-family: 'Courier New', Courier, monospace; font-size: 13px; margin-top: 15px; border: 1px solid #2d2d2d; word-break: break-all; max-width: 90%; color: #f1c40f; }
+                    </style>
+                </head>
+                <body>
+                    <h1>🟢 BotToan đang hoạt động bình thường!</h1>
+                    <p>Nhấp vào nút bên dưới hoặc sao chép liên kết trực tiếp để xem nhật ký hoạt động (miễn phí 100%):</p>
+                    <a href="/logs" target="_blank">🔗 MỞ TRANG NHẬT KÝ (LOGS)</a>
+                    <div class="url-box">Đường dẫn trực tiếp: ${logsUrl}</div>
+                </body>
+            </html>
+        `);
+        res.end();
+    }
 }).listen(PORT, () => {
     console.log(`[WEB] Máy chủ ảo đang chạy trên port ${PORT}`);
 });
