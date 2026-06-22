@@ -1387,9 +1387,9 @@ export async function handleGieoQue(message: Message) {
                 }
             }, 3000);
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Lỗi khi xử lý gieo quẻ:", error);
-        await message.reply("❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này, hãy thử lại sau!").catch(()=>{});
+        await message.reply(`❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này. Chi tiết lỗi:\n\`\`\`${error?.stack || error?.message || error}\`\`\``).catch(()=>{});
     } finally {
         activeGamePlayers.delete(userId);
     }
