@@ -26,5 +26,4 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          hf auth login --token $HF_TOKEN
           hf upload Toan54/BotToan . . --repo-type=space
