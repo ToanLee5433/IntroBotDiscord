@@ -4,7 +4,8 @@ import {
     saveProfile, getProfile, updateCrush, getCrush, 
     getBalance, updateBalance, getDebt, banChat,
     getWhoCrushedMe, incrementCrushChange, incrementFailedMatch,
-    setSimpLo, getSimpLoExpires, hasGieoQueToday, markGieoQueToday
+    setSimpLo, getSimpLoExpires, hasGieoQueToday, markGieoQueToday,
+    getVNDateString
 } from '../database';
 import { removeAccents, formatMoney, sendToJail, trueRandom, activeGamePlayers } from '../utils';
 import { getMatchmakingFortune } from '../services/gemini';
@@ -584,8 +585,7 @@ export async function handleCrushCommand(message: Message) {
 
             // --- XỬ LÝ CHÚA TỂ SIMP LỎ (Đổi crush quá 3 lần/ngày) ---
             const now = Date.now();
-            const d = new Date(now + 7 * 60 * 60 * 1000);
-            const todayStr = `${d.getUTCFullYear()}-\$${String(d.getUTCMonth() + 1).padStart(2, '0')}-\$${String(d.getUTCDate()).padStart(2, '0')}`;
+            const todayStr = getVNDateString(now);
             
             const crushChanges = await incrementCrushChange(userIdA, todayStr);
             if (crushChanges > 3) {
@@ -903,8 +903,7 @@ export async function playMatchmaking(message: Message) {
 
     // --- HẬU QUẢ CỦA PHONG HIỆU SIMP LỎ (Ghép đôi nhọ 5 lần liên tiếp < 20%) ---
     const now = Date.now();
-    const d = new Date(now + 7 * 60 * 60 * 1000);
-    const todayStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    const todayStr = getVNDateString(now);
     
     if (score < 20) {
         const failedMatches = await incrementFailedMatch(userIdA, todayStr);
@@ -1169,12 +1168,12 @@ export async function handleGieoQue(message: Message) {
         profile.birthday = profile.birthday.replace(/\-/g, '/');
 
         const now = Date.now();
-        const d = new Date(now + 7 * 60 * 60 * 1000);
-        const todayStr = `${d.getUTCFullYear()}-\$${String(d.getUTCMonth() + 1).padStart(2, '0')}-\$${String(d.getUTCDate()).padStart(2, '0')}`;
+        const todayStr = getVNDateString(now);
 
         // 1. Kiểm tra xem hôm nay gieo quẻ chưa
         const hasGieo = await hasGieoQueToday(userId, todayStr);
         if (hasGieo) {
+            const d = new Date(now + 7 * 60 * 60 * 1000);
             const vnTomorrow = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
             const timeLeftMs = (vnTomorrow - 7 * 60 * 60 * 1000) - now;
             const hours = Math.floor(timeLeftMs / (60 * 60 * 1000));
@@ -1189,9 +1188,6 @@ export async function handleGieoQue(message: Message) {
             await message.reply({ embeds: [embed] }).catch(()=>{});
             return;
         }
-
-        // 2. Khóa lập tức để tránh race condition
-        await markGieoQueToday(userId, todayStr);
 
         let balance = await getBalance(userId);
         const debt = await getDebt(userId);
@@ -1211,19 +1207,19 @@ export async function handleGieoQue(message: Message) {
             queName = "🧧 ĐẠI CÁT";
             queDesc = "Cực kỳ cát tường, vận khí ngập trời, thần tài gõ cửa!";
             balanceChange = trueRandom(15, 30);
-            queAction = `Nhặt được ví tiền đánh rơi ở sòng blackjack (+\$${balanceChange}k)`;
+            queAction = `Nhặt được ví tiền đánh rơi ở sòng blackjack (+${balanceChange}k)`;
             color = 0xFF00FF;
         } else if (roll <= 30) {
             queName = "🍊 TRUNG CÁT";
             queDesc = "Khá cát lành, làm việc hanh thông, cờ bạc dễ trúng.";
             balanceChange = trueRandom(5, 15);
-            queAction = `Được chiến hữu cùng sòng bài chia lộc (+\$${balanceChange}k)`;
+            queAction = `Được chiến hữu cùng sòng bài chia lộc (+${balanceChange}k)`;
             color = 0x2ECC71;
         } else if (roll <= 50) {
             queName = "🌾 TIỂU CÁT";
             queDesc = "Hơi cát lành, có chút lộc nhỏ ăn sáng.";
             balanceChange = trueRandom(1, 5);
-            queAction = `Nhặt được tiền lẻ rơi ven đường đê (+\$${balanceChange}k)`;
+            queAction = `Nhặt được tiền lẻ rơi ven đường đê (+${balanceChange}k)`;
             color = 0x3498DB;
         } else if (roll <= 75) {
             queName = "⚖️ BÌNH HÒA";
@@ -1236,14 +1232,14 @@ export async function handleGieoQue(message: Message) {
             queDesc = "Hơi xui xẻo, hao tài tốn của nhẹ, cẩn thận mất đồ.";
             const penalty = trueRandom(1, 10);
             balanceChange = -Math.min(balance, penalty);
-            queAction = `Bị giang hồ xin đểu tiền nước hoặc làm rơi tiền (\$${balanceChange}k)`;
+            queAction = `Bị giang hồ xin đểu tiền nước hoặc làm rơi tiền (-${Math.abs(balanceChange)}k)`;
             color = 0xE67E22;
         } else {
             queName = "☠️ ĐẠI HUNG";
             queDesc = "Vô cùng hung hiểm! Nghiệp quật sấp mặt, tai họa rập rình!";
             const penalty = trueRandom(15, 30);
             balanceChange = -Math.min(balance, penalty);
-            queAction = `Bị đàn em giang hồ của BotToan quây chặn đường trấn lột (\$${balanceChange}k)`;
+            queAction = `Bị đàn em giang hồ của BotToan quây chặn đường trấn lột (-${Math.abs(balanceChange)}k)`;
             color = 0xFF0000;
 
             if (Math.random() < 0.2 && message.guild) {
@@ -1256,14 +1252,14 @@ export async function handleGieoQue(message: Message) {
         await updateBalance(userId, balance);
 
         if (balanceChange > 0) {
-            rewardOrPenaltyText = `Cộng **\$${formatMoney(balanceChange)}**`;
+            rewardOrPenaltyText = `Cộng **$${formatMoney(balanceChange)}**`;
         } else if (balanceChange < 0) {
-            rewardOrPenaltyText = `Trừ **\$${formatMoney(Math.abs(balanceChange))}**`;
+            rewardOrPenaltyText = `Trừ **$${formatMoney(Math.abs(balanceChange))}**`;
         } else {
             rewardOrPenaltyText = "Không biến động";
         }
 
-        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping().catch(()=>{});
 
         const dobParts = profile.birthday.split('/');
         const solar = Solar.fromYmd(parseInt(dobParts[2]), parseInt(dobParts[1]), parseInt(dobParts[0]));
@@ -1292,14 +1288,14 @@ export async function handleGieoQue(message: Message) {
 
         const geminiPrompt = `
             Hãy phán quẻ xem bói hàng ngày cho người chơi này:
-            Họ tên: "\${profile.name}"
-            Giới tính: "\${profile.gender}"
-            Tuổi: "\${ganChi} (\${zodiac})"
-            Mệnh ngũ hành: "\${menh}"
-            Cung Phi Bát Trạch: "\${cungPhi.name} (\${cungPhi.group})"
-            Loại quẻ gieo được hôm nay: "\${queName}" (\${queDesc})
-            Biến động tài sản: "\${queAction}"
-            Số dư ví: \${balance}k, nợ: \${debt}k.
+            Họ tên: "${profile.name}"
+            Giới tính: "${profile.gender}"
+            Tuổi: "${ganChi} (${zodiac})"
+            Mệnh ngũ hành: "${menh}"
+            Cung Phi Bát Trạch: "${cungPhi.name} (${cungPhi.group})"
+            Loại quẻ gieo được hôm nay: "${queName}" (${queDesc})
+            Biến động tài sản: "${queAction}"
+            Số dư ví: ${balance}k, nợ: ${debt}k.
             
             Hãy đưa ra lời phán vận hạn hôm nay gồm đúng 3 mục sau:
             - 🎰 Vận Đỏ Đen: [phán cực bựa xem đánh con đề nào hay chơi Blackjack/Xóc Đĩa ra sao]
@@ -1377,7 +1373,8 @@ export async function handleGieoQue(message: Message) {
             .setFooter({ text: "Gõ @BotToan gieo que hàng ngày để xem vận hạn (1 lượt/ngày)", iconURL: message.client.user?.displayAvatarURL() })
             .setTimestamp();
 
-        await message.reply({ embeds: [embed] }).catch(()=>{});
+        await message.reply({ embeds: [embed] });
+        await markGieoQueToday(userId, todayStr);
 
         if (isJailTriggered && message.guild) {
             setTimeout(async () => {
@@ -1390,6 +1387,9 @@ export async function handleGieoQue(message: Message) {
                 }
             }, 3000);
         }
+    } catch (error) {
+        console.error("Lỗi khi xử lý gieo quẻ:", error);
+        await message.reply("❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này, hãy thử lại sau!").catch(()=>{});
     } finally {
         activeGamePlayers.delete(userId);
     }
