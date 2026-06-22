@@ -1258,7 +1258,7 @@ client.on('debug', (info) => {
     }
 });
 
-client.once('ready', (readyClient) => {
+client.once('clientReady', (readyClient) => {
     console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
 });
 
