@@ -12,16 +12,18 @@ RUN apt-get update && apt-get install -y \
 # Thiết lập thư mục làm việc trong container
 WORKDIR /app
 
-# Sao chép các file cấu hình package để tận dụng Docker cache
+# Sao chép các cấu hình và mã nguồn cần thiết để biên dịch (giúp tận dụng Docker cache)
 COPY package*.json ./
+COPY tsconfig.json ./
+COPY src/ ./src/
 
-# Cài đặt toàn bộ dependencies (bao gồm cả devDependencies để biên dịch TypeScript)
+# Cài đặt toàn bộ dependencies (lệnh này sẽ kích hoạt postinstall: tsc thành công vì đã có src)
 RUN npm ci
 
-# Sao chép toàn bộ mã nguồn dự án vào container
+# Sao chép toàn bộ các tài nguyên và file còn lại (assets, audio, v.v.) vào container
 COPY . .
 
-# Biên dịch mã nguồn TypeScript sang JavaScript
+# Đảm bảo toàn bộ dự án được build hoàn chỉnh
 RUN npm run build
 
 # Cổng mặc định của Hugging Face Spaces là 7860
