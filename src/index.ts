@@ -1078,11 +1078,58 @@ cron.schedule('30 18 * * *', async () => {
     timezone: "Asia/Ho_Chi_Minh"
 } as any);
 
+// ================= SỰ KIỆN KHI BOT SẴN SÀNG KHỞI ĐỘNG CƠ BẢN =================
+client.once('ready', (readyClient) => {
+    console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
+});
+
 (async () => {
-    await connectDB();
-    await loadAgentIcons();
-    registerValorantCollector(client);
-    await initTarot();
-    client.login(TOKEN);
+    try {
+        console.log("[HỆ THỐNG] Đang khởi động bot...");
+
+        // Đăng nhập Discord trước để bot online ngay lập tức
+        console.log("[DISCORD] Đang kết nối tới Gateway...");
+        client.login(TOKEN).then(() => {
+            console.log("[DISCORD] Đã gửi yêu cầu đăng nhập.");
+        }).catch((err) => {
+            console.error("[DISCORD LỖI] Lỗi đăng nhập Discord:");
+            console.error(err);
+            if (err.message && err.message.includes("DISALLOWED_INTENTS")) {
+                console.error("\n❌❌❌ [LỖI QUAN TRỌNG] ĐÂY LÀ LỖI DISALLOWED INTENTS!");
+                console.error("👉 Bạn cần truy cập Discord Developer Portal -> Ứng dụng của bạn -> tab 'Bot'.");
+                console.error("👉 Cuộn xuống phần 'Privileged Gateway Intents' và BẬT 'MESSAGE CONTENT INTENT'.");
+                console.error("👉 Nhấn 'Save Changes' để lưu lại.\n");
+            }
+        });
+
+        // Kết nối DB song song (không chặn đăng nhập Discord)
+        connectDB()
+            .then(() => {
+                console.log("[HỆ THỐNG] Tiến trình kết nối DB hoàn tất.");
+            })
+            .catch(err => {
+                console.error("[HỆ THỐNG LỖI] Gặp lỗi khi kết nối DB:", err);
+            });
+
+        // Tải icon agent song song
+        loadAgentIcons()
+            .then(() => {
+                console.log("[VALORANT] Tiến trình tải icons hoàn tất.");
+            })
+            .catch(err => {
+                console.error("[VALORANT LỖI] Không thể nạp icons agent:", err);
+            });
+
+        // Đăng ký Valorant Collector
+        registerValorantCollector(client);
+
+        // Khởi tạo Tarot
+        await initTarot().catch(err => {
+            console.error("[TAROT LỖI] Không thể khởi tạo Tarot:", err);
+        });
+
+    } catch (startupError) {
+        console.error("[HỆ THỐNG LỖI] Lỗi nghiêm trọng trong quá trình khởi chạy:", startupError);
+    }
 })();
 

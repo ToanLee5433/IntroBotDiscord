@@ -157,7 +157,9 @@ export async function connectDB(): Promise<void> {
     }
 
     try {
-        await mongoose.connect(MONGO_URI);
+        await mongoose.connect(MONGO_URI, {
+            serverSelectionTimeoutMS: 5000 // Thử kết nối tối đa 5 giây, tránh treo bot
+        });
         console.log("[DB] Kết nối MongoDB thành công!");
         useMongoDB = true;
     } catch (error) {
