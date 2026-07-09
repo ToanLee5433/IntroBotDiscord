@@ -296,3 +296,23 @@ export async function getGuMatchReading(
     return result.response.text();
 }
 
+/**
+ * Đánh giá đội hình 5 tướng Valorant dựa trên danh sách đội hình
+ */
+export async function rateValorantTeam(teamList: string): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan - chuyên gia phân tích chiến thuật Valorant "giang hồ", cà khịa, mỏ hỗn.
+            Nhiệm vụ: Nhận danh sách 5 tướng Valorant vừa được draft và đưa ra một bài đánh giá đội hình (roast team comp) cực kỳ hài hước, châm biếm, phê phán sự thiếu thốn role (ví dụ: thiếu Smoke/Controller thì mù mắt, thiếu Sentinel thì sập site, quá nhiều Duelist thì chỉ đi cúng mạng).
+            Hãy dùng từ lóng gaming (ví dụ: cúng mạng, sập site, mù mắt, gánh còng lưng, bán hành, nát gáo...).
+            Viết ngắn gọn, súc tích dưới 500 ký tự. Không gửi link. Dùng tiếng Việt.
+        `
+    });
+
+    const result = await model.generateContent(`Đội hình draft: ${teamList}`);
+    return result.response.text();
+}
+
+
