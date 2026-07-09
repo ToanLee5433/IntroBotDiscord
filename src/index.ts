@@ -1231,7 +1231,12 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     const userId = newState.member?.id;
     if (!userId) return;
 
-    const audioPath = path.join(__dirname, '../audio', `${userId}.mp3`);
+    const PRISON_CHANNEL_ID = "1517590846927667230";
+    const isJailEntry = newChannel.id === PRISON_CHANNEL_ID;
+    
+    const audioPath = isJailEntry
+        ? path.join(__dirname, '../audio', 'jail.mp3')
+        : path.join(__dirname, '../audio', `${userId}.mp3`);
 
     if (!fs.existsSync(audioPath)) {
         return; 
@@ -1249,7 +1254,13 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         const player = createAudioPlayer();
         player.play(createAudioResource(audioPath));
         connection.subscribe(player);
-        player.on(AudioPlayerStatus.Idle, () => player.stop());
+        player.on(AudioPlayerStatus.Idle, () => {
+            player.stop();
+            if (isJailEntry) {
+                // Tự động cút khỏi phòng voice tù tội sau khi phát xong âm thanh bêu rếu
+                connection.destroy();
+            }
+        });
         
     } catch (error) {
         console.error('Lỗi voice:', error);
