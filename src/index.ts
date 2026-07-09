@@ -873,6 +873,144 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG XÓA TIN NHẮN (PURGE) -----------------
+    const xoaTriggers = ['xoa', 'xóa', 'clear', 'purge'];
+    if (xoaTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        const channel = message.channel;
+        if (!channel || !('bulkDelete' in channel)) {
+            await message.reply("❌ **Kênh này không hỗ trợ xóa tin nhắn, thôi chịu!").catch(() => {});
+            return;
+        }
+
+        // Kiểm tra quyền người dùng
+        const memberPerms = message.member?.permissions;
+        const hasUserPerm = memberPerms?.has(PermissionFlagsBits.ManageMessages) || memberPerms?.has(PermissionFlagsBits.Administrator);
+        if (!hasUserPerm) {
+            const noPermTrolls = [
+                "🚫 **TUỔI GÌ ĐÒI XÓA?** Kiếm cái quyền **Manage Messages** rồi quay lại đây nói chuyện với anh!",
+                "🚫 **KHÔN NHƯ BẠN QUÊ TÔI XÍCH ĐẦY!** Đéo có quyền mà đòi dọn rác hộ người ta, lo mà xin mod đi con!",
+                "🚫 **OÀI!** Mày nghĩ mày là ai mà đòi xóa tin nhắn? Xin quyền **Manage Messages** từ admin rồi hãy quay lại nhé cưng!"
+            ];
+            await message.reply(noPermTrolls[Math.floor(Math.random() * noPermTrolls.length)]).catch(() => {});
+            return;
+        }
+
+        // Kiểm tra quyền bot
+        const botMember = message.guild?.members.me;
+        const hasBotPerm = botMember && (channel as any).permissionsFor(botMember)?.has(PermissionFlagsBits.ManageMessages);
+        if (!hasBotPerm) {
+            await message.reply("❌ **Cấp quyền Quản lý tin nhắn (`Manage Messages`) cho trẫm nhanh lên, không có quyền thì xóa bằng niềm tin à?** 👑").catch(() => {});
+            return;
+        }
+
+        // Lệnh xoa help
+        const afterXoa = rawInput.replace(/^(xoa|xóa|clear|purge)\s*/i, '').trim();
+        const afterXoaClean = removeAccents(afterXoa).toLowerCase().trim();
+
+        if (afterXoaClean === 'help' || afterXoaClean === 'huong dan') {
+            const helpEmbed = new EmbedBuilder()
+                .setTitle("🗑️ HƯỚNG DẪN XÓA TIN NHẮN - BOTTOAN")
+                .setColor(0xE74C3C)
+                .setDescription("Dọn dẹp bãi rác trong kênh chat theo lệnh của mày. Nhớ là mày phải có quyền **Manage Messages** mới xài được nghe chưa!")
+                .addFields(
+                    { name: "📌 Cú pháp cơ bản", value:
+                        "`@BotToan xoa <số>` — Xóa N tin nhắn gần nhất (tối đa 500)\n" +
+                        "`@BotToan xoa 100` — Xóa **100** tin nhắn (mặc định theo yêu cầu)\n" +
+                        "`@BotToan xoa all` — Xóa toàn bộ tin nhắn có thể xóa (tối đa 500)",
+                        inline: false
+                    },
+                    { name: "🎯 Lọc theo đối tượng", value:
+                        "`@BotToan xoa bot <số>` — Chỉ xóa tin nhắn của BotToan\n" +
+                        "`@BotToan xoa @User <số>` — Xóa tin nhắn của một người cụ thể",
+                        inline: false
+                    },
+                    { name: "⚠️ Lưu ý quan trọng", value:
+                        "• Tin nhắn **quá 14 ngày** chỉ xóa được tối đa **20 cái** mỗi lần (giới hạn Discord)\n" +
+                        "• Tin nhắn **ghim (📌 pinned)** sẽ **không bị xóa** để giữ an toàn\n" +
+                        "• Bot cần có quyền **Manage Messages** trong kênh",
+                        inline: false
+                    }
+                )
+                .setFooter({ text: "BotToan - Dọn rác chuyên nghiệp", iconURL: client.user?.displayAvatarURL() });
+            const helpMsg = await message.reply({ embeds: [helpEmbed] }).catch(() => null);
+            setTimeout(() => helpMsg?.delete().catch(() => {}), 15000);
+            return;
+        }
+
+        // Parse tham số lệnh
+        let purgeAmount = 100; // mặc định 100
+        let filterMode: 'all' | 'bot' | 'user' = 'all';
+        let filterUserId: string | null = null;
+
+        if (afterXoaClean === 'all') {
+            purgeAmount = 500;
+        } else {
+            // Kiểm tra lọc theo bot: "xoa bot <N>"
+            const botMatch = afterXoaClean.match(/^bot(?:\s+(\d+))?$/);
+            if (botMatch) {
+                filterMode = 'bot';
+                purgeAmount = botMatch[1] ? Math.min(parseInt(botMatch[1]), 500) : 100;
+            } else {
+                // Kiểm tra lọc theo user: "xoa @User <N>"
+                const mentionedUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
+                if (mentionedUser) {
+                    filterMode = 'user';
+                    filterUserId = mentionedUser.id;
+                    const numMatch = afterXoaClean.match(/(\d+)/);
+                    purgeAmount = numMatch ? Math.min(parseInt(numMatch[1]), 500) : 100;
+                } else {
+                    // Chỉ là số: "xoa 50"
+                    const numOnly = parseInt(afterXoaClean);
+                    if (!isNaN(numOnly) && numOnly > 0) {
+                        purgeAmount = Math.min(numOnly, 500);
+                    } else if (afterXoaClean !== '') {
+                        await message.reply("❌ **Sai cú pháp!** Gõ `@BotToan xoa help` để xem hướng dẫn đầy đủ nhé cưng!").catch(() => {});
+                        return;
+                    }
+                    // nếu afterXoaClean rỗng → dùng mặc định 100
+                }
+            }
+        }
+
+        // Xóa tin nhắn lệnh gốc trước
+        await message.delete().catch(() => {});
+
+        // Gửi thông báo đang xử lý
+        const processingMsg = await (channel as any).send("⏳ **Đang dọn rác...** Ngồi im chờ anh làm việc một tí!").catch(() => null);
+
+        // Thực thi xóa
+        const result = await executePurge(channel as any, purgeAmount, filterMode, filterUserId, client.user?.id || '');
+
+        // Xóa tin nhắn "đang xử lý"
+        await processingMsg?.delete().catch(() => {});
+
+        // Gửi embed kết quả
+        const doneTrolls = [
+            `✅ Đã **húp sạch ${result.deleted} bãi rác** theo lệnh của <@${message.author.id}>. Đừng để anh thấy chú xả rác nữa đấy!`,
+            `🗑️ **${result.deleted} tin nhắn** đã bị xử lý ấn thơm theo lệnh của <@${message.author.id}>. Kênh sạch đẹp như mới rồi đó!`,
+            `💨 Vèo một cái, **${result.deleted} tin** đã bay màu theo lệnh của <@${message.author.id}>. Rác không có chỗ trong server của anh!`
+        ];
+        const resultEmbed = new EmbedBuilder()
+            .setTitle("🗑️ DỌN RÁC HOÀN TẤT")
+            .setColor(0x2ECC71)
+            .setDescription(doneTrolls[Math.floor(Math.random() * doneTrolls.length)])
+            .addFields(
+                { name: "✅ Đã xóa", value: `**${result.deleted}** tin nhắn`, inline: true },
+                { name: "📌 Bỏ qua (ghim)", value: `**${result.skippedPinned}** tin nhắn`, inline: true },
+                { name: "⏳ Bỏ qua (quá cũ)", value: `**${result.skippedOld}** tin nhắn`, inline: true }
+            )
+            .setFooter({ text: "Tin nhắn này tự xóa sau 5 giây", iconURL: client.user?.displayAvatarURL() })
+            .setTimestamp();
+
+        if (result.skippedOld > 0) {
+            resultEmbed.addFields({ name: "⚠️ Lưu ý", value: `**${result.skippedOld}** tin nhắn quá cũ (> 14 ngày) đã bị bỏ qua vì giới hạn của Discord API.`, inline: false });
+        }
+
+        const resultMsg = await (channel as any).send({ embeds: [resultEmbed] }).catch(() => null);
+        setTimeout(() => resultMsg?.delete().catch(() => {}), 5000);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG CHAT VỚI GEMINI -----------------
     await sleep(2000);
 
@@ -895,6 +1033,113 @@ client.on('messageCreate', async (message: Message) => {
         await message.reply('Mạng lag hay sao ấy, tao đang không load được, thử lại đi mày!');
     }
 });
+
+// ================= HÀM HELPER XÓA TIN NHẮN (PURGE) =================
+interface PurgeResult {
+    deleted: number;
+    skippedPinned: number;
+    skippedOld: number;
+}
+
+async function executePurge(
+    channel: any,
+    maxAmount: number,
+    filterMode: 'all' | 'bot' | 'user',
+    filterUserId: string | null,
+    botId: string
+): Promise<PurgeResult> {
+    const result: PurgeResult = { deleted: 0, skippedPinned: 0, skippedOld: 0 };
+    const TWO_WEEKS = 14 * 24 * 60 * 60 * 1000;
+    const MAX_OLD_DELETIONS = 20; // Giới hạn xóa từng cái để tránh cạn rate-limit
+    const OLD_DELETE_DELAY = 1200; // ms delay giữa mỗi lần xóa tin cũ
+
+    let lastMessageId: string | undefined = undefined;
+    let totalFetched = 0;
+    const now = Date.now();
+
+    // Tin nhắn mới (< 14 ngày) để bulkDelete
+    const newMessages: any[] = [];
+    // Tin nhắn cũ (>= 14 ngày) xóa từng cái
+    const oldMessages: any[] = [];
+
+    // ---- Phase 1: Fetch tin nhắn theo pagination ----
+    while (totalFetched < maxAmount) {
+        const batchSize = Math.min(100, maxAmount - totalFetched);
+        const fetchOptions: any = { limit: batchSize };
+        if (lastMessageId) fetchOptions.before = lastMessageId;
+
+        let fetched: any;
+        try {
+            fetched = await channel.messages.fetch(fetchOptions);
+        } catch (err) {
+            console.error('[PURGE] Lỗi khi fetch tin nhắn:', err);
+            break;
+        }
+
+        if (!fetched || fetched.size === 0) break;
+
+        const messages = Array.from(fetched.values()) as any[];
+
+        for (const msg of messages) {
+            // Bỏ qua tin nhắn ghim
+            if (msg.pinned) {
+                result.skippedPinned++;
+                continue;
+            }
+
+            // Áp dụng bộ lọc
+            if (filterMode === 'bot' && msg.author.id !== botId) continue;
+            if (filterMode === 'user' && filterUserId && msg.author.id !== filterUserId) continue;
+
+            const age = now - msg.createdTimestamp;
+            if (age < TWO_WEEKS) {
+                newMessages.push(msg);
+            } else {
+                oldMessages.push(msg);
+            }
+        }
+
+        totalFetched += fetched.size;
+        lastMessageId = messages[messages.length - 1]?.id;
+        if (fetched.size < batchSize) break; // Hết tin nhắn
+    }
+
+    // ---- Phase 2: BulkDelete tin nhắn mới (batch tối đa 100) ----
+    const newMsgChunks: any[][] = [];
+    for (let i = 0; i < newMessages.length; i += 100) {
+        newMsgChunks.push(newMessages.slice(i, i + 100));
+    }
+
+    for (const chunk of newMsgChunks) {
+        try {
+            const ids = chunk.map((m: any) => m.id);
+            await channel.bulkDelete(ids, true); // true = ignore errors for individual messages
+            result.deleted += chunk.length;
+        } catch (err: any) {
+            console.error('[PURGE] Lỗi bulkDelete:', err?.message || err);
+        }
+    }
+
+    // ---- Phase 3: Xóa từng cái cho tin nhắn cũ (giới hạn MAX_OLD_DELETIONS) ----
+    const oldToDelete = oldMessages.slice(0, MAX_OLD_DELETIONS);
+    result.skippedOld = oldMessages.length - oldToDelete.length;
+
+    for (const msg of oldToDelete) {
+        try {
+            await msg.delete();
+            result.deleted++;
+        } catch (err: any) {
+            // Bỏ qua lỗi Unknown Message (đã bị xóa trước đó)
+            if (!err?.message?.includes('Unknown Message')) {
+                console.error('[PURGE] Lỗi xóa tin cũ:', err?.message || err);
+            }
+        }
+        // Delay để tránh cạn rate-limit Discord
+        await new Promise(res => setTimeout(res, OLD_DELETE_DELAY));
+    }
+
+    return result;
+}
 
 // ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
