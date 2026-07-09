@@ -254,6 +254,13 @@ client.on('messageCreate', async (message: Message) => {
     const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
     const cleanInput = removeAccents(rawInput).toLowerCase();
     
+    // ----------------- TÍNH NĂNG TRỢ GIÚP / MENU LỆNH -----------------
+    const helpTriggers = ['help', 'menu', 'tro giup', 'huong dan', 'huongdan', 'lenh'];
+    if (helpTriggers.some(t => cleanInput === t)) {
+        await handleHelpCommand(message, client);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG ĐĂNG KÝ HỒ SƠ -----------------
     const profileTriggers = [
         'profile', 'thong tin ca nhan', 'ttcn', 
@@ -1652,4 +1659,84 @@ client.once('clientReady', (readyClient) => {
         console.error("[HỆ THỐNG LỖI] Lỗi nghiêm trọng trong quá trình khởi chạy:", startupError);
     }
 })();
+
+async function handleHelpCommand(message: Message, client: any) {
+    const embed = new EmbedBuilder()
+        .setTitle("📖 CẨM NANG HƯỚNG DẪN SỬ DỤNG BOTTOAN")
+        .setDescription(
+            `Chào con giời! Tao là **BotToan** - Cảnh sát sòng bài & AI trợ lý mỏ hỗn của server.\n` +
+            `Dưới đây là danh sách đầy đủ tất cả các lệnh để mày cúng tiền hoặc tấu hài:`
+        )
+        .setColor(0xEBCB8B)
+        .setThumbnail(client.user?.displayAvatarURL())
+        .addFields(
+            { name: "🏦 VÍ TIỀN & NGÂN HÀNG", value: 
+                "• `diem danh` | `daily`: Nhận tiền mỗi ngày\n" +
+                "• `vi` | `tai san` | `check tien` | `bop tien`: Xem ví & nợ nần\n" +
+                "• `bxh` | `top`: Bảng xếp hạng đại gia & cái bang\n" +
+                "• `vay tien` | `vay ngan hang`: Vay 100k vốn cứu sinh (khi dưới 10k)\n" +
+                "• `tra no [số]` | `tra no all`: Thanh toán nợ nần\n" +
+                "• `bung no` | `giat no`: Thử vận may trốn nợ (50% bay màu đi tù)\n" +
+                "• `chuyen @User [số]`: Chuyển tiền cho con nợ khác",
+                inline: false 
+            },
+            { name: "🎰 CASINO ĐỎ ĐEN (Nút bấm tương tác)", value:
+                "• `tai xiu` | `tx`: Bàn đấu tài xỉu từ 10k - 50k\n" +
+                "• `bau cua`: Sới bầu cua tôm cá hoàng gia\n" +
+                "• `xoc dia`: Sới xóc đĩa chẵn lẻ ASCII\n" +
+                "• `blackjack` | `xi dach`: Sới blackjack đấu với nhà cái BotToan",
+                inline: false
+            },
+            { name: "👥 ĐỒNG ĐỘI & ĐỘT KÍCH SWAT", value:
+                "• `lixi [tiền] [người]`: Phát lì xì cướp giật trong kênh\n" +
+                "• `roulette [tiền]` | `tu than [tiền]`: Bắn súng xoay 1 viên đạn thật\n" +
+                "• `poker [tiền]` | `poker roulette`: Poker sinh tử bóp cò súng\n" +
+                "• `snitch @User` | `bao cong an @User`: Báo án sới bạc SWAT hốt (50/50)",
+                inline: false
+            },
+            { name: "🎟️ XỔ SỐ KIẾN THIẾT (Tự động quay 18:30)", value:
+                "• `mua ve [số/random]`: Mua vé số cầu may (10k/vé, max 5 vé/ngày)\n" +
+                "• `ve so` | `check ve` | `jackpot`: Xem các vé đã mua và hũ Jackpot hiện tại\n" +
+                "• `kqxs` | `xo so`: Xem bảng vàng kết quả kỳ quay gần nhất",
+                inline: false
+            },
+            { name: "🎮 VALORANT TRACKER & DRAFT", value:
+                "• `reg val [Tên#Tag]`: Liên kết Riot ID vào tài khoản\n" +
+                "• `rank val` | `rank val [Tên#Tag]`: Tra cứu rank & thông số ELO\n" +
+                "• `pick tuong` | `quay tuong`: Draft đội hình Valorant 5 người + Gemini roast comp",
+                inline: false
+            },
+            { name: "🌸 GÓC CHỊ EM PHỤ NỮ (Viral)", value:
+                "• `aura` | `mau van khi`: Bói màu vận khí hôm nay\n" +
+                "• `thu bi mat` | `anonymous`: Gửi thư tỏ tình/bóc phốt ẩn danh qua DM bot\n" +
+                "• `check dm`: Check hàng đợi duyệt thư ẩn danh công khai\n" +
+                "• `tam trang` | `mood`: Nhật ký cảm xúc và nhận lời khuyên Tarot\n" +
+                "• `overthink [tình huống]`: AI phân tích overthink 3 mức độ bựa\n" +
+                "• `chot don [đồ] [giá]`: AI phán chốt hay cất món đồ đó\n" +
+                "• `style` | `hom nay em la ai`: Xem vibe aesthetic hôm nay của bạn\n" +
+                "• `mygu` | `doan mygu` | `mygu match`: Trắc nghiệm, bói gu, so khớp gu người yêu",
+                inline: false
+            },
+            { name: "🔮 TÂM LINH & GHÉP ĐÔI", value:
+                "• `tarot` | `boi tarot`: Rút bài Tarot hàng ngày\n" +
+                "• `gieo que` | `xin que`: Gieo quẻ tình duyên tài lộc hàng ngày\n" +
+                "• `crush` | `thich`: Khai báo đối tượng crush bí mật\n" +
+                "• `ghep doi` | `ghep`: Ghép đôi ngẫu nhiên 2 người trong server\n" +
+                "• `tham tu`: Thuê thám tử dò la xem ai đang thầm thương trộm nhớ mình\n" +
+                "• `ban dung`: Bán đứng thông tin xem ai đang crush một người\n" +
+                "• `bua yeu`: Mua bùa yêu ép duyên cưỡng bức (tăng tỉ lệ ghép đôi)",
+                inline: false
+            },
+            { name: "🗣️ CHAT AI & VOICE HORN-BOT", value:
+                "• `@BotToan [nội dung]`: Chat trực tiếp với Gemini AI thông minh mỏ hỗn\n" +
+                "• `cam mom` | `im di` | `nin`: Tắt tiếng / di chuyển Horn-Bot welcome ra khỏi voice",
+                inline: false
+            }
+        )
+        .setFooter({ text: "Gõ lệnh bằng cách tag @BotToan + lệnh (Ví dụ: @BotToan diem danh) • BotToan User Manual" })
+        .setTimestamp();
+
+    await message.reply({ embeds: [embed] }).catch(() => {});
+}
+
 
