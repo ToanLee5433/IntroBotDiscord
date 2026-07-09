@@ -5,8 +5,9 @@ import {
     getAnonymousLetterData, incrementAnonymousLetterCount,
     getMoodData, saveMood
 } from '../database';
-import { getAuraReading, processAnonymousLetter, getMoodAdvice } from '../services/gemini';
+import { getAuraReading, processAnonymousLetter, getMoodAdvice, getOverthinkAnalysis, getShoppingVerdict } from '../services/gemini';
 import { TAROT_DECK } from './tarot';
+
 
 // ============================================================
 // =========== DỮ LIỆU MÀU AURA (14 MÀU VẬN KHÍ) ============
@@ -439,6 +440,303 @@ async function handleMoodSummary(message: Message, userName: string, today: stri
             { name: '🔥 Streak Hiện Tại', value: `**${data.streak}** ngày liên tiếp`, inline: false }
         )
         .setFooter({ text: `Nhật ký ${data.weeklyMoods.length} ngày đã ghi • BotToan tâm lý`, iconURL: message.client.user?.displayAvatarURL() })
+        .setTimestamp();
+
+    await message.reply({ embeds: [embed] }).catch(() => {});
+}
+
+// ============================================================
+// =========== TÍNH NĂNG 4: BIÊN NIÊN SỬ OVERTHINK ===========
+// ============================================================
+
+export async function handleOverthink(message: Message, rawInput: string): Promise<void> {
+    const situation = rawInput.replace(/^(overthink|suy dien|bimbi)\s*/i, '').trim();
+
+    if (!situation || situation.length < 5) {
+        await message.reply(
+            '🔮 **Overthink cái gì?** Nhập tình huống vào!\n' +
+            'Ví dụ: `@BotToan overthink "Anh ấy nhắn vâng thay vì vâng ạ và không rep icon nữa"`'
+        ).catch(() => {});
+        return;
+    }
+
+    const processingMsg = await message.reply('🧠 *Đang kết nối vào mạng lưới thần kinh suy diễn toàn cầu...*').catch(() => null);
+
+    let analysis = '';
+    try {
+        analysis = await getOverthinkAnalysis(situation);
+    } catch {
+        analysis = [
+            '📊 LEVEL 1 — THỰC TẾ TỈNH TÁO:\nNgười ta đầu óc đang bơi đi, không có gì phức tạp đâu em ơi.',
+            '📺 LEVEL 2 — DRAMA PHIM HÀN:\nCó thể họ đang giấu một nỗi đau không nói nên lời...',
+            '🌌 LEVEL 3 — THUYẾT ÂM MƯU ĐA VŨ TRỤ:\nNASA đã dự báo điều này từ 2019.',
+            '💡 LỜI KHUYÊN BỚT ĐIÊN:\nUống trà sữa đi, nghĩ ít thôi không rụng tóc đấy!'
+        ].join('\n\n');
+    }
+    await processingMsg?.delete().catch(() => {});
+
+    // Trích xuất nội dung từng phần
+    const extractSection = (text: string, level: string, nextLevel?: string): string => {
+        const regex = nextLevel
+            ? new RegExp(`${level}[\\s\\S]*?(?=${nextLevel}|$)`, 'i')
+            : new RegExp(`${level}[\\s\\S]*$`, 'i');
+        const match = text.match(regex);
+        if (!match) return '*Chưa rõ...*';
+        return match[0].replace(new RegExp(level + '.*?:\n?', 'i'), '').trim().substring(0, 300);
+    };
+
+    const l1 = extractSection(analysis, 'LEVEL 1', 'LEVEL 2');
+    const l2 = extractSection(analysis, 'LEVEL 2', 'LEVEL 3');
+    const l3 = extractSection(analysis, 'LEVEL 3', 'LỜI KHUYÊN');
+    const advice = extractSection(analysis, 'LỜI KHUYÊN');
+
+    const embed = new EmbedBuilder()
+        .setTitle('🧠 BIÊN NIÊN SỬ OVERTHINK — PHÂN TÍCH CÓ CHIỀU')
+        .setColor(0x7B2FBE)
+        .setDescription(`> *"${situation.substring(0, 150)}${situation.length > 150 ? '...' : ''}"*`)
+        .addFields(
+            { name: '📊 LEVEL 1 — THỰC TẾ TỈNH TÁO', value: l1 || '*...*', inline: false },
+            { name: '📺 LEVEL 2 — DRAMA PHIM HÀN', value: l2 || '*...*', inline: false },
+            { name: '🌌 LEVEL 3 — THUYẾT ÂM MƯU ĐA VŨ TRỤ', value: l3 || '*...*', inline: false },
+            { name: '💡 LỜI KHUYÊN BỚT ĐIÊN', value: advice || '*Uống trà sữa đi em ơi!*', inline: false }
+        )
+        .setFooter({ text: 'Chụp màn hình đăng story liền đi! • BotToan Nhà Tâm Lý Học Vũ Trụ', iconURL: message.client.user?.displayAvatarURL() })
+        .setTimestamp();
+
+    await message.reply({ embeds: [embed] }).catch(() => {});
+}
+
+// ============================================================
+// =========== TÍNH NĂNG 5: ĐỘI ĐẶC NHIỆM CHỐT ĐƠN =============
+// ============================================================
+
+export async function handleChotDon(message: Message, rawInput: string): Promise<void> {
+    const content = rawInput.replace(/^(chotdon|chot don|mua hay khong|tieu hay cat)\s*/i, '').trim();
+    if (!content || content.length < 3) {
+        await message.reply(
+            '🛍️ **Chốt đơn cái gì thế?** Nhập tên món đồ vào!\n' +
+            'Ví dụ: `@BotToan chotdon Váy hai dây hoa nhí siêu xinh 350k`'
+        ).catch(() => {});
+        return;
+    }
+
+    // Tách giá (nếu có)
+    const priceMatch = content.match(/(\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|triệu|đ|vnd)?\s*)$/i);
+    const price = priceMatch ? priceMatch[1].trim() : '';
+    const item = price ? content.replace(new RegExp(priceMatch![1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'), '').trim() : content;
+
+    // Tung xúc xắc tâm linh: seed = userId + ngày + tên món đồ → nhất quán trong ngày
+    const today = getVNDateString(Date.now());
+    let hash = 0;
+    const seedStr = message.author.id + today + item.toLowerCase();
+    for (let i = 0; i < seedStr.length; i++) {
+        hash = ((hash << 5) - hash) + seedStr.charCodeAt(i);
+        hash |= 0;
+    }
+    const roll = Math.abs(hash) % 100;
+    const verdict: 'CHỐT' | 'CẤT' = roll < 55 ? 'CHỐT' : 'CẤT';
+    const regretScore = verdict === 'CHỐT' ? (roll % 40) + 10 : (roll % 30) + 5;
+
+    const processingMsg = await message.reply(
+        `🧧 *Đang tung xúc xắc tâm linh... ${roll}/100...*`
+    ).catch(() => null);
+
+    let reason = '';
+    try {
+        reason = await getShoppingVerdict(item, price, verdict, regretScore);
+    } catch {
+        reason = verdict === 'CHỐT'
+            ? 'Đời ngắn lắm, mua đi em, không mua mai hối hận đấy!'
+            : 'Nhìn lại số dư tài khoản đi em, anh không có nói nữa đâu.';
+    }
+    await processingMsg?.delete().catch(() => {});
+
+    const isChot = verdict === 'CHỐT';
+    const embed = new EmbedBuilder()
+        .setTitle(isChot ? '🛍️🟢 PHÁN QUYẾT: CHỐT ĐƠN LIỀN!' : '🛍️🔴 PHÁN QUYẾT: CẤT TÚI RỒI!')
+        .setColor(isChot ? 0x34C759 : 0xFF3B30)
+        .setDescription(reason)
+        .addFields(
+            { name: '🛒 Món Đồ', value: `**${item}**${price ? ` | 💰 **${price}**` : ''}`, inline: false },
+            { name: '🎲 Xúc Xắc Tâm Linh', value: `\`${roll}/100\` → **${verdict}**`, inline: true },
+            { name: '🪤 Chỉ Số Hối Hận', value: getRegretBar(regretScore), inline: true }
+        )
+        .setFooter({ text: 'Mỗi món đồ → một phán quyết riêng trong ngày • BotToan Đội Đặc Nhiệm', iconURL: message.client.user?.displayAvatarURL() })
+        .setTimestamp();
+
+    await message.reply({ embeds: [embed] }).catch(() => {});
+}
+
+function getRegretBar(score: number): string {
+    const filled = Math.round(score / 10);
+    const bar = '🟥'.repeat(filled) + '⬜'.repeat(10 - filled);
+    return `${bar} **${score}%**`;
+}
+
+// ============================================================
+// =========== TÍNH NĂNG 6: HÔM NAY EM LÀ AI? (AESTHETIC) ====
+// ============================================================
+
+interface AestheticArchetype {
+    name: string;
+    emoji: string;
+    color: number;
+    energy: string;
+    description: string;
+    accessories: string[];
+    soundtrack: string;
+    quote: string;
+}
+
+const AESTHETIC_ARCHETYPES: AestheticArchetype[] = [
+    {
+        name: 'Nàng Thơ Matcha', emoji: '🌿', color: 0x8DB87F,
+        energy: 'Nhẹ nhàng hướng nội, chữa lành nhưng thực ra đang lười',
+        description: 'Hôm nay em toả ra năng lượng thoảnh thơi, lưu làng, không ai bế phần tâm hồn của em lên cả. Aesthetic bất bụng nhưng thực ra chỉ muốn nằm mơ cả ngày.',
+        accessories: ['🍵 Ly matcha latte tự pha', '📚 Sách dày chưa được mở', '🧘‍♀️ Tư thế ngồi thanh thản'],
+        soundtrack: 'Nhạc lofi chill playlist 3 tiếng',
+        quote: '"Em đang heal đó, đừng phá" 🌿'
+    },
+    {
+        name: 'Nữ Hoàng Drama', emoji: '👑', color: 0xBF616A,
+        energy: 'Hôm nay hít hà drama, nói câu nào là bén câu đó',
+        description: 'Năng lượng hôm nay đang ở trạng thái full-combat. Mọi thứ đều có thể trở thành đầu mối drama. Em không tìm kiếm rắc rối, nhưng rắc rối tự tìm đến em.',
+        accessories: ['💅 Nail màu đỏ thắm', '📱 Thông báo mạng xã hội mở toàn màn hình', '👇 Ngón trỏ sẵn sàng tag tên'],
+        soundtrack: 'BLACKPINK — Shut Down (repeat)',
+        quote: '"Ai đụng vào thì biết tay em" 👑'
+    },
+    {
+        name: 'CEO Overnight', emoji: '💼', color: 0x2C3E50,
+        energy: 'Vibe tổng tài, deadline ngập đầu, tiền chưa thấy đâu',
+        description: 'Hôm nay em đang nhìn xa trông rộng. Kế hoạch lớn, ước mơ to. Vấn đề duy nhất là tất cả đang nằm trong ghi chú điện thoại chưa được xả ra.',
+        accessories: ['☕ Cà phê đá lạnh thứ 3', '📝 To-do list 47 dòng', '📱 Tab Chrome mở 23 cái'],
+        soundtrack: 'Podcast "làm giàu từ con số 0"',
+        quote: '"Em đang xây dựng đế chế" 💼'
+    },
+    {
+        name: 'Đóa Hồng Gai Góc', emoji: '🌹', color: 0xFF2D55,
+        energy: 'Ai đụng vào là chờ nhận hậu quả',
+        description: 'Năng lượng hôm nay của em là "Không ai trầm bướng được em". Em đẹp, em biết, và em cũng đang sẵn sàng đấu khẩu nếu ai có ý kiến.',
+        accessories: ['💁‍♀️ Tóc đầy đủ style phản đối', '👢 Đôi giày sẵn sàng bỏ đi', '🔵 Avatar story trêu'],
+        soundtrack: 'Olivia Rodrigo — good 4 u',
+        quote: '"Em không gây sự nhưng em kết thúc sự" 🌹'
+    },
+    {
+        name: 'Mộng Mơ Trà Sữa', emoji: '🧋', color: 0xC8A97E,
+        energy: 'Bay bay trong đầu, không có gì quan trọng hơn ly trà sữa',
+        description: 'Hôm nay trâu đầu em đang ở một bước về ào... trần mun. Đời sống bình yên nhất khi có ly trà sữa cầm tay và không ai hỏi gì cả.',
+        accessories: ['🧋 Trà sữa full topping', '🎧 Tai nghe chống ồn thế giới', '📸 Filter camera màu warm'],
+        soundtrack: 'IU — Palette (acoustic version)',
+        quote: '"Trà sữa chữa lành mọi thứ" 🧋'
+    },
+    {
+        name: 'Bà Hoàng Nội Tâm', emoji: '🌙', color: 0x5E81AC,
+        energy: 'Nhiều suy nghĩ hơn lời nói, sâu hơn người ta tưởng',
+        description: 'Ngày hôm nay em thích nhìn ra cửa sổ và suy nghĩ về nhiều thứ lắm. Có điều gì đó đang được ấp ủ bên trong. Người nào hiểu được em hôm nay đáng được giải thưởng.',
+        accessories: ['📓 Nhật ký có khóa', '🌙 Ảnh nền màu xanh tím lạnh', '🎧 Playlist chỉ mình em biết'],
+        soundtrack: 'Phương Ly — Nếu Em Được Chọn',
+        quote: '"Không phải lạnh lùng, chỉ là chọn lọc" 🌙'
+    },
+    {
+        name: 'Gái Bé Sài Gòn', emoji: '👩‍💼', color: 0xFF9500,
+        energy: 'Năng động cháy đến 11 giờ đêm mới về',
+        description: 'Hôm nay năng lượng em như máy chạy. Lịch dày đặc, cà phê mạnh, không ai bắt kịp. Sài Gòn sinh ra em hôm nay và em đủ sức chạy hết địa bàn.',
+        accessories: ['🛵 Grab bike đặt trước', '☕ Cà phê sữa đá vừa', '📱 Zalo, Facebook mở song song'],
+        soundtrack: 'Nhạc remix đám cưới trên xe',
+        quote: '"Ai chậu không nổi thì đứng sang một bên" 👩‍💼'
+    },
+    {
+        name: 'Phượng Hoàng Tái Sinh', emoji: '🔥', color: 0xFF5733,
+        energy: 'Vừa trải qua giai đoạn khó, hôm nay glow up mạnh',
+        description: 'Hôm nay em đang bước ra khỏi một giai đoạn cũ với version 2.0 càng xịn hơn. Nước chảy, đá mòn, em thì glow up.',
+        accessories: ['💄 Son màu bold mới mua', '🎉 Điệu bộ tự tin hơn thường', '📸 Nhật ký hành trình glow up'],
+        soundtrack: 'SZA — Good Days',
+        quote: '"Em không phải đang sống sót — em đang trưởng thành" 🔥'
+    },
+    {
+        name: 'Tiểu Thư An Nhàn', emoji: '🫖', color: 0xF8D7DA,
+        energy: 'Không vội, không muộn, tất cả đang trong tầm kiểm soát',
+        description: 'Hôm nay em chọn sống chậm. Không phải không có việc, chỉ là em ưu tiên những gì làm em thấy định vị. Người ta có thể chạy, em thì không cần.',
+        accessories: ['🫖 Nằm diên, điện thoại trên tay', '🥤 Nước ép đẹp', '🪷 Thả mask dưỡng da'],
+        soundtrack: 'Taylor Swift — The Eras Tour Acoustic',
+        quote: '"Hôm nay em chọn bản thân" 🫖'
+    },
+    {
+        name: 'Một Mình Một Cõi', emoji: '🎒', color: 0x8FBCBB,
+        energy: 'Tự lập, tự do, tự đi cà phê một mình',
+        description: 'Hôm nay em không cần ai cả. Bản thân là bạn thân tốt nhất. Đi đâu cũng một mình và thấy ổn với điều đó.',
+        accessories: ['🎒 Túi một mình bạo', '🎙️ Tai nghe khóa thế giới ngoài', '📷 Nhật ký ảnh solo trips'],
+        soundtrack: 'Harry Styles — Adore You',
+        quote: '"Solo trip em tự book, đi đâu cũng ok" 🎒'
+    },
+    {
+        name: 'Thần Tài Bỏ Túi', emoji: '💸', color: 0xFFCC00,
+        energy: 'Hôm nay may mắn, tài lộc đang về phía em',
+        description: 'Năng lượng hôm nay của em đang rất tốt để ký kết, gửi tin nhắn qóa, hỏi lương, hoặc chốt đơn đồ sale. Người ta gọi đó là "main character energy".',
+        accessories: ['💳 Ví điện tử sẵn', '🍀 Đồ vật may mắn kèm', '📊 List mục tiêu tháng'],
+        soundtrack: 'Doja Cat — Woman',
+        quote: '"Tiền như được mua, cơ hội chỉ có một lần" 💸'
+    },
+    {
+        name: 'Nghệ Nhân Thuần Túy', emoji: '🎨', color: 0x9B59B6,
+        energy: 'Sáng tạo không có cửa cản, thèm làm một thứ gì đó đẹp',
+        description: 'Hôm nay tay em ngứa muốn làm gì đó: vẽ, dán, cắt, chụp, edit. Đầu óc đang rất nhiều ý tưởng nhưng chưa biết xả ra cái nào trước.',
+        accessories: ['🎨 Palette màu trendy', '📸 Lightroom preset riêng', '✏️ Sổ tay dotted'],
+        soundtrack: 'Cigarettes After Sex — Apocalypse',
+        quote: '"Nghệ thuật là cách em nói chuyện không cần lời" 🎨'
+    },
+    {
+        name: 'Gái Bé Hôm Nay Khó', emoji: '🥺', color: 0xA8D8EA,
+        energy: 'Phải chăm sóc, phải nhường bộ, đừng đụng',
+        description: 'Hôm nay không phải ngày xui nhưng cũng chưa phải ngày vui. Em đang ở trạng thái "cần ai đó hỏi em có ổn không". Nếu không thì chừa.',
+        accessories: ['🥺 Giao diện buồn có kinh nghiệm', '👌 Âm muốn gài', '💬 Status ẩn ý nhiều'],
+        soundtrack: 'Adele — Someone Like You',
+        quote: '"Em ổn. (Không phải ổn)" 🥺'
+    },
+    {
+        name: 'Warrior Tóc Mây', emoji: '💪', color: 0x34C759,
+        energy: 'Mạnh mẽ, tự tin, không cần ai xác nhận',
+        description: 'Hôm nay em tự tin nhất quý. Không có gì em không thể giải quyết. Validation? Em tự cấp cho chính mình.',
+        accessories: ['💪 Playlist càng ngày càng mạnh', '📝 List thành tích bàn thờ', '☀️ Nhật ký được thú đi'],
+        soundtrack: 'Beyoncé — Run the World (Girls)',
+        quote: '"Em là câu trả lời, không phải câu hỏi" 💪'
+    },
+    {
+        name: 'Nhân Vật Chính Hôm Nay', emoji: '🌟', color: 0x00B4D8,
+        energy: 'Main character energy đang bật màn hình',
+        description: 'Hôm nay em đang sống trong phân cảnh chuyển hóa. Mọi người xung quanh đều là phụ cảnh. Nhạc nền đang cố tình epic.',
+        accessories: ['💋 Son đổi màu theo giờ', '🌟 Outfit có cốt truyện', '🎥 Đầu óc tự thêm nhạc nền'],
+        soundtrack: 'Mitski — Nobody',
+        quote: '"Hôm nay em đang trong cảnh slow-motion bước vào" 🌟'
+    },
+];
+
+function getAestheticForDay(userId: string, dateStr: string): AestheticArchetype {
+    let hash = 0;
+    const str = userId + dateStr + 'aesthetic';
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return AESTHETIC_ARCHETYPES[Math.abs(hash) % AESTHETIC_ARCHETYPES.length];
+}
+
+export async function handleDailyAesthetic(message: Message): Promise<void> {
+    const today = getVNDateString(Date.now());
+    const userName = message.member?.displayName || message.author.username;
+    const arch = getAestheticForDay(message.author.id, today);
+
+    const embed = new EmbedBuilder()
+        .setTitle(`${arch.emoji} HÔM NAY ${userName.toUpperCase()} LÀ: ${arch.name.toUpperCase()}`)
+        .setColor(arch.color)
+        .setDescription(`*${arch.description}*`)
+        .addFields(
+            { name: '⚡ Năng Lượng Chủ Đạo', value: arch.energy, inline: false },
+            { name: '💌 Phụ Kiện Bắt Buộc', value: arch.accessories.join('\n'), inline: true },
+            { name: '🎵 Nhạc Nền Hôm Nay', value: arch.soundtrack, inline: true },
+            { name: '💬 Quót Đặc Trưng', value: arch.quote, inline: false }
+        )
+        .setFooter({ text: `Aesthetic ngày ${today} • Đổi mỗi ngày lúc 00:00 VN • BotToan Style`, iconURL: message.client.user?.displayAvatarURL() })
         .setTimestamp();
 
     await message.reply({ embeds: [embed] }).catch(() => {});

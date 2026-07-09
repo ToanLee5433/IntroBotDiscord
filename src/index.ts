@@ -23,7 +23,7 @@ import { chatWithGemini } from './services/gemini';
 import { fetchValorantRank } from './services/valorant';
 import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
 import { initTarot, handleTarot } from './games/tarot';
-import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM } from './games/femfeatures';
+import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -898,6 +898,27 @@ client.on('messageCreate', async (message: Message) => {
     const moodTriggers = ['tam trang', 'mood', 'cam xuc'];
     if (moodTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
         await handleMoodDiary(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG BIÊN NIÊN SỬ OVERTHINK -----------------
+    const overthinkTriggers = ['overthink', 'suy dien', 'bimbi'];
+    if (overthinkTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleOverthink(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG ĐỘI ĐẶC NHIỆM CHỐT ĐƠN -----------------
+    const chotDonTriggers = ['chotdon', 'chot don', 'mua hay khong', 'tieu hay cat'];
+    if (chotDonTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleChotDon(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG HÔM NAY EM LÀ AI (AESTHETIC) -----------------
+    const aestheticTriggers = ['hom nay em la ai', 'style'];
+    if (aestheticTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleDailyAesthetic(message);
         return;
     }
 

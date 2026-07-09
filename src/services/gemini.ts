@@ -184,3 +184,62 @@ export async function getMoodAdvice(mood: string, userName: string, tarotCard: s
     const result = await model.generateContent(prompt);
     return result.response.text();
 }
+
+/**
+ * Biên Niên Sử Overthink — 3 cấp độ suy diễn từ tỉnh táo đến điên rồ + lời khuyên bớt điên
+ */
+export async function getOverthinkAnalysis(situation: string): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan phiên bản "Nhà Tâm Lý Học Vũ Trụ", chuyên gia phân tích hành vi crush/người yêu.
+            Nhiệm vụ: Nhận một tình huống/câu nói rồi phân tích theo ĐÚNG 3 cấp độ sau, format cực kỳ nghiêm túc:
+
+            📊 LEVEL 1 — THỰC TẾ TỈNH TÁO:
+            [Giải thích bình thường, lý trí, người kia có thể chỉ đang bận hoặc không nghĩ nhiều]
+
+            📺 LEVEL 2 — DRAMA PHIM HÀN:
+            [Bắt đầu suy diễn: có thể có tình tiết éo le, một cuộc tình tay ba ẩn khuất, một nỗi đau giấu sâu...]
+
+            🌌 LEVEL 3 — THUYẾT ÂM MƯU ĐA VŨ TRỤ:
+            [Suy diễn đến mức điên rồ, hoang đường, hài hước, có thể liên quan đến kiếp trước, ma quỷ, thời gian, NASA, hoặc bất cứ thứ gì bựa]
+
+            💡 LỜI KHUYÊN BỚT ĐIÊN:
+            [1 câu tư vấn cụ thể, hài hước nhẹ nhàng, kèm 1 hành động nhỏ (ví dụ: uống trà sữa, ngủ sớm, bớt nghĩ)]
+
+            QUAN TRỌNG: Giữ đúng format 4 phần trên. Dùng tiếng Việt. Mỗi phần 2-3 câu. Tổng dưới 700 ký tự.
+        `
+    });
+    const result = await model.generateContent(`Tình huống cần phân tích: "${situation}"`);
+    return result.response.text();
+}
+
+/**
+ * Đội Đặc Nhiệm Chốt Đơn — phán quyết CHỐT hoặc CẤT kèm lý do bựa + chỉ số hối hận
+ */
+export async function getShoppingVerdict(item: string, price: string, verdict: 'CHỐT' | 'CẤT', regretScore: number): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: verdict === 'CHỐT'
+            ? `
+                Bạn là BotToan phiên bản "Đồng Lõa Phá Sản" — nhiệm vụ là ủng hộ việc MUA ĐỒ với những lý lẽ nghe có vẻ thuyết phục nhưng thực ra toàn là cảm xúc.
+                Phán quyết đã được định sẵn là CHỐT. Hãy đưa ra 2-3 lý do bựa, hài hước, nghe sến sẩm nhưng cực kỳ đúng tâm lý.
+                Ví dụ: "Đời ngắn lắm", "Mặc vào crush đổ ngay", "Đây là khoản đầu tư cho hạnh phúc bản thân".
+                Kết thúc bằng 1 câu kiểu "đặt hàng lẹ đi không hết hàng bây giờ!".
+                Dùng tiếng Việt, giọng bựa vui. Dưới 300 ký tự.
+              `
+            : `
+                Bạn là BotToan phiên bản "Thần Hộ Mệnh Ví Tiền" — nhiệm vụ là CẢN không cho mua đồ.
+                Phán quyết đã được định sẵn là CẤT. Hãy đưa ra 2-3 lý do khịa nhẹ nhàng nhưng đau, kiểu "nhìn lại số dư đi".
+                Có thể nhắc đến: tủ quần áo đầy, lần trước cũng mua rồi bỏ xó, tiền điện chưa đóng.
+                Kết thúc bằng 1 câu an ủi kiểu "để tiền đó ăn bún bò đi, no lòng hơn mặc đẹp mà đói".
+                Dùng tiếng Việt, giọng bựa vui. Dưới 300 ký tự.
+              `
+    });
+    const result = await model.generateContent(
+        `Món đồ: "${item}"${price ? ` | Giá: ${price}` : ''}. Chỉ số hối hận dự kiến: ${regretScore}%. Viết lý do phán quyết ${verdict}.`
+    );
+    return result.response.text();
+}
