@@ -1,29 +1,16 @@
+# Workflow này đã bị tắt vì bot hiện đang deploy trên Railway.app
+# Hugging Face Docker Space yêu cầu tài khoản PRO trả phí
+# Để kích hoạt lại: uncomment phần 'on:' bên dưới và thêm lại các bước cần thiết
+
 name: Sync to Hugging Face hub
+
 on:
-  push:
-    branches: [main, master]
-  workflow_dispatch:
+  workflow_dispatch: # Chỉ chạy khi kích hoạt thủ công, không tự động
 
 jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
+    if: false # Tắt hoàn toàn job này
     steps:
-      # Bước 1: Lấy code từ GitHub
-      - uses: actions/checkout@v4
-      
-      # Bước 2: Cài đặt môi trường Python
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          
-      # Bước 3: Cài đặt công cụ VIP của Hugging Face
-      - name: Install Hugging Face CLI
-        run: pip install -U "huggingface_hub[cli]"
-        
-      # Bước 4: Vượt trạm kiểm soát, đẩy thẳng mọi thứ lên mây
-      - name: Upload to Hugging Face Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          hf upload Toan54/BotToan . . --repo-type=space
+      - name: Disabled
+        run: echo "Workflow này đã bị tắt. Bot đang chạy trên Railway.app"

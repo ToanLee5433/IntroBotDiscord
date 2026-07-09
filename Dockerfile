@@ -26,9 +26,10 @@ COPY . .
 # Đảm bảo toàn bộ dự án được build hoàn chỉnh
 RUN npm run build
 
-# Cổng mặc định của Hugging Face Spaces là 7860
-ENV PORT=7860
-EXPOSE 7860
+# Railway tự cung cấp biến PORT động qua môi trường - không hardcode
+# Mặc định 8080 nếu Railway chưa set (nhưng Railway luôn set PORT)
+ENV PORT=8080
+EXPOSE ${PORT}
 
 # Khởi chạy bot
 CMD ["npm", "start"]
