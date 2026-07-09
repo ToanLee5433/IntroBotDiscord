@@ -937,6 +937,46 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG CẤM NÓI (MUTE HORN-BOT) -----------------
+    const muteTriggers = ['cam mom', 'im di', 'cam', 'im mom', 'nin', 'ngung sua'];
+    if (muteTriggers.some(t => cleanInput === t)) {
+        if (!message.guild) {
+            await message.reply("❌ Lệnh này chỉ dùng được trong server thôi nha cưng!").catch(() => {});
+            return;
+        }
+
+        const connection = getVoiceConnection(message.guild.id);
+        const userVoiceChannel = message.member?.voice.channel;
+
+        if (!connection) {
+            await message.reply("❌ **ỦA?** Tao có đang ở trong phòng voice nào đâu mà đòi tắt tiếng? Định trêu chiến sĩ à!").catch(() => {});
+            return;
+        }
+
+        if (!userVoiceChannel) {
+            await message.reply("❌ **HÃO!** Mày phải vào phòng thoại chung với tao thì mới được quyền bắt tao im mồm chứ!").catch(() => {});
+            return;
+        }
+
+        const botChannelId = connection.joinConfig.channelId;
+        if (botChannelId !== userVoiceChannel.id) {
+            await message.reply("❌ **CÚT NHA!** Mày có ở chung phòng voice với tao đâu mà đòi ra lệnh? Muốn cấm thì vào chung phòng thoại đã cưng!").catch(() => {});
+            return;
+        }
+
+        connection.destroy();
+        
+        const muteEmbed = new EmbedBuilder()
+            .setTitle("🤫 HORN-BOT ĐÃ CÂM MỒM")
+            .setColor(0xE74C3C)
+            .setDescription(`🤫 **Được rồi!** Biết là phiền rồi, tao biến đây! Đã ngắt kết nối khỏi phòng thoại <#${userVoiceChannel.id}> theo yêu cầu của <@${message.author.id}>.`)
+            .setFooter({ text: "BotToan - Mute Horn-Bot", iconURL: client.user?.displayAvatarURL() })
+            .setTimestamp();
+
+        await message.reply({ embeds: [muteEmbed] }).catch(() => {});
+        return;
+    }
+
     // ----------------- TÍNH NĂNG XÓA TIN NHẮN (PURGE) -----------------
     const xoaTriggers = ['xoa', 'xóa', 'clear', 'purge'];
     if (xoaTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
