@@ -24,6 +24,7 @@ import { fetchValorantRank } from './services/valorant';
 import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
 import { initTarot, handleTarot } from './games/tarot';
 import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
+import { handleMyGuQuiz, handleDoanMyGu } from './games/mygu';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -919,6 +920,20 @@ client.on('messageCreate', async (message: Message) => {
     const aestheticTriggers = ['hom nay em la ai', 'style'];
     if (aestheticTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
         await handleDailyAesthetic(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG TRẮC NGHIỆM MÁY DÒ GU (MYGU) -----------------
+    const myGuTriggers = ['mygu', 'gu'];
+    if (myGuTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleMyGuQuiz(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG ĐOÁN GU NHANH (DOAN MYGU) -----------------
+    const doanMyGuTriggers = ['doan mygu', 'doan gu'];
+    if (doanMyGuTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleDoanMyGu(message);
         return;
     }
 

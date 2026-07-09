@@ -243,3 +243,56 @@ export async function getShoppingVerdict(item: string, price: string, verdict: '
     );
     return result.response.text();
 }
+
+/**
+ * Đọc vị gu người yêu thực tế dựa trên mã trả lời trắc nghiệm (REAL_GU_PROMPT)
+ */
+export async function getRealGuReading(answers: string, username: string): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan - AI trợ lý Discord mỏ hỗn, châm biếm nhưng đọc vị tâm lý cực chuẩn.
+            Nhiệm vụ của bạn là phân tích dữ liệu trắc nghiệm gu người yêu của user và đưa ra một kết quả mỏ hỗn, bựa và hài hước đặc trưng.
+            Hãy xuất kết quả tuân thủ ĐÚNG định dạng sau (sử dụng chữ in hoa cho tiêu đề phần):
+
+            HỆ NGƯỜI YÊU: [Đặt tên hệ độc lạ, Gen Z. Ví dụ: Hệ Game Thủ Rách Rưới Nghiện Dỗ Dành]
+            BỆNH LÝ LỤY TÌNH: [Giải thích mỏ hỗn vì sao họ có gu mặn/vô tri như vậy]
+            MỘT NGÀY HẸN HÒ THỰC TẾ: [Mô tả ngắn gọn, hài hước một buổi hẹn hò dựa trên các câu hỏi]
+            TỈ LỆ SỐNG SÓT: [Ví dụ: 15%. Kèm 1 lời khuyên tỉnh mộng hài hước dưới 2 câu]
+
+            Yêu cầu: Viết súc tích, độ dài toàn bài dưới 700 ký tự để không bị tràn embed. Không gửi link. Dùng tiếng Việt.
+        `
+    });
+
+    const result = await model.generateContent(`User: ${username} | Đáp án: [${answers}]`);
+    return result.response.text();
+}
+
+/**
+ * So sánh gu của User với Profile thực tế của người kia
+ */
+export async function getGuMatchReading(
+    myName: string, myGuCode: string,
+    targetName: string, targetProfileText: string
+): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan - chuyên gia mai mối và khuyên bỏ nhau online.
+            Nhiệm vụ của bạn là so sánh gu mong muốn của một người (biểu thị qua mã gu) với thông tin profile thực tế của người kia.
+            Hãy phân tích sự lệch pha/hợp pha một cách mỏ hỗn, châm biếm sâu cay và hài hước.
+            Độ dài: Dưới 400 ký tự. Không gửi link. Dùng tiếng Việt.
+        `
+    });
+
+    const prompt = `
+      Người xem: ${myName} (có mã gu mong muốn là: ${myGuCode})
+      Đối tượng được so sánh: ${targetName} (có thông tin thực tế: ${targetProfileText})
+      Hãy phán xem hai người này có hợp gu nhau không, lệch pha chỗ nào và đưa ra lời khuyên "chí mạng".
+    `;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}
+

@@ -32,6 +32,11 @@ const playerLastMoodDateInMemory: { [userId: string]: string } = {};
 const playerLastMoodInMemory: { [userId: string]: string } = {};
 const playerMoodStreakInMemory: { [userId: string]: number } = {};
 const playerWeeklyMoodsInMemory: { [userId: string]: string } = {}; // JSON
+// MyGu
+const playerLastMyGuDateInMemory: { [userId: string]: string } = {};
+const playerMyGuCodeInMemory: { [userId: string]: string } = {};
+const playerMyGuResultCacheInMemory: { [userId: string]: string } = {};
+const playerLastDoanGuDateInMemory: { [userId: string]: string } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -67,6 +72,11 @@ interface IUser {
     lastMoodDate?: string;
     lastMood?: string;
     weeklyMoods?: string; // JSON: [{date, mood}]
+    // MyGu
+    lastMyGuDate?: string;
+    myGuCode?: string;
+    myGuResultCache?: string;
+    lastDoanGuDate?: string;
 }
 
 const userSchema = new Schema<IUser>({
@@ -101,7 +111,12 @@ const userSchema = new Schema<IUser>({
     moodStreak: { type: Number, default: 0 },
     lastMoodDate: { type: String, default: "" },
     lastMood: { type: String, default: "" },
-    weeklyMoods: { type: String, default: "[]" }
+    weeklyMoods: { type: String, default: "[]" },
+    // MyGu
+    lastMyGuDate: { type: String, default: "" },
+    myGuCode: { type: String, default: "" },
+    myGuResultCache: { type: String, default: "" },
+    lastDoanGuDate: { type: String, default: "" }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -1831,4 +1846,120 @@ export async function saveMood(userId: string, mood: string, todayStr: string): 
     }
     return newStreak;
 }
+
+// ============================================================
+// =========== CÁC HÀM DB: HỆ THỐNG MÁY DÒ MY GU ==============
+// ============================================================
+
+/**
+ * Lấy dữ liệu trắc nghiệm MyGu của user
+ */
+export async function getMyGuData(userId: string): Promise<{ lastMyGuDate: string; myGuCode: string; myGuResultCache: string }> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return {
+                lastMyGuDate: user?.lastMyGuDate || "",
+                myGuCode: user?.myGuCode || "",
+                myGuResultCache: user?.myGuResultCache || ""
+            };
+        } catch (err) {
+            console.error("[DB LỖI] getMyGuData:", err);
+        }
+    }
+    return {
+        lastMyGuDate: playerLastMyGuDateInMemory[userId] || "",
+        myGuCode: playerMyGuCodeInMemory[userId] || "",
+        myGuResultCache: playerMyGuResultCacheInMemory[userId] || ""
+    };
+}
+
+/**
+ * Lưu kết quả trắc nghiệm MyGu của user
+ */
+export async function saveMyGuData(userId: string, code: string, result: string, todayStr: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { lastMyGuDate: todayStr, myGuCode: code, myGuResultCache: result },
+                { upsert: true }
+            );
+            return;
+        } catch (err) {
+            console.error("[DB LỖI] saveMyGuData:", err);
+        }
+    }
+    playerLastMyGuDateInMemory[userId] = todayStr;
+    playerMyGuCodeInMemory[userId] = code;
+    playerMyGuResultCacheInMemory[userId] = result;
+}
+
+/**
+ * Lấy ngày đoán gu gần nhất
+ */
+export async function getLastDoanGuDate(userId: string): Promise<string> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user?.lastDoanGuDate || "";
+        } catch (err) {
+            console.error("[DB LỖI] getLastDoanGuDate:", err);
+        }
+    }
+    return playerLastDoanGuDateInMemory[userId] || "";
+}
+
+/**
+ * Lưu ngày đoán gu gần nhất
+ */
+export async function setLastDoanGuDate(userId: string, todayStr: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { lastDoanGuDate: todayStr },
+                { upsert: true }
+            );
+            return;
+        } catch (err) {
+            console.error("[DB LỖI] setLastDoanGuDate:", err);
+        }
+    }
+    playerLastDoanGuDateInMemory[userId] = todayStr;
+}
+
+/**
+ * Lấy danh sách mã gu của các thành viên trong server (guild)
+ * Được tối ưu hóa bằng cách truyền danh sách ID thành viên để lọc ngay tại DB
+ */
+export async function getServerGuData(memberIds: string[]): Promise<{ userId: string; myGuCode: string }[]> {
+    if (useMongoDB) {
+        try {
+            const users = await UserModel.find({
+                userId: { $in: memberIds },
+                myGuCode: { $ne: "", $exists: true }
+            });
+            return users.map(u => ({
+                userId: u.userId,
+                myGuCode: u.myGuCode || ""
+            }));
+        } catch (err) {
+            console.error("[DB LỖI] getServerGuData:", err);
+            return [];
+        }
+    }
+    // Fallback RAM
+    const res: { userId: string; myGuCode: string }[] = [];
+    for (const uid of memberIds) {
+        if (playerMyGuCodeInMemory[uid]) {
+            res.push({
+                userId: uid,
+                myGuCode: playerMyGuCodeInMemory[uid]
+            });
+        }
+    }
+    return res;
+}
+
 
