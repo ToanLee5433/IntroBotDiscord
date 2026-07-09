@@ -26,6 +26,7 @@ import { initTarot, handleTarot } from './games/tarot';
 import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
 import { handleMyGuQuiz, handleDoanMyGu } from './games/mygu';
 import { handleGamingCourt } from './games/gamingcourt';
+import { handleWCPrediction, playWCPenalty, handleWCCommand } from './games/worldcup';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -954,6 +955,25 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG WORLD CUP 2026 -----------------
+    const wcTriggers = ['wc', 'setwc', 'chungwc', 'lockwc', 'bat', 'bet'];
+    if (wcTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleWCCommand(message, rawInput);
+        return;
+    }
+
+    const wcPredictTriggers = ['tientri', 'tien tri', 'predict'];
+    if (wcPredictTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleWCPrediction(message, rawInput);
+        return;
+    }
+
+    const wcPenaltyTriggers = ['sut', 'penalty'];
+    if (wcPenaltyTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await playWCPenalty(message, rawInput);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG XÓA TIN NHẮN (PURGE) -----------------
     const xoaTriggers = ['xoa', 'xóa', 'clear', 'purge'];
     if (xoaTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
@@ -1719,6 +1739,14 @@ async function handleHelpCommand(message: Message, client: any) {
                 "• `mua ve [số/random]`: Mua vé số cầu may (10k/vé, max 5 vé/ngày)\n" +
                 "• `ve so` | `check ve` | `jackpot`: Xem các vé đã mua và hũ Jackpot hiện tại\n" +
                 "• `kqxs` | `xo so`: Xem bảng vàng kết quả kỳ quay gần nhất",
+                inline: false
+            },
+            { name: "🏆 SỰ KIỆN WORLD CUP 2026", value:
+                "• `wc`: Xem danh sách kèo bóng đá đang mở cược\n" +
+                "• `bat [mã] [A/B] [tiền]`: Đặt cược vào Đội A/B (Cược cộng dồn, tối đa 500k)\n" +
+                "• `tientri [Đội 1] vs [Đội 2]`: Nhờ bạch tuộc Paul BotToan tiên tri tỉ số bựa\n" +
+                "• `sut [tiền]`: Sút penalty cờ bạc x2 đối mặt BotToan (phát nhạc WC)\n" +
+                "• `setwc` | `lockwc` | `chungwc` (chỉ Admin): Mở kèo, khóa cược, chung tiền hoàn cược",
                 inline: false
             },
             { name: "🎮 GAMING & VALORANT", value:

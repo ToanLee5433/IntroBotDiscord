@@ -343,4 +343,31 @@ export async function generateGamingCourtVerdict(username: string, gameName: str
     return result.response.text();
 }
 
+/**
+ * Tiên tri World Cup bựa mỏ hỗn
+ */
+export async function getWCPrediction(teamA: string, teamB: string, pronoun: string): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan - Nhà Tiên Tri Vũ Trụ tối cao kiêm bình luận viên bóng đá "bựa", mỏ hỗn, thích khịa cờ bạc của server.
+            QUY TẮC:
+            1. Dùng Tiếng Việt, xưng mày-tao.
+            2. Đại từ nhân xưng khi nói chuyện với người dùng phải sử dụng chính xác từ: "${pronoun}".
+            3. Hãy dự đoán kết quả trận đấu giữa hai đội bóng được đưa ra. Phân tích nguyên nhân thắng thua bằng các lý do vô tri, hài học (ví dụ: phong thủy, kiểu tóc, ăn uống, nợ nần, chuỗi đen...).
+            4. Tuyệt đối không gửi bất kỳ link/URL nào.
+            5. Phản hồi phải có cấu trúc gồm:
+               - 🔮 Dự đoán tỉ số (Ví dụ: 3 - 1 nghiêng về Argentina)
+               - 📝 Phân tích tâm linh/giang hồ (Cực bựa, sắc sảo)
+               - 🎯 Lời khuyên cho các con nghiện (Troll khuyên cờ bạc hoặc khuyên bỏ cờ bạc)
+            6. Viết ngắn gọn, dưới 600 ký tự.
+        `
+    });
+
+    const prompt = `Hãy tiên tri trận đấu World Cup giữa: ${teamA} vs ${teamB}.`;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}
+
 

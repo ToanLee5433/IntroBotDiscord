@@ -151,10 +151,51 @@ const lotteryStateSchema = new Schema<ILotteryState>({
 
 const LotteryStateModel = model<ILotteryState>('LotteryState', lotteryStateSchema);
 
+// --- WORLD CUP 2026 DATA MODELS ---
+export interface IWorldCupMatch {
+    matchId: string;
+    teamA: string;
+    teamB: string;
+    odds: string;
+    status: 'open' | 'locked' | 'ended';
+    winner: string;
+}
+
+const worldCupMatchSchema = new Schema<IWorldCupMatch>({
+    matchId: { type: String, required: true, unique: true },
+    teamA: { type: String, required: true },
+    teamB: { type: String, required: true },
+    odds: { type: String, required: true },
+    status: { type: String, default: 'open' },
+    winner: { type: String, default: "" }
+});
+
+const WorldCupMatchModel = model<IWorldCupMatch>('WorldCupMatch', worldCupMatchSchema);
+
+export interface IWorldCupBet {
+    userId: string;
+    matchId: string;
+    team: 'A' | 'B';
+    amount: number;
+    settled: boolean;
+}
+
+const worldCupBetSchema = new Schema<IWorldCupBet>({
+    userId: { type: String, required: true },
+    matchId: { type: String, required: true },
+    team: { type: String, required: true },
+    amount: { type: Number, required: true },
+    settled: { type: Boolean, default: false }
+});
+
+const WorldCupBetModel = model<IWorldCupBet>('WorldCupBet', worldCupBetSchema);
+
 // Fallback RAM DB
 let inMemoryJackpotPool = 200; // 200k base
 const inMemoryTickets: ILotteryTicket[] = [];
 const inMemoryLotteryStates: { [date: string]: { winningNumbers: string[]; drawn: boolean } } = {};
+const inMemoryWCMatches: IWorldCupMatch[] = [];
+const inMemoryWCBets: IWorldCupBet[] = [];
 
 /**
  * Cấm chat người dùng bằng cách lưu thời hạn cấm ở cấp độ Bot (RAM / MongoDB)
@@ -1927,6 +1968,224 @@ export async function setLastDoanGuDate(userId: string, todayStr: string): Promi
         }
     }
     playerLastDoanGuDateInMemory[userId] = todayStr;
+}
+
+/**
+ * Thêm trận đấu World Cup mới (chỉ Admin)
+ */
+export async function addWCMatch(matchId: string, teamA: string, teamB: string, odds: string): Promise<boolean> {
+    if (useMongoDB) {
+        try {
+            await WorldCupMatchModel.findOneAndUpdate(
+                { matchId },
+                { teamA, teamB, odds, status: 'open', winner: "" },
+                { upsert: true, new: true }
+            );
+            return true;
+        } catch (err) {
+            console.error("[DB LỖI] addWCMatch:", err);
+            return false;
+        }
+    }
+    // RAM DB
+    const idx = inMemoryWCMatches.findIndex(m => m.matchId === matchId);
+    const newMatch: IWorldCupMatch = { matchId, teamA, teamB, odds, status: 'open', winner: "" };
+    if (idx !== -1) {
+        inMemoryWCMatches[idx] = newMatch;
+    } else {
+        inMemoryWCMatches.push(newMatch);
+    }
+    return true;
+}
+
+/**
+ * Khóa đặt cược trận đấu World Cup (chỉ Admin)
+ */
+export async function lockWCMatch(matchId: string): Promise<boolean> {
+    if (useMongoDB) {
+        try {
+            const match = await WorldCupMatchModel.findOne({ matchId });
+            if (!match) return false;
+            match.status = 'locked';
+            await match.save();
+            return true;
+        } catch (err) {
+            console.error("[DB LỖI] lockWCMatch:", err);
+            return false;
+        }
+    }
+    // RAM DB
+    const match = inMemoryWCMatches.find(m => m.matchId === matchId);
+    if (!match) return false;
+    match.status = 'locked';
+    return true;
+}
+
+/**
+ * Lấy danh sách trận đấu World Cup đang mở hoặc khóa cược
+ */
+export async function getActiveWCMatches(): Promise<IWorldCupMatch[]> {
+    if (useMongoDB) {
+        try {
+            return await WorldCupMatchModel.find({ status: { $in: ['open', 'locked'] } });
+        } catch (err) {
+            console.error("[DB LỖI] getActiveWCMatches:", err);
+            return [];
+        }
+    }
+    return inMemoryWCMatches.filter(m => m.status === 'open' || m.status === 'locked');
+}
+
+/**
+ * Lấy thông tin chi tiết của 1 trận đấu
+ */
+export async function getWCMatch(matchId: string): Promise<IWorldCupMatch | null> {
+    if (useMongoDB) {
+        try {
+            return await WorldCupMatchModel.findOne({ matchId });
+        } catch (err) {
+            console.error("[DB LỖI] getWCMatch:", err);
+            return null;
+        }
+    }
+    return inMemoryWCMatches.find(m => m.matchId === matchId) || null;
+}
+
+/**
+ * Đặt cược trận đấu World Cup
+ */
+export async function placeWCBet(userId: string, matchId: string, team: 'A' | 'B', amount: number): Promise<{ success: boolean; message: string }> {
+    // 1. Kiểm tra trận đấu có tồn tại và đang mở cửa cược không
+    const match = await getWCMatch(matchId);
+    if (!match) {
+        return { success: false, message: "❌ Trận đấu này không tồn tại!" };
+    }
+    if (match.status !== 'open') {
+        return { success: false, message: `❌ Trận đấu này đã ${match.status === 'locked' ? 'khóa cửa đặt cược' : 'kết thúc'} rồi, cược bằng niềm tin à!` };
+    }
+
+    // 2. Kiểm tra số dư tài khoản
+    const balance = await getBalance(userId);
+    if (balance < amount) {
+        return { success: false, message: `❌ Số dư không đủ! Ví của mày chỉ còn **${formatMoney(balance)}**, không đủ để cược **${formatMoney(amount)}**.` };
+    }
+
+    // 3. Kiểm tra xem user đã cược trận này chưa
+    let existingBet: IWorldCupBet | null = null;
+    if (useMongoDB) {
+        try {
+            existingBet = await WorldCupBetModel.findOne({ userId, matchId });
+        } catch (err) {
+            console.error("[DB LỖI] Lỗi check existing bet:", err);
+        }
+    } else {
+        existingBet = inMemoryWCBets.find(b => b.userId === userId && b.matchId === matchId) || null;
+    }
+
+    if (existingBet) {
+        // Kiểm tra xem có đổi cửa không (bắt hai hàng)
+        if (existingBet.team !== team) {
+            return { success: false, message: `❌ Bạn đã đặt cược cửa **${existingBet.team === 'A' ? 'Đội A' : 'Đội B'}** rồi, không được bắt hai hàng ăn gian đâu cưng! 🙄` };
+        }
+
+        const totalAmount = existingBet.amount + amount;
+        if (totalAmount > 500000) {
+            return { success: false, message: `❌ Tối đa cược **500.000đ** cho mỗi trận đấu thôi ông tham lam ạ! Bạn đã cược **${formatMoney(existingBet.amount)}** trước đó rồi.` };
+        }
+
+        // Trừ tiền ví và cộng dồn
+        await updateBalance(userId, balance - amount);
+        if (useMongoDB) {
+            try {
+                await WorldCupBetModel.updateOne({ userId, matchId }, { amount: totalAmount });
+            } catch (err) {}
+        } else {
+            existingBet.amount = totalAmount;
+        }
+
+        return { success: true, message: `✅ Đã cộng dồn thêm **${formatMoney(amount)}** vào cửa **${team === 'A' ? match.teamA : match.teamB}**. Tổng cược hiện tại của bạn: **${formatMoney(totalAmount)}**.` };
+    } else {
+        // Cược tối đa 500k cho lần đầu
+        if (amount > 500000) {
+            return { success: false, message: "❌ Tối đa cược **500.000đ** cho mỗi trận đấu thôi ông tham lam ạ!" };
+        }
+
+        // Trừ tiền ví và tạo mới
+        await updateBalance(userId, balance - amount);
+        if (useMongoDB) {
+            try {
+                await WorldCupBetModel.create({ userId, matchId, team, amount, settled: false });
+            } catch (err) {}
+        } else {
+            inMemoryWCBets.push({ userId, matchId, team, amount, settled: false });
+        }
+
+        return { success: true, message: `✅ Đã đặt cược thành công **${formatMoney(amount)}** vào cửa **${team === 'A' ? match.teamA : match.teamB}** cho trận đấu \`${matchId}\`.` };
+    }
+}
+
+/**
+ * Chung tiền cược World Cup (chỉ Admin)
+ */
+export async function settleWCMatch(matchId: string, winner: 'A' | 'B' | 'HoaKeo'): Promise<{ success: boolean; message: string; payoutsCount: number }> {
+    const match = await getWCMatch(matchId);
+    if (!match) {
+        return { success: false, message: "❌ Trận đấu này không tồn tại!", payoutsCount: 0 };
+    }
+    if (match.status === 'ended') {
+        return { success: false, message: "❌ Trận đấu này đã được chung tiền từ trước rồi!", payoutsCount: 0 };
+    }
+
+    // 1. Cập nhật trạng thái trận đấu
+    if (useMongoDB) {
+        try {
+            await WorldCupMatchModel.updateOne({ matchId }, { status: 'ended', winner });
+        } catch (err) {}
+    } else {
+        match.status = 'ended';
+        match.winner = winner;
+    }
+
+    // 2. Tìm tất cả các cược cho trận này
+    let bets: IWorldCupBet[] = [];
+    if (useMongoDB) {
+        try {
+            bets = await WorldCupBetModel.find({ matchId, settled: false });
+        } catch (err) {}
+    } else {
+        bets = inMemoryWCBets.filter(b => b.matchId === matchId && !b.settled);
+    }
+
+    let payoutsCount = 0;
+    for (const bet of bets) {
+        // Đánh dấu đã thanh toán
+        if (useMongoDB) {
+            try {
+                await WorldCupBetModel.updateOne({ _id: (bet as any)._id }, { settled: true });
+            } catch (err) {}
+        } else {
+            bet.settled = true;
+        }
+
+        const userBal = await getBalance(bet.userId);
+        if (winner === 'HoaKeo') {
+            // Hoàn trả 100% tiền cược
+            await updateBalance(bet.userId, userBal + bet.amount);
+            payoutsCount++;
+        } else if (bet.team === winner) {
+            // Trả thưởng gấp đôi
+            await updateBalance(bet.userId, userBal + (bet.amount * 2));
+            payoutsCount++;
+        }
+        // Thua: Không hoàn trả (vì đã trừ tiền lúc đặt cược)
+    }
+
+    const winnerName = winner === 'HoaKeo' ? 'Hòa Kèo' : (winner === 'A' ? match.teamA : match.teamB);
+    return { 
+        success: true, 
+        message: `✅ Settle thành công trận đấu **${match.teamA} vs ${match.teamB}**! Kết quả thắng kèo: **${winnerName}**.\nĐã thanh toán trả thưởng/hoàn tiền thành công cho **${payoutsCount}** lượt cược.`, 
+        payoutsCount 
+    };
 }
 
 /**
