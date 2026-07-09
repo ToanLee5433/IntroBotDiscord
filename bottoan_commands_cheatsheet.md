@@ -50,13 +50,14 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 
 ---
 
-## 🎮 5. VALORANT TRACKER & DRAFT ĐỘI HÌNH
+## 🎮 5. VALORANT TRACKER, DRAFT & TÒA ÁN GAMING
 
 | Chức năng Valorant | Cú pháp cách gọi | Quy tắc & Kết quả |
 | :--- | :--- | :--- |
 | **Đăng ký Riot ID** | `@BotToan reg val [Tên#Tag]` | Liên kết tài khoản Riot ID để tra cứu nhanh cho những lần sau mà không cần gõ lại Tên#Tag. |
 | **Xem rank** | `@BotToan rank val [Tên#Tag]`<br>`@BotToan rank valorant`<br>`@BotToan rank val` | Tra cứu rank xếp hạng hiện tại thực tế qua API (cào dữ liệu trực tiếp, hiển thị icon hạng, ELO, chênh lệch RR trận gần nhất và rank cao nhất từng đạt được). |
 | **Draft đội hình** | `@BotToan pick tuong`<br>`@BotToan chon tuong`<br>`@BotToan quay tuong`<br>`@BotToan random tuong` | Tạo phòng chờ draft tối đa 5 người. Mỗi người lần lượt chọn hệ tướng muốn quay (Duelist, Initiator, Controller, Sentinel hoặc Random). Bot chạy hiệu ứng quay tướng 1.5s, người chơi có 15s để Chốt hoặc Đổi tướng (đổi 1 lần). Kết thúc, Gemini AI sẽ tự động nhảy vào **Đánh giá đội hình** và khịa chiến thuật cực mạnh! |
+| **Tòa án Gaming** | `@BotToan toaan @User`<br>`@BotToan lt @User`<br>`@BotToan luan toi @User` | Kết tội và phán xét "độ báo thủ" của bạn bè dựa trên game đang chơi (Playing/Streaming/Competing) và thời gian cày cuốc thực tế, đồng bộ giới tính từ DB để khịa mỏ hỗn với hình phạt vô tri và thanh tiến trình `P_BAR` từ Gemini. |
 
 ---
 

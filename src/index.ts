@@ -25,6 +25,7 @@ import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleD
 import { initTarot, handleTarot } from './games/tarot';
 import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
 import { handleMyGuQuiz, handleDoanMyGu } from './games/mygu';
+import { handleGamingCourt } from './games/gamingcourt';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -207,6 +208,8 @@ const client = new Client({
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildPresences,
+        GatewayIntentBits.GuildMembers,
     ]
 });
 
@@ -941,6 +944,13 @@ client.on('messageCreate', async (message: Message) => {
     const doanMyGuTriggers = ['doan mygu', 'doan gu'];
     if (doanMyGuTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
         await handleDoanMyGu(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG TÒA ÁN GAMING -----------------
+    const toaanTriggers = ['toaan', 'lt', 'luan toi', 'toan'];
+    if (toaanTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleGamingCourt(message, rawInput);
         return;
     }
 
@@ -1711,10 +1721,11 @@ async function handleHelpCommand(message: Message, client: any) {
                 "• `kqxs` | `xo so`: Xem bảng vàng kết quả kỳ quay gần nhất",
                 inline: false
             },
-            { name: "🎮 VALORANT TRACKER & DRAFT", value:
+            { name: "🎮 GAMING & VALORANT", value:
                 "• `reg val [Tên#Tag]`: Liên kết Riot ID vào tài khoản\n" +
                 "• `rank val` | `rank val [Tên#Tag]`: Tra cứu rank & thông số ELO\n" +
-                "• `pick tuong` | `quay tuong`: Draft đội hình Valorant 5 người + Gemini roast comp",
+                "• `pick tuong` | `quay tuong`: Draft đội hình Valorant 5 người\n" +
+                "• `toaan @User` | `lt @User`: Tòa án Gaming phân tích độ báo thủ và luận tội",
                 inline: false
             },
             { name: "🌸 GÓC CHỊ EM PHỤ NỮ (Viral)", value:

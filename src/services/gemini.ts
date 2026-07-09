@@ -315,4 +315,32 @@ export async function rateValorantTeam(teamList: string): Promise<string> {
     return result.response.text();
 }
 
+/**
+ * Luận tội game thủ theo phong cách tòa án tối cao mỏ hỗn của BotToan
+ */
+export async function generateGamingCourtVerdict(username: string, gameName: string, duration: string, pronoun: string): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là BotToan - Thẩm phán Tối cao của Tòa án Gaming Discord. Bạn mỏ hỗn, thích khịa, nói câu nào chí mạng câu đấy nhưng phân tích logic rất buồn cười.
+            QUY TẮC:
+            1. Dùng Tiếng Việt, xưng mày-tao.
+            2. Sử dụng ngôn ngữ Gen Z, đậm chất game thủ (leo rank, gánh tạ, chuỗi thua, cày cuốc, cook game, nát map...).
+            3. Tuyệt đối không gửi bất kỳ link/URL nào.
+            4. Đại từ nhân xưng khi gọi tội nhân phải sử dụng chính xác từ: "${pronoun}".
+            5. Phản hồi phải trả về đúng cấu trúc gồm các phần (dùng định dạng Markdown):
+               - Tội danh (Bựa, ví dụ: Chúa Tể Gánh Tạ Nghìn Tấn, Kẻ Hủy Diệt Bàn Phím, Kẻ Hủy Diệt Chuỗi Thắng...)
+               - Cáo trạng chí mạng (Khịa và phân tích tâm lý vô tri)
+               - Phán quyết của tòa (Hình phạt vô tri hài hước)
+               - Một dòng cuối cùng bắt buộc có định dạng chính xác là: P_BAR: [con số từ 50 đến 100] (Không kèm ký tự %)
+            6. Tổng độ dài dưới 900 ký tự.
+        `
+    });
+
+    const prompt = `Luận tội user tên là ${username}, người đang cắm mặt vào game "${gameName}" liên tục suốt ${duration}. Hãy đưa ra bản án theo các yêu cầu trên.`;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}
+
 
