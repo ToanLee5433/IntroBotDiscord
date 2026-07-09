@@ -68,6 +68,25 @@ const QUESTIONS: Question[] = [
     }
 ];
 
+function checkUserException(message: Message): boolean {
+    if (message.author.id === '911989602213060688') {
+        const username = message.member?.displayName || message.author.username;
+        const embed = new EmbedBuilder()
+            .setTitle("🚨 CẢNH BÁO: HỆ THỐNG PHÁT HIỆN GIAN LẬN TÂM LINH!")
+            .setColor(0xFF3B30)
+            .setDescription(
+                `Ơ cái thằng **${username}** này? Mày có người yêu rồi cơ mà? Định lén lút tìm gu ai nữa đây hả? Máy quét đa vũ trụ của anh đã khóa mục tiêu và tự động reset toàn bộ tiêu chuẩn của mày về mức: **Hệ nghiện người yêu giai đoạn cuối**.\n\n` +
+                `**Gu thực sự và duy nhất của mày:** Chị Hằng xinh đẹp tuyệt trần, hoa ghen thua thắm liễu hờn kém xanh, độc nhất vô nhị trên quả đất này!\n\n` +
+                `📊 **Chỉ số tương thích:** [████████████████████] **9999%**\n\n` +
+                `🎯 **Lời khuyên của BotToan:** Gu mượt thế này rồi thì tắt bot đi mà nhắn tin dỗ dành người ta đi, léng phéng anh mách chị Hằng vả cho sưng mỏ bây giờ! 🤐`
+            )
+            .setTimestamp();
+        message.reply({ embeds: [embed] }).catch(() => {});
+        return true;
+    }
+    return false;
+}
+
 // ============================================================
 // =========== TÍNH NĂNG 1: LỆNH TRẮC NGHIỆM @BotToan mygu ===
 // ============================================================
@@ -85,6 +104,9 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
         await handleMyGuMatch(message, afterCmd);
         return;
     }
+
+    // Ngoại lệ
+    if (checkUserException(message)) return;
 
     const userData = await getMyGuData(message.author.id);
     // Nếu hôm nay đã làm rồi thì cho phép xem lại kết quả cũ
@@ -309,6 +331,8 @@ const PLACES = [
 ];
 
 export async function handleDoanMyGu(message: Message): Promise<void> {
+    if (checkUserException(message)) return;
+
     const today = getVNDateString(Date.now());
 
     // Radar loading 2 tầng để tránh rate limit Discord (cách nhau 1500ms như góp ý)
