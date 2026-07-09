@@ -120,4 +120,67 @@ export async function getTarotReading(prompt: string): Promise<string> {
     return result.response.text();
 }
 
+/**
+ * Đọc vận khí màu sắc (Aura Reading) — giọng nửa huyền bí nửa đùa, khen ngầm
+ * Nếu có targetColor + targetName → phân tích aura match 2 người
+ */
+export async function getAuraReading(
+    color: string, userName: string,
+    targetColor?: string, targetName?: string
+): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là một nhà thấu thị huyền bí chuyên đọc Aura màu sắc, pha chút đùa vui tinh tế.
+            Giọng điệu: Nửa nghiêm túc huyền bí, nửa tinh tế khen ngợi nhẹ nhàng — kiểu "thầy bói online" nhưng sang chảnh.
+            TUYỆT ĐỐI KHÔNG xúc phạm hay chê bai. Luôn tìm điểm đẹp để khen ngầm qua màu sắc.
+            Viết ngắn gọn, súc tích (dưới 600 ký tự). Không gửi link. Dùng tiếng Việt.
+            Nếu là Aura Match 2 người: phân tích hóa học năng lượng giữa 2 màu, có thể dùng ẩn dụ lãng mạn như "tổng tài & cô vịt nhỏ", "lửa & nước", v.v. để tạo drama thú vị.
+        `
+    });
+    let prompt: string;
+    if (targetColor && targetName) {
+        prompt = `Phân tích Aura Match giữa ${userName} (màu ${color}) và ${targetName} (màu ${targetColor}). Hai màu này hợp hay khắc nhau? Có "chemistry" gì đặc biệt không? Dùng ẩn dụ thú vị, gây tò mò.`;
+    } else {
+        prompt = `Đọc vận khí màu sắc hôm nay cho ${userName} với màu Aura: ${color}. Phân tích về: tình yêu, công việc, năng lượng tổng thể. Gợi ý màu trang phục nên mặc và nên tránh hôm nay.`;
+    }
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}
 
+/**
+ * Làm đẹp thư ẩn danh theo tone: 'love' (lãng mạn sến) hoặc 'drama' (khịa tinh tế)
+ */
+export async function processAnonymousLetter(content: string, tone: 'love' | 'drama'): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: tone === 'love'
+            ? `Bạn là nhà văn lãng mạn. Nhiệm vụ: làm đẹp một bức thư tình ẩn danh theo phong cách ngọt ngào, lãng mạn, sến sẩm nhưng chân thành. Giữ nguyên ý nghĩa gốc, chỉ làm đẹp văn phong. Ngắn gọn dưới 400 ký tự. Dùng tiếng Việt.`
+            : `Bạn là bậc thầy của nghệ thuật "drama tinh tế". Nhiệm vụ: viết lại nội dung thư thành dạng khịa đểu, bóc phốt nhẹ nhàng, cực kỳ tinh tế — nghe thì nhẹ nhưng "đâm sâu". KHÔNG xúc phạm thô tục. Giữ nguyên ý nghĩa gốc nhưng bọc trong văn phong lịch sự, sắc bén, bí ẩn. Ngắn gọn dưới 400 ký tự. Dùng tiếng Việt.`
+    });
+    const result = await model.generateContent(`Nội dung gốc: "${content}"`);
+    return result.response.text();
+}
+
+/**
+ * Tư vấn tâm trạng theo phong cách "Anh trai tâm lý / Bạn thân" — KHÔNG bựa, không chửi tục
+ * Dịu dàng, thấu cảm, kèm lá Tarot mini tương ứng
+ */
+export async function getMoodAdvice(mood: string, userName: string, tarotCard: string): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+    const model = genAI.getGenerativeModel({
+        model: "gemini-3.1-flash-lite",
+        systemInstruction: `
+            Bạn là người bạn tâm lý thấu cảm nhất — vừa như "anh trai tâm lý" vừa như "bạn thân hiểu ý".
+            TUYỆT ĐỐI không dùng giọng bựa, không chửi tục, không đùa cợt trong lệnh này.
+            Khi ai đó chia sẻ tâm trạng, hãy: (1) Xác nhận cảm xúc của họ một cách chân thành, (2) Đưa ra lời khuyên nhẹ nhàng và thực tế, (3) Gợi ý "liều thuốc tinh thần" hôm nay (nghe nhạc gì, xem gì, ăn gì, làm gì), (4) Kết nối ý nghĩa lá Tarot với tâm trạng hiện tại.
+            Giọng văn: Ấm áp, gần gũi, chân thành. Viết như đang nói chuyện trực tiếp với một người bạn thân.
+            Độ dài: KHoảng 500 ký tự. Không gửi link. Dùng tiếng Việt.
+        `
+    });
+    const prompt = `${userName} đang cảm thấy: ${mood}. Lá Tarot hôm nay của họ là: ${tarotCard}. Hãy tư vấn và an ủi.`;
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+}

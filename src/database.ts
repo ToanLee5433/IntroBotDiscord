@@ -22,6 +22,16 @@ const playerLastQueDateInMemory: { [userId: string]: string } = {};
 const playerLastTarotDateInMemory: { [userId: string]: string } = {};
 const playerLastTarotTimestampInMemory: { [userId: string]: number } = {};
 const playerTarotStreakInMemory: { [userId: string]: number } = {};
+// Aura
+const playerLastAuraDatesInMemory: { [userId: string]: string } = {};
+// Anonymous Letter
+const playerLetterCountInMemory: { [userId: string]: number } = {};
+const playerLastLetterDateInMemory: { [userId: string]: string } = {};
+// Mood
+const playerLastMoodDateInMemory: { [userId: string]: string } = {};
+const playerLastMoodInMemory: { [userId: string]: string } = {};
+const playerMoodStreakInMemory: { [userId: string]: number } = {};
+const playerWeeklyMoodsInMemory: { [userId: string]: string } = {}; // JSON
 let useMongoDB = false;
 
 interface IUser {
@@ -47,6 +57,16 @@ interface IUser {
     lastTarotDate?: string;
     lastTarotTimestamp?: number;
     tarotStreak?: number;
+    // Aura
+    lastAuraDate?: string;
+    // Anonymous Letter
+    anonymousLettersSentToday?: number;
+    lastAnonymousLetterDate?: string;
+    // Mood Diary
+    moodStreak?: number;
+    lastMoodDate?: string;
+    lastMood?: string;
+    weeklyMoods?: string; // JSON: [{date, mood}]
 }
 
 const userSchema = new Schema<IUser>({
@@ -71,7 +91,17 @@ const userSchema = new Schema<IUser>({
     lastQueDate: { type: String, default: "" },
     lastTarotDate: { type: String, default: "" },
     lastTarotTimestamp: { type: Number, default: 0 },
-    tarotStreak: { type: Number, default: 0 }
+    tarotStreak: { type: Number, default: 0 },
+    // Aura
+    lastAuraDate: { type: String, default: "" },
+    // Anonymous Letter
+    anonymousLettersSentToday: { type: Number, default: 0 },
+    lastAnonymousLetterDate: { type: String, default: "" },
+    // Mood Diary
+    moodStreak: { type: Number, default: 0 },
+    lastMoodDate: { type: String, default: "" },
+    lastMood: { type: String, default: "" },
+    weeklyMoods: { type: String, default: "[]" }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -1654,4 +1684,151 @@ export async function getLotteryState(dateStr: string): Promise<{ jackpotPool: n
 
 
 
+// ============================================================
+// =========== CÁC HÀM DB: AURA / ANONYMOUS / MOOD ===========
+// ============================================================
+
+/**
+ * Lấy ngày bói aura gần nhất của user
+ */
+export async function getLastAuraDate(userId: string): Promise<string> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return user?.lastAuraDate || "";
+        } catch (err) {
+            console.error("[DB LỖI] getLastAuraDate:", err);
+        }
+    }
+    return playerLastAuraDatesInMemory[userId] || "";
+}
+
+/**
+ * Lưu ngày bói aura hôm nay
+ */
+export async function setLastAuraDate(userId: string, dateStr: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate({ userId }, { lastAuraDate: dateStr }, { upsert: true });
+            return;
+        } catch (err) {
+            console.error("[DB LỖI] setLastAuraDate:", err);
+        }
+    }
+    playerLastAuraDatesInMemory[userId] = dateStr;
+}
+
+/**
+ * Lấy số thư ẩn danh đã gửi hôm nay và ngày gửi gần nhất
+ */
+export async function getAnonymousLetterData(userId: string): Promise<{ count: number; lastDate: string }> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            return {
+                count: user?.anonymousLettersSentToday || 0,
+                lastDate: user?.lastAnonymousLetterDate || ""
+            };
+        } catch (err) {
+            console.error("[DB LỖI] getAnonymousLetterData:", err);
+        }
+    }
+    return {
+        count: playerLetterCountInMemory[userId] || 0,
+        lastDate: playerLastLetterDateInMemory[userId] || ""
+    };
+}
+
+/**
+ * Tăng số thư ẩn danh đã gửi hôm nay (reset nếu sang ngày mới)
+ */
+export async function incrementAnonymousLetterCount(userId: string, todayStr: string): Promise<void> {
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            const currentDate = user?.lastAnonymousLetterDate || "";
+            const currentCount = currentDate === todayStr ? (user?.anonymousLettersSentToday || 0) : 0;
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { anonymousLettersSentToday: currentCount + 1, lastAnonymousLetterDate: todayStr },
+                { upsert: true }
+            );
+            return;
+        } catch (err) {
+            console.error("[DB LỖI] incrementAnonymousLetterCount:", err);
+        }
+    }
+    const currentDate = playerLastLetterDateInMemory[userId] || "";
+    if (currentDate !== todayStr) {
+        playerLetterCountInMemory[userId] = 0;
+    }
+    playerLetterCountInMemory[userId] = (playerLetterCountInMemory[userId] || 0) + 1;
+    playerLastLetterDateInMemory[userId] = todayStr;
+}
+
+/**
+ * Lấy dữ liệu mood: streak, ngày cuối, tâm trạng gần nhất, lịch sử 7 ngày
+ */
+export async function getMoodData(userId: string): Promise<{ streak: number; lastDate: string; lastMood: string; weeklyMoods: { date: string; mood: string }[] }> {
+    let raw = { streak: 0, lastDate: "", lastMood: "", weeklyMoodsJson: "[]" };
+    if (useMongoDB) {
+        try {
+            const user = await UserModel.findOne({ userId });
+            raw = {
+                streak: user?.moodStreak || 0,
+                lastDate: user?.lastMoodDate || "",
+                lastMood: user?.lastMood || "",
+                weeklyMoodsJson: user?.weeklyMoods || "[]"
+            };
+        } catch (err) {
+            console.error("[DB LỖI] getMoodData:", err);
+        }
+    } else {
+        raw = {
+            streak: playerMoodStreakInMemory[userId] || 0,
+            lastDate: playerLastMoodDateInMemory[userId] || "",
+            lastMood: playerLastMoodInMemory[userId] || "",
+            weeklyMoodsJson: playerWeeklyMoodsInMemory[userId] || "[]"
+        };
+    }
+    let weeklyMoods: { date: string; mood: string }[] = [];
+    try { weeklyMoods = JSON.parse(raw.weeklyMoodsJson); } catch { weeklyMoods = []; }
+    return { streak: raw.streak, lastDate: raw.lastDate, lastMood: raw.lastMood, weeklyMoods };
+}
+
+/**
+ * Lưu tâm trạng hôm nay, cập nhật streak và lịch sử 7 ngày
+ */
+export async function saveMood(userId: string, mood: string, todayStr: string): Promise<number> {
+    const data = await getMoodData(userId);
+    
+    // Tính streak: nếu hôm qua cũng ghi mood thì +1, không thì reset về 1
+    const yesterday = new Date(Date.now() + 7 * 60 * 60 * 1000 - 86400000);
+    const yesterdayStr = `${yesterday.getUTCFullYear()}-${String(yesterday.getUTCMonth()+1).padStart(2,'0')}-${String(yesterday.getUTCDate()).padStart(2,'0')}`;
+    const newStreak = data.lastDate === yesterdayStr ? data.streak + 1 : 1;
+
+    // Cập nhật lịch sử 7 ngày (chỉ giữ 7 entry gần nhất, bỏ trùng ngày)
+    let history = data.weeklyMoods.filter(e => e.date !== todayStr);
+    history.push({ date: todayStr, mood });
+    if (history.length > 7) history = history.slice(history.length - 7);
+    const historyJson = JSON.stringify(history);
+
+    if (useMongoDB) {
+        try {
+            await UserModel.findOneAndUpdate(
+                { userId },
+                { moodStreak: newStreak, lastMoodDate: todayStr, lastMood: mood, weeklyMoods: historyJson },
+                { upsert: true }
+            );
+        } catch (err) {
+            console.error("[DB LỖI] saveMood:", err);
+        }
+    } else {
+        playerMoodStreakInMemory[userId] = newStreak;
+        playerLastMoodDateInMemory[userId] = todayStr;
+        playerLastMoodInMemory[userId] = mood;
+        playerWeeklyMoodsInMemory[userId] = historyJson;
+    }
+    return newStreak;
+}
 

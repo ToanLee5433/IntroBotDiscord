@@ -23,6 +23,7 @@ import { chatWithGemini } from './services/gemini';
 import { fetchValorantRank } from './services/valorant';
 import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
 import { initTarot, handleTarot } from './games/tarot';
+import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM } from './games/femfeatures';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -870,6 +871,33 @@ client.on('messageCreate', async (message: Message) => {
     const draftTriggers = ['quay tuong', 'chon tuong', 'random tuong', 'pick tuong'];
     if (draftTriggers.some(t => cleanInput.includes(t))) {
         await playValorantDraft(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG BÓI MÀU VẬN KHÍ (AURA) -----------------
+    const auraTriggers = ['aura', 'mau van khi', 'sac mau hom nay'];
+    if (auraTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleAura(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG HỘP THƯ BÍ MẬT (ANONYMOUS LETTER) -----------------
+    const letterTriggers = ['thu bi mat', 'anonymous', 'anon'];
+    if (letterTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleAnonymousLetter(message, rawInput);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG KIỂM TRA THƯ HÀNG ĐỢI (CHECKDM) -----------------
+    if (cleanInput === 'checkdm' || cleanInput === 'check dm' || cleanInput === 'kiem tra thu') {
+        await handleCheckDM(message);
+        return;
+    }
+
+    // ----------------- TÍNH NĂNG NHẬT KÝ TÂM TRẠNG (MOOD DIARY) -----------------
+    const moodTriggers = ['tam trang', 'mood', 'cam xuc'];
+    if (moodTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleMoodDiary(message, rawInput);
         return;
     }
 
