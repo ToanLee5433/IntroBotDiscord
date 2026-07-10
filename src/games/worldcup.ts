@@ -107,33 +107,35 @@ export async function playWCPenalty(message: Message, rawInput: string) {
 
     const userVoiceChannel = message.member?.voice.channel;
     if (userVoiceChannel) {
-        const existingConnection = getVoiceConnection(message.guild.id);
-        if (existingConnection) {
-            voiceMessage = "\n\n🎙️ *Anh đang bận sang phòng kia làm trọng tài rồi, sút không nhạc nhé cưng!*";
-        } else {
-            try {
-                const audioPath = path.join(__dirname, '../../audio', 'nhacWC.mp3');
-                if (fs.existsSync(audioPath)) {
-                    audioConnection = joinVoiceChannel({
-                        channelId: userVoiceChannel.id,
-                        guildId: message.guild.id,
-                        adapterCreator: message.guild.voiceAdapterCreator,
-                        selfDeaf: false,
-                        selfMute: false,
-                    });
-                    
-                    await entersState(audioConnection, VoiceConnectionStatus.Ready, 5000);
-                    const player = createAudioPlayer();
-                    player.play(createAudioResource(audioPath));
-                    audioConnection.subscribe(player);
-
-                    player.on('error', err => {
-                        console.error("[PENALTY WC AUDIO ERROR]:", err);
-                    });
-                }
-            } catch (err) {
-                console.error("Lỗi phát nhạc WC penalty:", err);
+        try {
+            const existingConnection = getVoiceConnection(message.guild.id);
+            if (existingConnection) {
+                try {
+                    existingConnection.destroy();
+                } catch (err) {}
             }
+
+            const audioPath = path.join(__dirname, '../../audio', 'nhacWC.mp3');
+            if (fs.existsSync(audioPath)) {
+                audioConnection = joinVoiceChannel({
+                    channelId: userVoiceChannel.id,
+                    guildId: message.guild.id,
+                    adapterCreator: message.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false,
+                });
+                
+                await entersState(audioConnection, VoiceConnectionStatus.Ready, 5000);
+                const player = createAudioPlayer();
+                player.play(createAudioResource(audioPath));
+                audioConnection.subscribe(player);
+
+                player.on('error', err => {
+                    console.error("[PENALTY WC AUDIO ERROR]:", err);
+                });
+            }
+        } catch (err) {
+            console.error("Lỗi phát nhạc WC penalty:", err);
         }
     }
 
