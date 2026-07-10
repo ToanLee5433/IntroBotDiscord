@@ -1,8 +1,8 @@
-import { Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, PermissionFlagsBits } from 'discord.js';
+import { Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, PermissionFlagsBits, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { 
     addWCMatch, lockWCMatch, placeWCBet, settleWCMatch, 
     getActiveWCMatches, getWCMatch, getProfile, getBalance, updateBalance,
-    getAllWCMatches, updateWCMatch, deleteWCMatch
+    getAllWCMatches, updateWCMatch, deleteWCMatch, getUserWCBets, getActiveWCBets
 } from '../database';
 import { getWCPrediction } from '../services/gemini';
 import { sleep, formatMoney, parseMoneyInput, removeAccents } from '../utils';
@@ -525,7 +525,30 @@ export async function handleWCCommand(message: Message, rawInput: string) {
     // 8. Mặc định: Xem bảng cược hiện tại dành cho thành viên (@BotToan wc)
     const matches = await getActiveWCMatches();
     if (matches.length === 0) {
-        await message.reply("🏟️ **WORLD CUP 2026:** Hiện chưa có trận đấu nào được mở cược. Admin ơi mở cược mau đi chứ!").catch(() => {});
+        // Vẫn tạo ActionRow chứa các nút tiện ích chung ngay cả khi không có kèo nào đang mở
+        const menuRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`wc_btn_history_personal`)
+                .setLabel(`👤 Lịch sử cược của tôi`)
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId(`wc_btn_active_wagers`)
+                .setLabel(`📊 Các cược đang treo`)
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId(`wc_btn_admin_panel`)
+                .setLabel(`⚙️ Bảng quản trị`)
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        const embed = new EmbedBuilder()
+            .setTitle("🏟️ BẢNG TỶ LỆ CÁ CƯỢC WORLD CUP 2026")
+            .setDescription("🏟️ **WORLD CUP 2026:** Hiện chưa có trận đấu nào được mở cược.\nBạn vẫn có thể xem lịch sử cá cược hoặc các cược đang treo bên dưới:")
+            .setColor(0xF1C40F)
+            .setFooter({ text: "BotToan Bookmaker - World Cup 2026 Edition" })
+            .setTimestamp();
+
+        await message.reply({ embeds: [embed], components: [menuRow] }).catch(() => {});
         return;
     }
 
@@ -533,14 +556,14 @@ export async function handleWCCommand(message: Message, rawInput: string) {
         .setTitle("🏟️ BẢNG TỶ LỆ CÁ CƯỢC WORLD CUP 2026")
         .setDescription(
             `Chào mừng đến với sòng cá cược World Cup ảo của BotToan!\n` +
-            `👉 Hãy dùng lệnh cược: \`@BotToan bat [mã_trận] [A/B] [tiền]\` để bắt kèo.`
+            `👉 Hãy click các nút tương ứng bên dưới để đặt cược trực tiếp nhanh chóng mà không cần gõ lệnh!`
         )
         .setColor(0xF1C40F)
         .setFooter({ text: "BotToan Bookmaker - World Cup 2026 Edition" })
         .setTimestamp();
 
     for (const m of matches) {
-        const statusEmoji = m.status === 'open' ? '🟢 Đang mở' : '🔒 Đã khóa cược';
+        const statusEmoji = m.status === 'open' ? '🟢 Đang mở cược' : '🔒 Đã khóa cược';
         embed.addFields({
             name: `⚽ Trận \`${m.matchId}\`: ${m.teamA} vs ${m.teamB} (${statusEmoji})`,
             value: `• **Cửa A:** ${m.teamA} | **Cửa B:** ${m.teamB}\n• **Kèo chấp:** *${m.odds}*`,
@@ -548,5 +571,260 @@ export async function handleWCCommand(message: Message, rawInput: string) {
         });
     }
 
-    await message.reply({ embeds: [embed] }).catch(() => {});
+    const rows = [];
+    
+    // Chỉ tạo nút cược cho các trận đấu đang ở trạng thái 'open'
+    const openMatches = matches.filter(m => m.status === 'open');
+    
+    for (let i = 0; i < Math.min(openMatches.length, 4); i++) {
+        const m = openMatches[i];
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`wc_btn_bet_A_${m.matchId}`)
+                .setLabel(`Cược ${m.teamA} (${m.matchId.toUpperCase()}-A)`)
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId(`wc_btn_bet_B_${m.matchId}`)
+                .setLabel(`Cược ${m.teamB} (${m.matchId.toUpperCase()}-B)`)
+                .setStyle(ButtonStyle.Danger)
+        );
+        rows.push(row);
+    }
+    
+    // Thêm ActionRow chứa các nút tiện ích chung
+    const menuRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+            .setCustomId(`wc_btn_history_personal`)
+            .setLabel(`👤 Lịch sử cược của tôi`)
+            .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+            .setCustomId(`wc_btn_active_wagers`)
+            .setLabel(`📊 Các cược đang treo`)
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId(`wc_btn_admin_panel`)
+            .setLabel(`⚙️ Bảng quản trị`)
+            .setStyle(ButtonStyle.Secondary)
+    );
+    rows.push(menuRow);
+
+    await message.reply({ embeds: [embed], components: rows }).catch(() => {});
 }
+
+/**
+ * Lắng nghe và xử lý tương tác nút bấm và Modal cược World Cup
+ */
+export function registerWorldCupCollector(client: any) {
+    client.on('interactionCreate', async (interaction: any) => {
+        // --- 1. XỬ LÝ NÚT BẤM ---
+        if (interaction.isButton()) {
+            const id = interaction.customId;
+
+            // Xử lý nút bấm đặt cược
+            if (id.startsWith('wc_btn_bet_')) {
+                const parts = id.split('_');
+                const team = parts[3]; // 'A' hoặc 'B'
+                const matchId = parts[4];
+
+                const match = await getWCMatch(matchId);
+                if (!match) {
+                    await interaction.reply({ content: "❌ Trận đấu này không tồn tại trong hệ thống!", ephemeral: true }).catch(() => {});
+                    return;
+                }
+
+                if (match.status !== 'open') {
+                    await interaction.reply({ content: `❌ Trận đấu đã **${match.status === 'locked' ? 'khóa cửa đặt cược' : 'kết thúc'}**, không thể đặt cược nữa cưng nhé!`, ephemeral: true }).catch(() => {});
+                    return;
+                }
+
+                // Hiển thị Modal để nhập số tiền
+                const modal = new ModalBuilder()
+                    .setCustomId(`wc_modal_bet_${matchId}_${team}`)
+                    .setTitle(`Cược ${team === 'A' ? match.teamA : match.teamB}`);
+
+                const amountInput = new TextInputBuilder()
+                    .setCustomId('bet_amount')
+                    .setLabel(`Nhập số tiền cược (Ví dụ: 50k, 1tr, 3.000.000)`)
+                    .setStyle(TextInputStyle.Short)
+                    .setPlaceholder("50k, 100k, 1tr, 3.000.000...")
+                    .setRequired(true);
+
+                const firstActionRow = new ActionRowBuilder<TextInputBuilder>().addComponents(amountInput);
+                modal.addComponents(firstActionRow);
+
+                await interaction.showModal(modal).catch((err: any) => {
+                    console.error("Lỗi hiển thị Modal cược World Cup:", err);
+                });
+                return;
+            }
+
+            // Xử lý xem lịch sử cược cá nhân
+            if (id === 'wc_btn_history_personal') {
+                await interaction.deferReply({ ephemeral: true }).catch(() => {});
+                
+                const userBets = await getUserWCBets(interaction.user.id);
+                if (userBets.length === 0) {
+                    await interaction.editReply({ content: "🏟️ Bạn chưa đặt cược bất kỳ trận đấu World Cup nào trên hệ thống!" }).catch(() => {});
+                    return;
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle("👤 LỊCH SỬ ĐẶT CƯỢC WORLD CUP CỦA BẠN")
+                    .setDescription("Danh sách các lượt đặt cược của bạn và trạng thái thanh toán:")
+                    .setColor(0x2ECC71)
+                    .setFooter({ text: "BotToan Bookmaker - World Cup 2026" })
+                    .setTimestamp();
+
+                for (let i = 0; i < Math.min(userBets.length, 10); i++) {
+                    const ub = userBets[i];
+                    const m = ub.match;
+                    const bet = ub.bet;
+                    
+                    let matchText = m ? `${m.teamA} vs ${m.teamB}` : `Trận đấu \`${bet.matchId}\` (Đã bị xóa)`;
+                    let statusText = "";
+
+                    if (bet.settled) {
+                        if (m && m.winner === 'HoaKeo') {
+                            statusText = `🟡 **Hòa kèo (Hoàn lại ${formatMoney(bet.amount)})**`;
+                        } else if (m && bet.team === m.winner) {
+                            statusText = `🟢 **Thắng (+${formatMoney(bet.amount * 2)})**`;
+                        } else {
+                            statusText = `🔴 **Thua (-${formatMoney(bet.amount)})**`;
+                        }
+                    } else {
+                        statusText = "⏳ **Đang chờ kết quả**";
+                    }
+
+                    const choiceName = m ? (bet.team === 'A' ? m.teamA : m.teamB) : bet.team;
+
+                    embed.addFields({
+                        name: `⚽ ${matchText} (Mã: \`${bet.matchId}\`)`,
+                        value: `• **Lựa chọn:** Cửa ${bet.team} (${choiceName})\n• **Số tiền:** **${formatMoney(bet.amount)}**\n• **Kết quả:** ${statusText}`,
+                        inline: false
+                    });
+                }
+
+                if (userBets.length > 10) {
+                    embed.addFields({ name: "📊 Lưu ý", value: `*Bạn có tổng cộng **${userBets.length}** lượt cược. Chỉ hiển thị 10 lượt cược gần nhất.*` });
+                }
+
+                await interaction.editReply({ embeds: [embed] }).catch(() => {});
+                return;
+            }
+
+            // Xử lý xem các cược đang treo trên server
+            if (id === 'wc_btn_active_wagers') {
+                await interaction.deferReply({ ephemeral: true }).catch(() => {});
+                
+                const activeBets = await getActiveWCBets();
+                if (activeBets.length === 0) {
+                    await interaction.editReply({ content: "🏟️ Hiện tại không có lượt cược nào đang treo trên server!" }).catch(() => {});
+                    return;
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle("📊 CÁC CƯỢC WORLD CUP ĐANG TREO TRÊN SERVER")
+                    .setDescription("Danh sách các con giời đang đặt cược và chờ kết quả:")
+                    .setColor(0x3498DB)
+                    .setFooter({ text: "BotToan - Sòng bạc hoàng gia" })
+                    .setTimestamp();
+
+                // Nhóm cược theo trận đấu
+                const betsByMatch = new Map<string, typeof activeBets>();
+                for (const ab of activeBets) {
+                    const matchKey = ab.match ? `${ab.match.teamA} vs ${ab.match.teamB} (Mã: \`${ab.bet.matchId}\`)` : `Trận đấu \`${ab.bet.matchId}\` (Đã bị xóa)`;
+                    if (!betsByMatch.has(matchKey)) {
+                        betsByMatch.set(matchKey, []);
+                    }
+                    betsByMatch.get(matchKey)!.push(ab);
+                }
+
+                let embedFieldsCount = 0;
+                for (const [matchKey, wagers] of betsByMatch.entries()) {
+                    if (embedFieldsCount >= 10) break;
+                    
+                    let wagersText = "";
+                    for (const w of wagers) {
+                        const m = w.match;
+                        const choiceName = m ? (w.bet.team === 'A' ? m.teamA : m.teamB) : w.bet.team;
+                        wagersText += `- <@${w.bet.userId}> cược **${formatMoney(w.bet.amount)}** vào cửa **${choiceName}**\n`;
+                    }
+
+                    embed.addFields({
+                        name: `⚽ ${matchKey}`,
+                        value: wagersText || "*Không có*",
+                        inline: false
+                    });
+                    embedFieldsCount++;
+                }
+
+                await interaction.editReply({ embeds: [embed] }).catch(() => {});
+                return;
+            }
+
+            // Xử lý xem bảng quản trị (Admin)
+            if (id === 'wc_btn_admin_panel') {
+                const isAdmin = interaction.member?.permissions.has(PermissionFlagsBits.Administrator);
+                if (!isAdmin) {
+                    await interaction.reply({ content: "❌ **ĐÉO CÓ QUYỀN!** Bảng quản trị chỉ dành cho Admin của server nhé cưng! 🙄", ephemeral: true }).catch(() => {});
+                    return;
+                }
+
+                await interaction.deferReply({ ephemeral: true }).catch(() => {});
+                
+                const matches = await getAllWCMatches();
+                if (matches.length === 0) {
+                    await interaction.editReply({ content: "🏟️ **WORLD CUP 2026:** Chưa có trận đấu nào được tạo trên hệ thống." }).catch(() => {});
+                    return;
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle("⚙️ BẢNG QUẢN LÝ TRẬN ĐẤU WORLD CUP 2026")
+                    .setDescription("Danh sách tất cả các trận đấu hiện có trong hệ thống và trạng thái:")
+                    .setColor(0xE74C3C)
+                    .setFooter({ text: "BotToan System Manager (Admin View)" })
+                    .setTimestamp();
+
+                for (const m of matches) {
+                    let statusText = "";
+                    if (m.status === 'open') statusText = "🟢 Đang mở đặt cược";
+                    else if (m.status === 'locked') statusText = "🔒 Đã khóa đặt cược";
+                    else if (m.status === 'ended') statusText = `🏁 Đã kết thúc (Thắng kèo: **${m.winner === 'HoaKeo' ? 'Hòa Kèo' : (m.winner === 'A' ? m.teamA : m.teamB)}**)`;
+
+                    embed.addFields({
+                        name: `⚽ Trận \`${m.matchId}\`: ${m.teamA} vs ${m.teamB}`,
+                        value: `• **Trạng thái:** ${statusText}\n• **Cửa A:** ${m.teamA} | **Cửa B:** ${m.teamB}\n• **Kèo chấp:** *${m.odds}*`,
+                        inline: false
+                    });
+                }
+
+                await interaction.editReply({ embeds: [embed] }).catch(() => {});
+                return;
+            }
+        }
+
+        // --- 2. XỬ LÝ SUBMIT MODAL ---
+        if (interaction.isModalSubmit()) {
+            const id = interaction.customId;
+            if (id.startsWith('wc_modal_bet_')) {
+                const parts = id.split('_');
+                const matchId = parts[3];
+                const team = parts[4] as 'A' | 'B';
+
+                const betAmountText = interaction.fields.getTextInputValue('bet_amount');
+                const amount = parseMoneyInput(betAmountText);
+
+                if (amount === null || isNaN(amount) || amount <= 0) {
+                    await interaction.reply({ content: "❌ **Số tiền cược không hợp lệ!** Vui lòng nhập số tiền như: `50k`, `100k`, `1tr`...", ephemeral: true }).catch(() => {});
+                    return;
+                }
+
+                await interaction.deferReply({ ephemeral: true }).catch(() => {});
+
+                const res = await placeWCBet(interaction.user.id, matchId, team, amount);
+                await interaction.editReply({ content: res.message }).catch(() => {});
+            }
+        }
+    });
+}
+

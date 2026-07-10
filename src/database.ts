@@ -2323,7 +2323,63 @@ export async function deleteWCMatch(matchId: string): Promise<{ success: boolean
 }
 
 /**
+ * Lấy lịch sử tất cả các cược World Cup của một người dùng
+ */
+export async function getUserWCBets(userId: string): Promise<{ bet: IWorldCupBet; match: IWorldCupMatch | null }[]> {
+    if (useMongoDB) {
+        try {
+            const bets = await WorldCupBetModel.find({ userId }).sort({ _id: -1 });
+            const result = [];
+            for (const bet of bets) {
+                const match = await WorldCupMatchModel.findOne({ matchId: bet.matchId });
+                result.push({ bet, match });
+            }
+            return result;
+        } catch (err) {
+            console.error("[DB LỖI] getUserWCBets:", err);
+            return [];
+        }
+    }
+    // RAM DB
+    const result = [];
+    const bets = inMemoryWCBets.filter(b => b.userId === userId).reverse();
+    for (const bet of bets) {
+        const match = inMemoryWCMatches.find(m => m.matchId === bet.matchId) || null;
+        result.push({ bet, match });
+    }
+    return result;
+}
+
+/**
+ * Lấy tất cả các cược World Cup chưa được thanh toán (đang mở)
+ */
+export async function getActiveWCBets(): Promise<{ bet: IWorldCupBet; match: IWorldCupMatch | null }[]> {
+    if (useMongoDB) {
+        try {
+            const bets = await WorldCupBetModel.find({ settled: false }).sort({ _id: -1 });
+            const result = [];
+            for (const bet of bets) {
+                const match = await WorldCupMatchModel.findOne({ matchId: bet.matchId });
+                result.push({ bet, match });
+            }
+            return result;
+        } catch (err) {
+            console.error("[DB LỖI] getActiveWCBets:", err);
+            return [];
+        }
+    }
+    const result = [];
+    const bets = inMemoryWCBets.filter(b => !b.settled).reverse();
+    for (const bet of bets) {
+        const match = inMemoryWCMatches.find(m => m.matchId === bet.matchId) || null;
+        result.push({ bet, match });
+    }
+    return result;
+}
+
+/**
  * Lấy danh sách mã gu của các thành viên trong server (guild)
+
 
  * Được tối ưu hóa bằng cách truyền danh sách ID thành viên để lọc ngay tại DB
  */

@@ -26,7 +26,7 @@ import { initTarot, handleTarot } from './games/tarot';
 import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
 import { handleMyGuQuiz, handleDoanMyGu } from './games/mygu';
 import { handleGamingCourt } from './games/gamingcourt';
-import { handleWCPrediction, playWCPenalty, handleWCCommand } from './games/worldcup';
+import { handleWCPrediction, playWCPenalty, handleWCCommand, registerWorldCupCollector } from './games/worldcup';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -1691,6 +1691,9 @@ client.once('ready', (readyClient) => {
 
         // Đăng ký Valorant Collector
         registerValorantCollector(client);
+
+        // Đăng ký World Cup Collector
+        registerWorldCupCollector(client);
 
         // Khởi tạo Tarot
         await initTarot().catch(err => {
