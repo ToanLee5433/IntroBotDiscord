@@ -27,6 +27,7 @@ import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, hand
 import { handleMyGuQuiz, handleDoanMyGu } from './games/mygu';
 import { handleGamingCourt } from './games/gamingcourt';
 import { handleWCPrediction, playWCPenalty, handleWCCommand, registerWorldCupCollector } from './games/worldcup';
+import { handleAvatarCommand, registerAvatarCollector } from './commands/avatar';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -258,6 +259,13 @@ client.on('messageCreate', async (message: Message) => {
     const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
     const cleanInput = removeAccents(rawInput).toLowerCase();
     
+    // ----------------- TÍNH NĂNG XEM AVATAR -----------------
+    const avatarTriggers = ['avatar', 'avt', 'anhdaidien', 'anh dai dien'];
+    if (avatarTriggers.some(t => cleanInput.startsWith(t))) {
+        await handleAvatarCommand(message, rawInput);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG TRỢ GIÚP / MENU LỆNH -----------------
     const helpTriggers = ['help', 'menu', 'tro giup', 'huong dan', 'huongdan', 'lenh'];
     if (helpTriggers.some(t => cleanInput === t)) {
@@ -1694,6 +1702,9 @@ client.once('ready', (readyClient) => {
 
         // Đăng ký World Cup Collector
         registerWorldCupCollector(client);
+
+        // Đăng ký Avatar Collector
+        registerAvatarCollector(client);
 
         // Khởi tạo Tarot
         await initTarot().catch(err => {
