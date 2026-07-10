@@ -1615,7 +1615,7 @@ client.on('debug', (info) => {
     }
 });
 
-client.once('clientReady', (readyClient) => {
+client.once('ready', (readyClient) => {
     console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
 });
 
@@ -1668,6 +1668,7 @@ client.once('clientReady', (readyClient) => {
                 console.error("👉 Cuộn xuống phần 'Privileged Gateway Intents' và BẬT 'MESSAGE CONTENT INTENT'.");
                 console.error("👉 Nhấn 'Save Changes' để lưu lại.\n");
             }
+            process.exit(1);
         });
 
         // Kết nối DB song song (không chặn đăng nhập Discord)
