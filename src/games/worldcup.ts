@@ -204,25 +204,40 @@ export async function playWCPenalty(message: Message, rawInput: string) {
         let color = 0x00FF00;
 
         if (isHitPost) {
-            // Hoàn trả 100% tiền cược
-            const currentBal = await getBalance(userId);
-            await updateBalance(userId, currentBal + betAmount);
-
-            resultTitle = "🔔 CỘT DỌC/XÀ NGANG DỘI RA! (Hoàn tiền 100%)";
-            resultDesc = `💥 Bùm! Loạt sút của bạn hướng về phía **${playerChoice}** đã dội trúng cột dọc dội ra ngoài!\nThủ môn BotToan chỉ biết đứng nhìn thở phào nhẹ nhõm.\n💰 Tòa trả lại **${formatMoney(betAmount)}** tiền cược cho bạn.`;
-            color = 0xF1C40F;
+            // Trúng cột dọc/xà ngang: Mất tiền cược (không hoàn trả)
+            const hitPostMessages = [
+                `💥 **Cú sút đi vào lòng đất!** Bạn sút hướng **${playerChoice}**, bóng bay cực căng NHƯNG đập trúng cột dọc dội ngược lại đập thẳng vào mặt bạn! 🤕 Cột dọc cứu thua cho BotToan, bay màu mất sạch **${formatMoney(betAmount)}** cược nhé cưng!`,
+                `💥 **Ối dồi ôi!** Cú sút hướng **${playerChoice}** khiến thủ môn BotToan đứng hình chịu chết... NHƯNG bóng đập trúng xà ngang nảy ra ngoài! 😭 Nhân phẩm quá thấp, cột dọc xà ngang gánh còng lưng BotToan rồi. Tiếc nuối mất đi **${formatMoney(betAmount)}**!`,
+                `💥 **Trắng tay vì cột dọc!** Bạn sút về hướng **${playerChoice}**, bóng bay trúng cột dọc rồi bay thẳng ra chuồng gà! 🐔 *BotToan khịa:* "Đã nghèo còn gặp cột dọc gánh team. Thôi nạp thêm tiền đi em ơi, mất sạch **${formatMoney(betAmount)}** rồi!"`
+            ];
+            
+            resultTitle = "💥 CỘT DỌC/XÀ NGANG CỨU THUA! (Thua cược)";
+            resultDesc = hitPostMessages[Math.floor(Math.random() * hitPostMessages.length)];
+            color = 0xF1C40F; // Màu cam cảnh báo
         } else if (playerChoice === botChoice) {
             // Thua cược (mất tiền đã khấu trừ)
+            const savedMessages = [
+                `🧤 **Bị tóm gọn quả bóng!** Bạn sút hướng **${playerChoice}**, thủ môn BotToan bay người nhẹ nhàng ôm gọn trái bóng như ôm người yêu cũ! 🤡 *Khịa:* "Đá nhẹ thế này thì về quê chăn vịt đi em ơi!", mất sạch **${formatMoney(betAmount)}**!`,
+                `🧤 **Bắt bài quá dễ!** Bạn sút hướng **${playerChoice}**, BotToan chỉ cần nhấc nhẹ cái chân là cản phá thành công! 🦵 *Khịa:* "Đọc vị như đọc sách giáo khoa cấp 1. Nộp **${formatMoney(betAmount)}** cống nạp cho nhà cái lẹ đi cưng!"`,
+                `🧤 **Hết cứu!** Cú sút hướng **${playerChoice}** quá hiền lành, BotToan bay người cản phá xuất thần! 🧤 *Khịa:* "Sút thế này thì đến thủ môn mù cũng đỡ được. Mất trắng **${formatMoney(betAmount)}** cược nhé bạn yêu!"`
+            ];
+
             resultTitle = "❌ BỊ THỦ MÔN CẢN PHÁ! (Thua cược)";
-            resultDesc = `🧤 Ôi không! Bạn sút về hướng **${playerChoice}**, và thủ môn BotToan đã xuất thần bay người cản phá thành công!\n💬 *Lời khịa:* "Sút thế thì chỉ có đi chăn bò thôi em ơi!"\n💸 Bạn mất sạch **${formatMoney(betAmount)}** cược.`;
+            resultDesc = savedMessages[Math.floor(Math.random() * savedMessages.length)];
             color = 0xE74C3C;
         } else {
             // Thắng cược (cộng gấp đôi)
             const currentBal = await getBalance(userId);
             await updateBalance(userId, currentBal + (betAmount * 2));
 
+            const goalMessages = [
+                `🎉 **VÀOOOOOO! Đỉnh nóc kịch trần!** Bạn sút sang **${playerChoice}**, BotToan bay người ngơ ngác sang **${botChoice}** như kẻ mất sổ gạo! 🤡 Húp trọn **${formatMoney(betAmount * 2)}** cược, uy tín quá em ơi!`,
+                `🎉 **Rung lưới ngọt nước!** Cú sút hiểm hóc hướng **${playerChoice}** xé toạc mành lưới trong sự bất lực của BotToan! 🔥 Hốt ngay **${formatMoney(betAmount * 2)}** về ví, hôm nay tổ độ rồi!`,
+                `🎉 **Quá đẳng cấp!** Bạn sút hướng **${playerChoice}** đánh lừa hoàn toàn thủ môn BotToan (bay hướng **${botChoice}**)! ⚽ *Tấu hài:* "Bóng bay vào lưới đẹp như tranh vẽ, BotToan chỉ biết đứng nhìn khóc thét!" Thắng cược nhận **${formatMoney(betAmount * 2)}**!`
+            ];
+
             resultTitle = "⚽ VÀOOOOOO! GÔN RUNG LÊN! (Thắng x2)";
-            resultDesc = `🎉 Tuyệt cú mèo! Bạn sút sang **${playerChoice}** trong khi thủ môn BotToan bay người sang **${botChoice}**!\nLưới đã rung lên bần bật trong tiếng hò reo vang dội của khán giả World Cup!\n💰 Bạn thắng cược và húp về **${formatMoney(betAmount * 2)}**!`;
+            resultDesc = goalMessages[Math.floor(Math.random() * goalMessages.length)];
             color = 0x2ECC71;
         }
 
