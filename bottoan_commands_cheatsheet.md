@@ -98,6 +98,7 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 | Lệnh tiện ích | Cú pháp cách gọi | Quy tắc & Kết quả |
 | :--- | :--- | :--- |
 | **Chat với BotToan** | `@BotToan [nội dung tự do]` | Trò chuyện tự do với Gemini AI mỏ hỗn. Có bộ nhớ lưu trữ lịch sử 10 câu chat gần nhất. |
+| **Xem ảnh đại diện** | `@BotToan avatar [@User / ID / Tên]`<br>`@BotToan avt`<br>`@BotToan anhdaidien`<br>`@BotToan anh dai dien` | Hiển thị avatar độ phân giải lớn 1024px (hỗ trợ cả ảnh động GIF). Tự động hiển thị nút bấm chuyển đổi giữa **Avatar Server** và **Avatar Toàn Cầu** (nếu có cài avatar server riêng) kèm nút mở link ảnh gốc. Hỗ trợ bấm nút công khai cho mọi người cùng xem và fallback an toàn nếu thành viên đã rời server. |
 | **Cấm nói Horn-Bot** | `@BotToan cam mom`<br>`@BotToan im di`<br>`@BotToan cam`<br>`@BotToan im mom`<br>`@BotToan nin`<br>`@BotToan ngung sua` | Kích hoạt cấm khẩu: Ngay lập tức ngắt kết nối hoặc cách ly bot phát nhạc chào mừng Horn-Bot ra khỏi phòng voice hiện tại (chỉ hoạt động khi Horn-Bot và người ra lệnh ở chung phòng voice). |
 | **Dọn dẹp tin nhắn** | `@BotToan xoa [số]`<br>`@BotToan xoa all` | Xóa nhanh tin nhắn rác trong kênh (mặc định xóa 100 tin gần nhất, bỏ qua tin nhắn ghim, lọc được tin nhắn của bot hoặc user). |
 
@@ -107,10 +108,12 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 
 | Lệnh World Cup | Cú pháp cách gọi | Quy tắc & Kết quả |
 | :--- | :--- | :--- |
-| **Xem bảng kèo** | `@BotToan wc` | Hiển thị danh sách các trận đấu đang mở hoặc khóa cược, kèm tỷ lệ chấp bóng đá từ nhà cái BotToan. |
-| **Đặt cược kèo** | `@BotToan bat [mã] [A/B] [tiền]`<br>`@BotToan bet [mã] [A/B] [tiền]` | Đặt cược số tiền vào Đội A hoặc Đội B của mã trận đấu đó. Có thể cược cộng dồn nhiều lần, tối đa cược `500k` mỗi trận. Bị cấm đặt cửa ngược lại (chống bắt hai hàng). |
+| **Xem bảng kèo** | `@BotToan wc` | Hiển thị bảng tỷ lệ cược bằng giao diện tương tác 100% (nút bấm & dropdown menu). Cho phép chọn trận đấu để xem chi tiết và cược trực tiếp qua Modal nhập tiền, xem lịch sử cược cá nhân ẩn danh, xem các cược đang treo trên server, hoặc mở bảng quản lý Admin nhanh. |
+| **Đặt cược kèo** | `@BotToan bat [mã] [A/B hoặc Tên_Đội] [tiền]`<br>`@BotToan bet [mã] [A/B hoặc Tên_Đội] [tiền]` | Đặt cược số tiền vào Đội A, Đội B hoặc gõ tên đội (hỗ trợ không dấu, viết thường, so khớp một phần) của mã trận đấu đó. Có thể cược cộng dồn nhiều lần, tối đa cược `500k` (500 đơn vị balance) mỗi trận. Bị cấm đặt cửa ngược lại (chống bắt hai hàng). |
 | **Tiên tri bóng đá** | `@BotToan tientri [Đội A] vs [Đội B]`<br>`@BotToan predict [Đội A] vs [Đội B]` | Gemini AI đóng vai bạch tuộc Paul vô tri dự đoán kết quả tỷ số, lý luận phong thủy cực bựa, xưng hô đồng bộ giới tính từ DB. |
 | **Sút Penalty** | `@BotToan sut [tiền]`<br>`@BotToan penalty [tiền]` | Mini-game cờ bạc phạt đền x2 tiền cược bằng nút bấm (Trái/Giữa/Phải). Tỷ lệ **10% đập cột dọc/xà ngang** dội ra được hoàn 100% tiền cược (vô hiệu hóa nút tức thì chống click gian lận). Tự động chui vào voice phát nhạc World Cup `nhacWC.mp3` bốc lửa rồi ngắt kết nối khi kết thúc. |
-| **Mở cược trận đấu** | `@BotToan setwc [mã] [Đội A] [Đội B] [Kèo]` | *Chỉ Admin:* Đăng ký trận đấu mới mở cửa nhận cược. |
-| **Khóa cược trận** | `@BotToan lockwc [mã]` | *Chỉ Admin:* Khóa cửa không nhận thêm cược mới của trận đấu này (gõ khi trận bắt đầu đá). |
-| **Chung tiền cược** | `@BotToan chungwc [mã] [A/B/HoaKeo]` | *Chỉ Admin:* Settle kết quả trận đấu. Trả thưởng x2 cho người thắng, nuốt tiền người thua, hoặc hoàn tiền 100% nếu là Hòa Kèo (`HoaKeo`). |
+| **Mở cược trận đấu** | `@BotToan setwc [mã] [Đội A] [Đội B] [Kèo]` | *Chỉ Admin:* Đăng ký trận đấu mới mở cửa nhận cược. Chấp nhận dấu cách cho tên đội bóng (phân tách bởi từ khóa `vs` và dấu gạch đứng `|`). |
+| **Khóa cược trận** | `@BotToan lockwc [mã]` | *Chỉ Admin:* Khóa cửa không nhận thêm cược mới của trận đấu này (gõ lệnh chat hoặc bấm nút `🔒 Khóa cược` trực tiếp trong console admin). |
+| **Chung tiền cược** | `@BotToan chungwc [mã] [A/B/HoaKeo]` | *Chỉ Admin:* Settle kết quả trận đấu (gõ lệnh hoặc bấm nút kết quả thắng cửa A/B/Hòa trực tiếp trên giao diện - nút tự động khóa khi bấm để chống Double Click). Trả thưởng x2 cho người thắng, nuốt tiền người thua, hoặc hoàn tiền 100% nếu là Hòa Kèo (`HoaKeo`) an toàn tuyệt đối qua MongoDB Transaction. |
+| **Sửa kèo trận đấu** | `@BotToan editwc [mã] [Đội A] [Đội B] [Kèo]` | *Chỉ Admin:* Chỉnh sửa thông tin trận đấu (gõ lệnh hoặc bấm nút `📝 Sửa kèo` trên UI để hiện Modal điền sẵn dữ liệu cũ). Chỉ cho phép sửa khi trận đấu đang mở cược. |
+| **Xóa kèo trận đấu** | `@BotToan delwc [mã]`<br>`@BotToan xoawc [mã]` | *Chỉ Admin:* Xóa trận đấu khỏi hệ thống (gõ lệnh hoặc bấm nút `🗑️ Xóa & Hoàn tiền` trên UI). Tự động hoàn tiền 100% cho mọi người chơi đã cược. Chỉ cho phép xóa khi trận đấu chưa kết thúc chia tiền. |
