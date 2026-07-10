@@ -1,6 +1,10 @@
 import { Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, ComponentType } from 'discord.js';
+import { Solar } from 'lunar-javascript';
 import { getMyGuData, saveMyGuData, getLastDoanGuDate, setLastDoanGuDate, getServerGuData, getVNDateString, getProfile } from '../database';
 import { getRealGuReading, getGuMatchReading } from '../services/gemini';
+import { 
+    translateShengXiao, translateGanChi, translateNaYin, getCungPhi, getBatTrachRelation, getFengShuiScore 
+} from './ghepdoi';
 
 // ============================================================
 // =========== BỘ CÂU HỎI TRẮC NGHIỆM MÁY DÒ GU ============
@@ -8,22 +12,40 @@ import { getRealGuReading, getGuMatchReading } from '../services/gemini';
 
 interface Question {
     text: string;
-    options: { label: string; value: string; emoji?: string }[];
+    getOptions: (targetGender: string) => { label: string; value: string; emoji?: string }[];
 }
 
 const QUESTIONS: Question[] = [
     {
         text: "Câu 1: Phong cách Diện mạo & Thời trang bạn muốn ở người ấy?",
-        options: [
-            { label: "Hệ chỉn chu, vuốt tóc, xịt nước hoa thơm phức (Mùi lừa tình).", value: "A", emoji: "👔" },
-            { label: "Hệ Minimalist rách rưới: Quần short, áo loang lổ, đi dép crocs.", value: "B", emoji: "🩳" },
-            { label: "Hệ Tri thức nửa mùa: Đeo kính cận, ngoan hiền thích gạ xem Netflix.", value: "C", emoji: "🤓" },
-            { label: "Chỉ cần không hói, răng lợi đầy đủ, biết tắm rửa sạch sẽ.", value: "D", emoji: "🧼" }
-        ]
+        getOptions: (targetGender: string) => {
+            if (targetGender === 'NAM') {
+                return [
+                    { label: "Hệ chỉn chu, vuốt tóc, xịt nước hoa thơm phức (Mùi lừa tình).", value: "A", emoji: "👔" },
+                    { label: "Hệ Minimalist rách rưới: Quần short, áo loang lổ, đi dép crocs.", value: "B", emoji: "🩳" },
+                    { label: "Hệ Tri thức nửa mùa: Đeo kính cận, ngoan hiền thích gạ xem Netflix.", value: "C", emoji: "🤓" },
+                    { label: "Chỉ cần không hói, răng lợi đầy đủ, biết tắm rửa sạch sẽ.", value: "D", emoji: "🧼" }
+                ];
+            } else if (targetGender === 'NU') {
+                return [
+                    { label: "Hệ quyến rũ sang chảnh, tóc thơm mùi nhài, makeup lồng lộn.", value: "A", emoji: "💄" },
+                    { label: "Hệ ngây thơ bánh bèo: Váy hoa nhí, kẹp tóc nơ, đi giày búp bê.", value: "B", emoji: "👗" },
+                    { label: "Hệ tomboy cá tính: Quần túi hộp, nón snapback, nhìn ngầu lòi.", value: "C", emoji: "🧢" },
+                    { label: "Chỉ cần da dẻ mịn màng, răng lợi đầy đủ, thơm tho sạch sẽ.", value: "D", emoji: "🧼" }
+                ];
+            } else {
+                return [
+                    { label: "Hệ chỉn chu, xịt nước hoa thơm phức (Mùi lừa tình).", value: "A", emoji: "✨" },
+                    { label: "Hệ Minimalist rách rưới: Quần short, áo phông rộng, đi dép crocs.", value: "B", emoji: "🩳" },
+                    { label: "Hệ Tri thức nửa mùa: Đeo kính cận, ngoan hiền thích gạ xem Netflix.", value: "C", emoji: "🤓" },
+                    { label: "Chỉ cần răng lợi đầy đủ, không bị hôi nách, biết tắm rửa sạch sẽ.", value: "D", emoji: "🧼" }
+                ];
+            }
+        }
     },
     {
         text: "Câu 2: Tần số \"Mỏ Hỗn\" & Giao tiếp thế nào?",
-        options: [
+        getOptions: () => [
             { label: "Ngoài lạnh trong nóng: Với thiên hạ thì câm, với mình thì nhắn tin cháy máy.", value: "A", emoji: "❄️" },
             { label: "Hệ mỏ hỗn vũ trụ: Mở mồm là vả nhau chan chát, không combat là ngứa mồm.", value: "B", emoji: "🗣️" },
             { label: "Hệ Thao túng tâm lý: Nói câu nào rót mật câu đấy, lươn lẹo dẻo mỏ.", value: "C", emoji: "🍯" },
@@ -32,7 +54,7 @@ const QUESTIONS: Question[] = [
     },
     {
         text: "Câu 3: Tính \"Toxic Ngầm\" nào bạn sẵn sàng dung túng?",
-        options: [
+        getOptions: () => [
             { label: "Chúa Tể Chiếm Hữu: Thích check phone, stalk sạch từ bạn bè đến nyc.", value: "A", emoji: "🕵️" },
             { label: "Overthink Overnight: Tự suy diễn, tự dỗi tự block, sáng ra lại bình thường.", value: "B", emoji: "🧩" },
             { label: "Chiến tranh lạnh: Gặp chuyện là im lặng, bắt mình tự đoán xem họ đang nghĩ gì.", value: "C", emoji: "🥶" },
@@ -41,32 +63,149 @@ const QUESTIONS: Question[] = [
     },
     {
         text: "Câu 4: Tiêu chuẩn Kinh tế & Cái ví?",
-        options: [
-            { label: "Hệ Ting Ting: Không thiếu gì ngoài tiền, chuyển khoản là cách nói yêu.", value: "A", emoji: "💸" },
-            { label: "Hệ Sòng phẳng: Chia đôi đến từng nghìn lẻ, phải có mã giảm giá mới đi ăn.", value: "B", emoji: "📐" },
-            { label: "Nghèo Sang Chảnh: Ví còn 50k vẫn rủ đi ăn buffet 500k quẹt thẻ tín dụng nợ ngập đầu.", value: "C", emoji: "💳" },
-            { label: "Hệ Bám váy/Đào mỏ: \"Hôm nay bao em/anh nhé, tháng sau lãnh lương trả\".", value: "D", emoji: "🪜" }
-        ]
+        getOptions: (targetGender: string) => {
+            if (targetGender === 'NAM') {
+                return [
+                    { label: "Hệ Tổng tài ting ting: Không thiếu gì ngoài tiền, chuyển khoản là cách nói yêu.", value: "A", emoji: "💸" },
+                    { label: "Hệ Sòng phẳng: Chia đôi đến từng nghìn lẻ, phải có mã giảm giá mới đi ăn.", value: "B", emoji: "📐" },
+                    { label: "Nghèo Sang Chảnh: Ví còn 50k vẫn rủ đi ăn buffet 500k quẹt thẻ tín dụng nợ ngập đầu.", value: "C", emoji: "💳" },
+                    { label: "Hệ bám váy/đào mỏ: 'Hôm nay bao anh nhé, tháng sau lãnh lương trả'.", value: "D", emoji: "🪜" }
+                ];
+            } else if (targetGender === 'NU') {
+                return [
+                    { label: "Hệ Phú bà ting ting: Thích mua sắm tặng quà, bao nuôi không tiếc tiền.", value: "A", emoji: "💸" },
+                    { label: "Hệ Sòng phẳng: Chia đôi đến từng nghìn lẻ, phải có mã giảm giá mới đi ăn.", value: "B", emoji: "📐" },
+                    { label: "Nghèo Sang Chảnh: Ví còn 50k vẫn rủ đi ăn buffet 500k quẹt thẻ tín dụng nợ ngập đầu.", value: "C", emoji: "💳" },
+                    { label: "Hệ đào mỏ: 'Hôm nay bao em nhé, tháng sau lãnh lương trả'.", value: "D", emoji: "🪜" }
+                ];
+            } else {
+                return [
+                    { label: "Hệ ting ting bao nuôi: Không tiếc tiền chi cho người yêu.", value: "A", emoji: "💸" },
+                    { label: "Hệ Sòng phẳng: Chia đôi đến từng nghìn lẻ, phải có mã giảm giá mới đi ăn.", value: "B", emoji: "📐" },
+                    { label: "Nghèo Sang Chảnh: Ví còn 50k vẫn rủ đi ăn buffet 500k quẹt thẻ tín dụng nợ ngập đầu.", value: "C", emoji: "💳" },
+                    { label: "Hệ đào mỏ/bám váy: Suốt ngày quên ví để đối phương phải bao.", value: "D", emoji: "🪜" }
+                ];
+            }
+        }
     },
     {
         text: "Câu 5: Sở thích vô tri lúc rảnh rỗi?",
-        options: [
-            { label: "Nghiện cày game (Valorant, Tốc Chiến): Thà bỏ người yêu chứ không bỏ trận rank.", value: "A", emoji: "🎮" },
-            { label: "Nghiện lướt TikTok: Ngồi cạnh nhau cắm mặt vào máy, share clip vô tri.", value: "B", emoji: "📱" },
-            { label: "Cú đêm đi lượn: 12h đêm rủ đi ăn mì cay hóng biến, ngày ngủ bù như cá ươn.", value: "C", emoji: "🦉" },
-            { label: "Mua sắm tâm linh: Suốt ngày xem bói Tarot, mua đá phong thủy dù nợ nần.", value: "D", emoji: "🔮" }
-        ]
+        getOptions: (targetGender: string) => {
+            if (targetGender === 'NAM') {
+                return [
+                    { label: "Nghiện cày game (Valorant, Tốc Chiến): Thà bỏ người yêu chứ không bỏ trận rank.", value: "A", emoji: "🎮" },
+                    { label: "Nghiện lướt TikTok: Ngồi cạnh nhau cắm mặt vào máy, share clip vô tri.", value: "B", emoji: "📱" },
+                    { label: "Cú đêm đi lượn: 12h đêm rủ đi ăn mì cay hóng biến, ngày ngủ bù như cá ươn.", value: "C", emoji: "🦉" },
+                    { label: "Mua sắm tâm linh: Suốt ngày xem bói Tarot, mua đá phong thủy dù nợ nần.", value: "D", emoji: "🔮" }
+                ];
+            } else if (targetGender === 'NU') {
+                return [
+                    { label: "Chúa tể cày phim: Khóc sướt mướt vì nam chính, thà cày phim chứ không cày game.", value: "A", emoji: "🎬" },
+                    { label: "Nghiện lướt TikTok/Shopee: Săn deal, ngồi cạnh nhau share clip vô tri.", value: "B", emoji: "📱" },
+                    { label: "Cú đêm đi lượn: 12h đêm rủ đi ăn mì cay hóng biến, ngày ngủ bù như cá ươn.", value: "C", emoji: "🦉" },
+                    { label: "Mua sắm tâm linh: Suốt ngày xem bói Tarot, mua đá phong thủy dù nợ nần.", value: "D", emoji: "🔮" }
+                ];
+            } else {
+                return [
+                    { label: "Nghiện cày game hoặc cày phim: Suốt ngày dán mắt vào màn hình.", value: "A", emoji: "🎮" },
+                    { label: "Nghiện lướt mạng xã hội: Ngồi cạnh nhau cắm mặt vào máy share clip vô tri.", value: "B", emoji: "📱" },
+                    { label: "Cú đêm đi lượn: 12h đêm rủ đi ăn mì cay hóng biến, ngày ngủ bù như cá ươn.", value: "C", emoji: "🦉" },
+                    { label: "Mua sắm tâm linh: Suốt ngày xem bói Tarot, mua đá phong thủy dù nợ nần.", value: "D", emoji: "🔮" }
+                ];
+            }
+        }
     },
     {
         text: "Câu 6: Phản ứng khi hai đứa xảy ra mâu thuẫn?",
-        options: [
-            { label: "Khóc lóc ăn vạ: Auto nhận sai xong khóc bù loa bắt dỗ ngược lại.", value: "A", emoji: "😭" },
-            { label: "Combat tới bến: Cãi nhau như toà án, lôi chuyện 3 năm trước ra nhai lại.", value: "B", emoji: "🤺" },
-            { label: "Mua đồ ăn chuộc lỗi: Trà sữa full topping ship đến là xoá bỏ lỗi lầm.", value: "C", emoji: "🧋" },
-            { label: "Bỏ nhà đi bụi: Khóa máy đi nhậu với bạn bè mặc kệ mình lo sốt vó.", value: "D", emoji: "🍺" }
-        ]
+        getOptions: (targetGender: string) => {
+            if (targetGender === 'NAM') {
+                return [
+                    { label: "Khóc lóc ăn vạ: Auto nhận sai xong khóc bù loa bắt dỗ ngược lại.", value: "A", emoji: "😭" },
+                    { label: "Combat tới bến: Cãi nhau như toà án, lôi chuyện 3 năm trước ra nhai lại.", value: "B", emoji: "🤺" },
+                    { label: "Mua đồ ăn chuộc lỗi: Trà sữa full topping ship đến là xoá bỏ lỗi lầm.", value: "C", emoji: "🧋" },
+                    { label: "Bỏ nhà đi bụi: Khóa máy đi nhậu với bạn bè mặc kệ mình lo sốt vó.", value: "D", emoji: "🍺" }
+                ];
+            } else if (targetGender === 'NU') {
+                return [
+                    { label: "Khóc lóc ăn vạ: Bắt mình dỗ dành 2 tiếng đồng hồ mới chịu nín.", value: "A", emoji: "😭" },
+                    { label: "Stalking & Dỗi hờn: Im lặng, hủy kết bạn, chặn số rồi sáng ra tự mở.", value: "B", emoji: "📴" },
+                    { label: "Mua đồ ăn chuộc lỗi: Trà sữa full topping ship đến là xoá bỏ lỗi lầm.", value: "C", emoji: "🧋" },
+                    { label: "Bỏ đi shopping: Quẹt thẻ của mình đi mua sắm xả stress mặc kệ mình.", value: "D", emoji: "🛍️" }
+                ];
+            } else {
+                return [
+                    { label: "Khóc lóc dỗi hờn: Muốn đối phương phải dỗ dành chiều chuộng.", value: "A", emoji: "😭" },
+                    { label: "Combat tới bến: Cãi nhau nảy lửa, lôi chuyện cũ ra nhai đi nhai lại.", value: "B", emoji: "🤺" },
+                    { label: "Trà sữa chuộc lỗi: Full topping ship đến là mọi tội lỗi được tha thứ.", value: "C", emoji: "🧋" },
+                    { label: "Khóa máy bỏ đi: Im lặng biến mất mặc kệ đối phương lo sốt vó.", value: "D", emoji: "📴" }
+                ];
+            }
+        }
     }
 ];
+
+// ============================================================
+// =========== PARSER MÃ GU VÀ TƯƠNG THÍCH NGƯỢC ==============
+// ============================================================
+
+export interface ParsedGuCode {
+    userGender: string;
+    targetGender: string;
+    targetGenderInferred: string;
+    answers: string;
+    isInferred: boolean;
+}
+
+export function parseMyGuCode(code: string): ParsedGuCode {
+    if (!code) {
+        return {
+            userGender: 'UNKNOWN',
+            targetGender: 'UNKNOWN',
+            targetGenderInferred: 'UNKNOWN',
+            answers: '',
+            isInferred: false
+        };
+    }
+
+    const parts = code.split('_');
+    
+    // Định dạng mới: USERGENDER_TARGETGENDER_CODE (ví dụ: NAM_NU_1A2B...)
+    if (parts.length === 3) {
+        return {
+            userGender: parts[0],
+            targetGender: parts[1],
+            targetGenderInferred: parts[1],
+            answers: parts[2],
+            isInferred: false
+        };
+    }
+    
+    // Định dạng cũ: USERGENDER_CODE (ví dụ: NAM_1A2B...)
+    if (parts.length === 2) {
+        const userGender = parts[0];
+        const answers = parts[1];
+        let targetGenderInferred = 'UNKNOWN';
+        if (userGender === 'NAM') targetGenderInferred = 'NU';
+        else if (userGender === 'NU') targetGenderInferred = 'NAM';
+        
+        return {
+            userGender,
+            targetGender: 'UNKNOWN',
+            targetGenderInferred,
+            answers,
+            isInferred: true
+        };
+    }
+
+    // Không tìm thấy dấu gạch dưới (Hệ cũ nữa hoặc lỗi)
+    return {
+        userGender: 'UNKNOWN',
+        targetGender: 'UNKNOWN',
+        targetGenderInferred: 'UNKNOWN',
+        answers: code,
+        isInferred: true
+    };
+}
 
 function checkUserException(message: Message): boolean {
     if (message.author.id === '911989602213060688') {
@@ -105,21 +244,37 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
         return;
     }
 
-    // Ngoại lệ
+    // Ngoại lệ ẩn
     if (checkUserException(message)) return;
 
     const userData = await getMyGuData(message.author.id);
-    // Nếu hôm nay đã làm rồi thì cho phép xem lại kết quả cũ
-    if (userData.lastMyGuDate === today && userData.myGuResultCache) {
-        const cachedEmbed = parseResultToEmbed(userData.myGuResultCache, message.author.username, message.client.user?.displayAvatarURL() || '', today);
+    
+    // Nếu ĐÃ TỪNG làm trắc nghiệm thì hiển thị kết quả lưu trữ trọn đời kèm nút Đổi Gu
+    if (userData.myGuCode && userData.myGuResultCache) {
+        const cachedEmbed = parseResultToEmbed(userData.myGuResultCache, message.author.username, message.client.user?.displayAvatarURL() || '', userData.lastMyGuDate || today);
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`mygu_reset_${message.author.id}`)
+                .setLabel('Tẩy não tìm gu mới 🧠')
+                .setStyle(ButtonStyle.Danger)
+        );
+
         await message.reply({
-            content: `🔮 **Bạn đã làm trắc nghiệm gu hôm nay rồi!** Đây là kết quả đọc vị cũ của bạn trong ngày:`,
-            embeds: [cachedEmbed]
+            content: `🔮 **Bạn đã lưu trữ hồ sơ trắc nghiệm gu rồi!** Dưới đây là kết quả của bạn:`,
+            embeds: [cachedEmbed],
+            components: [row]
         }).catch(() => {});
         return;
     }
 
-    // Bắt đầu trắc nghiệm chọn Giới tính
+    // Nếu chưa làm bao giờ, chạy luồng trắc nghiệm mới
+    await startQuizSession(message, message.author.id);
+}
+
+/**
+ * Khởi tạo phiên trắc nghiệm mới (Hỗ trợ gọi từ tin nhắn hoặc nút Đổi Gu toàn cục)
+ */
+export async function startQuizSession(ctx: any, authorId: string): Promise<void> {
     const introEmbed = new EmbedBuilder()
         .setTitle("🔮 HỆ THỐNG MÁY DÒ \"MY GU\" ĐA VŨ TRỤ")
         .setColor(0x7B2FBE)
@@ -128,39 +283,78 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
         .setTimestamp();
 
     const genderRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('mygu_gender_nam').setLabel('Tôi là Nam 🧑').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('mygu_gender_nu').setLabel('Tôi là Nữ 👩').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId(`mygu_gender_nam_${authorId}`).setLabel('Tôi là Nam 🧑').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`mygu_gender_nu_${authorId}`).setLabel('Tôi là Nữ 👩').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`mygu_gender_other_${authorId}`).setLabel('Hệ Bí Ẩn 👽').setStyle(ButtonStyle.Secondary)
     );
 
-    const quizMessage = await message.reply({ embeds: [introEmbed], components: [genderRow] }).catch(() => null);
+    let quizMessage: any;
+    if (ctx.reply) {
+        // Gọi từ tin nhắn thô
+        quizMessage = await ctx.reply({ embeds: [introEmbed], components: [genderRow] }).catch(() => null);
+    } else {
+        // Gọi từ Interaction (nút bấm Đổi Gu)
+        quizMessage = await ctx.update({ embeds: [introEmbed], components: [genderRow], fetchReply: true }).catch(() => null);
+    }
+
     if (!quizMessage) return;
 
-    let gender = '';
+    let userGender = '';
+    let targetGender = '';
     const answers: string[] = [];
     let currentIdx = 0;
 
     const collector = quizMessage.createMessageComponentCollector({
-        filter: (i) => {
-            if (i.user.id !== message.author.id) {
+        filter: (i: any) => {
+            if (i.user.id !== authorId) {
                 i.reply({ content: "Né ra chỗ khác cho người ta chọn gu, vô duyên thế! 🙄", ephemeral: true }).catch(() => {});
                 return false;
             }
             return true;
         },
-        time: 60000 // 60 giây suy nghĩ
+        time: 60000 // 60 giây suy nghĩ mỗi bước
     });
 
-    collector.on('collect', async (interaction) => {
+    collector.on('collect', async (interaction: any) => {
         // Reset timeout
         collector.resetTimer();
 
         if (interaction.isButton()) {
-            if (interaction.customId.startsWith('mygu_gender_')) {
-                gender = interaction.customId === 'mygu_gender_nam' ? 'NAM' : 'NU';
-                // Chuyển sang Câu 1
-                await showQuestion(interaction, currentIdx, gender, answers);
+            const cid = interaction.customId;
+
+            // Bước 1: Chọn giới tính bản thân
+            if (cid.startsWith('mygu_gender_')) {
+                if (cid.includes('_nam_')) userGender = 'NAM';
+                else if (cid.includes('_nu_')) userGender = 'NU';
+                else userGender = 'OTHER';
+
+                const targetEmbed = new EmbedBuilder()
+                    .setTitle("🔮 BƯỚC 2: XÁC ĐỊNH MỤC TIÊU")
+                    .setColor(0x7B2FBE)
+                    .setDescription("Giới tính đối phương bạn đang tìm kiếm (Gu của bạn) là gì?")
+                    .setFooter({ text: "Chỉ người gọi lệnh mới tương tác được • Hết hạn sau 60s" })
+                    .setTimestamp();
+
+                const targetRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder().setCustomId(`mygu_target_nam_${authorId}`).setLabel('Bạn Trai 🧑').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`mygu_target_nu_${authorId}`).setLabel('Bạn Gái 👩').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId(`mygu_target_all_${authorId}`).setLabel('Đa Hệ 🌈').setStyle(ButtonStyle.Success)
+                );
+
+                await interaction.update({ embeds: [targetEmbed], components: [targetRow] }).catch(() => {});
+                return;
             }
-            return;
+
+            // Bước 2: Chọn giới tính Gu
+            if (cid.startsWith('mygu_target_')) {
+                if (cid.includes('_nam_')) targetGender = 'NAM';
+                else if (cid.includes('_nu_')) targetGender = 'NU';
+                else targetGender = 'ALL';
+
+                // Bắt đầu show câu hỏi đầu tiên
+                await showQuestion(interaction, currentIdx, userGender, targetGender, answers, authorId);
+                return;
+            }
         }
 
         if (interaction.isStringSelectMenu()) {
@@ -170,14 +364,16 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
                 currentIdx++;
 
                 if (currentIdx < QUESTIONS.length) {
-                    await showQuestion(interaction, currentIdx, gender, answers);
+                    await showQuestion(interaction, currentIdx, userGender, targetGender, answers, authorId);
                 } else {
                     // Đã hoàn thành 6 câu
                     collector.stop('completed');
                     await interaction.deferUpdate();
 
-                    const answersCode = `${gender}_` + QUESTIONS.map((_, i) => `${i+1}${answers[i]}`).join('');
-                    
+                    // Định dạng mã mới: USERGENDER_TARGETGENDER_CODE
+                    const answersCode = `${userGender}_${targetGender}_` + QUESTIONS.map((_, i) => `${i+1}${answers[i]}`).join('');
+                    const today = getVNDateString(Date.now());
+
                     // Kiểm tra Easter Eggs ẩn
                     const allD = answers.every(ans => ans === 'D');
                     const allB = answers.every(ans => ans === 'B');
@@ -198,10 +394,10 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
                             "TỈ LỆ SỐNG SÓT: 10%. Lời khuyên: Tình yêu kiểu này sớm muộn gì cũng tổn thọ, đi mua bảo hiểm nhân thọ trước khi chốt đơn yêu nhé!"
                         ].join('\n\n');
                     } else {
-                        // Gọi Gemini đọc vị
-                        const answersSummary = QUESTIONS.map((q, i) => `${q.text} -> ${q.options.find(opt => opt.value === answers[i])?.label}`).join('\n');
+                        // Gọi Gemini đọc vị gu
+                        const answersSummary = QUESTIONS.map((q, i) => `${q.text} -> ${q.getOptions(targetGender).find(opt => opt.value === answers[i])?.label}`).join('\n');
                         try {
-                            resultText = await getRealGuReading(answersSummary, message.author.username);
+                            resultText = await getRealGuReading(answersSummary, interaction.user.username);
                         } catch {
                             resultText = [
                                 "HỆ NGƯỜI YÊU: Hệ Vô Tri Tiêu Chuẩn 🤷‍♀️",
@@ -212,20 +408,26 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
                         }
                     }
 
-                    // Lưu dữ liệu
-                    await saveMyGuData(message.author.id, answersCode, resultText, today);
+                    // Lưu dữ liệu vĩnh viễn vào DB
+                    await saveMyGuData(authorId, answersCode, resultText, today);
 
-                    const finalEmbed = parseResultToEmbed(resultText, message.author.username, message.client.user?.displayAvatarURL() || '', today);
+                    const finalEmbed = parseResultToEmbed(resultText, interaction.user.username, interaction.client.user?.displayAvatarURL() || '', today);
+                    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`mygu_reset_${authorId}`)
+                            .setLabel('Tẩy não tìm gu mới 🧠')
+                            .setStyle(ButtonStyle.Danger)
+                    );
                     await quizMessage.edit({
                         embeds: [finalEmbed],
-                        components: []
+                        components: [row]
                     }).catch(() => {});
                 }
             }
         }
     });
 
-    collector.on('end', async (_, reason) => {
+    collector.on('end', async (_: any, reason: string) => {
         if (reason === 'time' && answers.length < QUESTIONS.length) {
             const timeoutEmbed = new EmbedBuilder()
                 .setTitle("🔮 MÁY DÒ GU THẤT BẠI")
@@ -237,22 +439,22 @@ export async function handleMyGuQuiz(message: Message, rawInput: string): Promis
     });
 }
 
-// Helper hiển thị câu hỏi trắc nghiệm
-async function showQuestion(interaction: any, idx: number, gender: string, answers: string[]): Promise<void> {
+// Helper hiển thị câu hỏi trắc nghiệm động
+async function showQuestion(interaction: any, idx: number, userGender: string, targetGender: string, answers: string[], authorId: string): Promise<void> {
     const q = QUESTIONS[idx];
     const progress = `[${'■'.repeat(idx)}${'░'.repeat(QUESTIONS.length - idx)}] Câu ${idx + 1}/${QUESTIONS.length}`;
 
     const embed = new EmbedBuilder()
-        .setTitle(`🔮 MÁY DÒ GU — GIỚI TÍNH: ${gender}`)
+        .setTitle(`🔮 MÁY DÒ GU — BẠN: ${userGender} | GU: ${targetGender}`)
         .setColor(0x7B2FBE)
         .setDescription(`💬 **${q.text}**\n\n*Tiến độ: ${progress}*`)
         .setFooter({ text: "Hãy chọn phương án bên dưới" });
 
     const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(`mygu_q_${idx}`)
+        .setCustomId(`mygu_q_${idx}_${authorId}`)
         .setPlaceholder('Chọn câu trả lời của bạn...')
         .addOptions(
-            q.options.map(opt => ({
+            q.getOptions(targetGender).map(opt => ({
                 label: opt.label.substring(0, 100),
                 value: opt.value,
                 emoji: opt.emoji
@@ -288,7 +490,7 @@ function parseResultToEmbed(text: string, username: string, avatarUrl: string, d
             { name: "🍿 Một Ngày Hẹn Hò Thực Tế", value: henHo || "*...*", inline: false },
             { name: "☠️ Tỉ Lệ Sống Sót & Lời Khuyên", value: songSot || "*...*", inline: false }
         )
-        .setFooter({ text: `Báo cáo ngày ${date} • BotToan Máy Dò Đa Vũ Trụ`, iconURL: avatarUrl })
+        .setFooter({ text: `Báo cáo lưu trữ vĩnh viễn • BotToan Máy Dò Đa Vũ Trụ`, iconURL: avatarUrl })
         .setTimestamp();
 }
 
@@ -296,27 +498,35 @@ function parseResultToEmbed(text: string, username: string, avatarUrl: string, d
 // =========== TÍNH NĂNG 2: LỆNH ĐOÁN GU NHANH @BotToan doan mygu
 // ============================================================
 
-const DOAN_GU_ARCHETYPES = [
-    "Hệ Phú Bà Quên Mật Khẩu SmartBanking 💸",
+const DOAN_GU_BOYS = [
     "Hệ Trai Phố Cổ Thích Giảng Đạo Lý 🏰",
-    "Hệ Trap Girl Phóng Xe Máy Điện Không Gương 🛵",
     "Hệ Tổng Tài Thẻ Tín Dụng Nợ Nhóm 3 💳",
-    "Hệ Công Chúa Overthink Bán Hàng Online 🧠",
     "Hệ Bboy Hơi Nách Nhưng Chung Thủy 🕺",
-    "Hệ Flexer Lương 5 Triệu Tiêu 15 Triệu 💰",
-    "Hệ Báo Thủ Valorant Suốt Ngày Kêu Lag 🎮",
-    "Hệ Gái Ngoan Thích Xem Phim Netflix Lúc 12h Đêm 🎬",
-    "Hệ Người Yêu Hoàn Hảo Trong Trải Bài Tarot 🔮",
     "Hệ Boy Bánh Mì Dân Tổ Mỏ Hỗn 🥖",
-    "Hệ Hướng Nội Part-time, Hướng Ngoại Khi Đi Bar 🥂",
-    "Hệ Tổng Tài Cá Ươn Lười Rep Tin Nhắn 💤",
-    "Hệ Thầy Bói Giang Hồ Chuyên Bói Tình Duyên 🃏",
     "Hệ Trap Boy Ngoan Hiền Ở Chùa Online 📿",
     "Hệ Phú Ông Tương Lai Đang Đi Vay Tiền Nợ 🏦",
-    "Hệ Chiến Thần Combat Bỏ Nhà Đi Bụi 🍺",
-    "Hệ Bồ Ngoan Chỉ Xin Ăn Trà Sữa Full Topping 🧋",
-    "Hệ Chúa Tể Ghen Tuông Xem Hết Nhật Ký 🕵️",
+    "Hệ Tổng Tài Cá Ươn Lười Rep Tin Nhắn 💤",
+    "Hệ Anh Trai Mưa Chuyên Ship Đồ Ăn Đêm 🛵",
     "Hệ Trí Thức Nửa Mùa Thích Nói Triết Lý 📖"
+];
+
+const DOAN_GU_GIRLS = [
+    "Hệ Phú Bà Quên Mật Khẩu SmartBanking 💸",
+    "Hệ Trap Girl Phóng Xe Máy Điện Không Gương 🛵",
+    "Hệ Công Chúa Overthink Bán Hàng Online 🧠",
+    "Hệ Gái Ngoan Thích Xem Phim Netflix Lúc 12h Đêm 🎬",
+    "Hệ Bồ Ngoan Chỉ Xin Ăn Trà Sữa Full Topping 🧋",
+    "Hệ Nữ Thần Tẩy Trang Xong Hết Hồn 💄",
+    "Hệ Nương Nương Thích Chỉ Tay Năm Ngón 👑"
+];
+
+const DOAN_GU_NEUTRAL = [
+    "Hệ Flexer Lương 5 Triệu Tiêu 15 Triệu 💰",
+    "Hệ Báo Thủ Valorant Suốt Ngày Kêu Lag 🎮",
+    "Hệ Người Yêu Hoàn Hảo Trong Trải Bài Tarot 🔮",
+    "Hệ Hướng Nội Part-time, Hướng Ngoại Khi Đi Bar 🥂",
+    "Hệ Chiến Thần Combat Bỏ Nhà Đi Bụi 🍺",
+    "Hệ Chúa Tể Ghen Tuông Xem Hết Nhật Ký 🕵️"
 ];
 
 const PLACES = [
@@ -333,56 +543,139 @@ const PLACES = [
 export async function handleDoanMyGu(message: Message): Promise<void> {
     if (checkUserException(message)) return;
 
-    const today = getVNDateString(Date.now());
-
-    // Radar loading 2 tầng để tránh rate limit Discord (cách nhau 1500ms như góp ý)
-    const processMsg = await message.reply("📡 **Đang bắt sóng não... [📡📡░░░░░░░░] 20%**").catch(() => null);
-    if (!processMsg) return;
-
-    await new Promise(res => setTimeout(res, 1500));
-    await processMsg.edit("🎭 **Đo lường độ lươn lẹo phong thủy... [🎭🎭🎭🎭🎭🎭🎭🎭░░] 80%**").catch(() => {});
-    await new Promise(res => setTimeout(res, 1500));
-
-    // Seed-based random
-    let hash = 0;
-    const seedStr = message.author.id + today + 'doangu';
-    for (let i = 0; i < seedStr.length; i++) {
-        hash = ((hash << 5) - hash) + seedStr.charCodeAt(i);
-        hash |= 0;
-    }
-    const roll = Math.abs(hash);
-
-    const archetype = DOAN_GU_ARCHETYPES[roll % DOAN_GU_ARCHETYPES.length];
-    const place = PLACES[roll % PLACES.length];
-    
-    // Các chỉ số thuộc tính
-    const chieuCao = (roll % 35) + 150; // 150cm - 184cm
-    const moHon = roll % 101; // 0% - 100%
-    const chungThuy = roll % 101; // 0% - 100%
-
-    // Tạo thanh tiến trình
-    const getBar = (pct: number): string => {
-        const filled = Math.round(pct / 10);
-        return '🟩'.repeat(filled) + '⬜'.repeat(10 - filled);
-    };
-
-    const embed = new EmbedBuilder()
-        .setTitle(`📡 QUÉT GU VŨ TRỤ HÔM NAY — ${message.author.username.toUpperCase()}`)
+    // Hiển thị giao diện chọn giới tính của Gu cần bói nhanh để tránh "Báo thủ"
+    const introEmbed = new EmbedBuilder()
+        .setTitle("📡 QUÉT GU VŨ TRỤ — RADAR SÓNG NÃO")
         .setColor(0x34C759)
-        .setDescription(`Vũ trụ đã bắt sóng được mẫu hình lý tưởng của bạn ngày hôm nay!`)
-        .addFields(
-            { name: "👑 Danh hiệu Gu Vũ Trụ", value: `**${archetype}**`, inline: false },
-            { name: "📏 Chiều cao", value: `${getBar(Math.round(((chieuCao-150)/34)*100))} **${chieuCao} cm** *(Vừa vặn cốc đầu)*`, inline: false },
-            { name: "🗣️ Độ mỏ hỗn", value: `${getBar(moHon)} **${moHon}%**`, inline: false },
-            { name: "❤️ Độ chung thủy", value: `${getBar(chungThuy)} **${chungThuy}%**`, inline: false },
-            { name: "📍 Tọa độ hay lui tới", value: place, inline: false }
-        )
-        .setFooter({ text: `Quét ngày ${today} • Kết quả cố định trong ngày • BotToan Radar`, iconURL: message.client.user?.displayAvatarURL() })
+        .setDescription("Chọn đối tượng bạn muốn quét sóng não hôm nay:")
+        .setFooter({ text: "Chỉ người gọi lệnh mới tương tác được • Hết hạn sau 60s" })
         .setTimestamp();
 
-    await setLastDoanGuDate(message.author.id, today);
-    await processMsg.delete().catch(() => {});
-    await message.reply({ embeds: [embed] }).catch(() => {});
+    const targetRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`doangu_target_nam_${message.author.id}`).setLabel('Quét Bạn Trai 🧑').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`doangu_target_nu_${message.author.id}`).setLabel('Quét Bạn Gái 👩').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`doangu_target_all_${message.author.id}`).setLabel('Quét Đa Hệ 🌈').setStyle(ButtonStyle.Success)
+    );
+
+    const askMsg = await message.reply({ embeds: [introEmbed], components: [targetRow] }).catch(() => null);
+    if (!askMsg) return;
+
+    const collector = askMsg.createMessageComponentCollector({
+        filter: (i: any) => {
+            if (i.user.id !== message.author.id) {
+                i.reply({ content: "Né ra cho người ta quét sóng não, vô duyên thế! 🙄", ephemeral: true }).catch(() => {});
+                return false;
+            }
+            return true;
+        },
+        time: 60000
+    });
+
+    collector.on('collect', async (interaction: any) => {
+        collector.stop('selected');
+        await interaction.deferUpdate();
+
+        let choice = 'ALL';
+        const cid = interaction.customId;
+        if (cid.includes('_nam_')) choice = 'NAM';
+        else if (cid.includes('_nu_')) choice = 'NU';
+
+        // Xóa nút bấm, chạy hiệu ứng radar loading 2 tầng
+        await askMsg.edit({ embeds: [
+            new EmbedBuilder()
+                .setTitle("📡 Đang quét sóng não... [📡📡░░░░░░░░] 20%")
+                .setColor(0x34C759)
+        ], components: [] }).catch(() => {});
+
+        await new Promise(res => setTimeout(res, 1500));
+
+        await askMsg.edit({ embeds: [
+            new EmbedBuilder()
+                .setTitle("🎭 Đo lường độ lươn lẹo phong thủy... [🎭🎭🎭🎭🎭🎭🎭🎭░░] 80%")
+                .setColor(0x34C759)
+        ] }).catch(() => {});
+
+        await new Promise(res => setTimeout(res, 1500));
+
+        // Seed-based random
+        const today = getVNDateString(Date.now());
+        let hash = 0;
+        const seedStr = message.author.id + today + 'doangu' + choice;
+        for (let i = 0; i < seedStr.length; i++) {
+            hash = ((hash << 5) - hash) + seedStr.charCodeAt(i);
+            hash |= 0;
+        }
+        const roll = Math.abs(hash);
+
+        // Lọc tệp mẫu hình
+        let archetypeList = DOAN_GU_NEUTRAL;
+        if (choice === 'NAM') archetypeList = DOAN_GU_BOYS;
+        else if (choice === 'NU') archetypeList = DOAN_GU_GIRLS;
+
+        const archetype = archetypeList[roll % archetypeList.length];
+        
+        // Thuộc tính thuộc tệp
+        const seedVal1 = (roll % 35) + 150; 
+        const seedVal2 = roll % 101; 
+        const seedVal3 = (roll >> 2) % 101;
+
+        let name1 = "", value1 = "", name2 = "", value2 = "", name3 = "", value3 = "";
+        
+        const getBar = (pct: number): string => {
+            const filled = Math.round(pct / 10);
+            return '🟩'.repeat(filled) + '⬜'.repeat(10 - filled);
+        };
+
+        if (choice === 'NAM') {
+            name1 = "📏 Chiều cao";
+            value1 = `${getBar(Math.round(((seedVal1 - 150) / 34) * 100))} **${seedVal1} cm** *(Vừa vặn cốc đầu)*`;
+            name2 = "🗣️ Độ mỏ hỗn";
+            value2 = `${getBar(seedVal2)} **${seedVal2}%**`;
+            name3 = "❤️ Độ chung thủy";
+            value3 = `${getBar(seedVal3)} **${seedVal3}%**`;
+        } else if (choice === 'NU') {
+            const eo = (roll % 15) + 55; // 55cm - 69cm
+            name1 = "📏 Vòng eo";
+            value1 = `${getBar(Math.round(((69 - eo) / 14) * 100))} **${eo} cm** *(Thắt đáy lưng ong)*`;
+            name2 = "😭 Độ dỗi hờn";
+            value2 = `${getBar(seedVal2)} **${seedVal2}%**`;
+            name3 = "❤️ Độ chung thủy";
+            value3 = `${getBar(seedVal3)} **${seedVal3}%**`;
+        } else {
+            name1 = "🤪 Độ vô tri";
+            value1 = `${getBar(seedVal2)} **${seedVal2}%**`;
+            name2 = "😏 Độ lươn lẹo";
+            value2 = `${getBar(seedVal3)} **${seedVal3}%**`;
+            name3 = "❤️ Độ chung thủy";
+            const ct = (roll >> 4) % 101;
+            value3 = `${getBar(ct)} **${ct}%**`;
+        }
+
+        const place = PLACES[roll % PLACES.length];
+
+        const embed = new EmbedBuilder()
+            .setTitle(`📡 QUÉT GU VŨ TRỤ HÔM NAY — ${message.author.username.toUpperCase()}`)
+            .setColor(0x34C759)
+            .setDescription(`Vũ trụ đã bắt sóng được mẫu hình lý tưởng của bạn ngày hôm nay!`)
+            .addFields(
+                { name: "👑 Danh hiệu Gu Vũ Trụ", value: `**${archetype}**`, inline: false },
+                { name: name1, value: value1, inline: false },
+                { name: name2, value: value2, inline: false },
+                { name: name3, value: value3, inline: false },
+                { name: "📍 Tọa độ hay lui tới", value: place, inline: false }
+            )
+            .setFooter({ text: `Quét ngày ${today} • Kết quả cố định trong ngày • BotToan Radar`, iconURL: message.client.user?.displayAvatarURL() })
+            .setTimestamp();
+
+        await setLastDoanGuDate(message.author.id, today);
+        await askMsg.edit({ embeds: [embed] }).catch(() => {});
+    });
+
+    collector.on('end', async (_: any, reason: string) => {
+        if (reason !== 'selected') {
+            await askMsg.delete().catch(() => {});
+        }
+    });
 }
 
 // ============================================================
@@ -401,55 +694,195 @@ export async function handleMyGuMatch(message: Message, afterCmd: string): Promi
         return;
     }
 
+    // Đọc hồ sơ phong thủy thực tế của cả 2 người
+    const profileA = await getProfile(message.author.id);
+    const profileB = await getProfile(mentionedUser.id);
+
+    if (!profileA || !profileA.gender || !profileA.birthday) {
+        await message.reply("❌ **Bạn chưa đăng ký hồ sơ profile phong thủy!** Hãy gõ `@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]` trước nhé.").catch(() => {});
+        return;
+    }
+
+    if (!profileB || !profileB.gender || !profileB.birthday) {
+        await message.reply(`❌ Đối phương (<@${mentionedUser.id}>) chưa đăng ký hồ sơ bằng lệnh \`@BotToan profile\`! Bảo người ta đăng ký giới tính ngày sinh đi rồi mới so gu được nhé.`).catch(() => {});
+        return;
+    }
+
+    // Đọc mã gu trắc nghiệm
     const myData = await getMyGuData(message.author.id);
     if (!myData || !myData.myGuCode) {
         await message.reply("❌ **Bạn chưa làm trắc nghiệm gu!** Hãy gõ `@BotToan mygu` để làm trắc nghiệm trước đã cưng.").catch(() => {});
         return;
     }
 
-    const targetProfile = await getProfile(mentionedUser.id);
-    if (!targetProfile || !targetProfile.gender) {
-        await message.reply(`❌ Đối phương (<@${mentionedUser.id}>) chưa đăng ký hồ sơ bằng lệnh \`@BotToan profile\`! Bảo người ta đăng ký giới tính ngày sinh đi rồi mới so gu được nhé.`).catch(() => {});
-        return;
-    }
+    const targetData = await getMyGuData(mentionedUser.id);
+    const targetHasQuiz = !!(targetData && targetData.myGuCode);
 
-    const myName = message.member?.displayName || message.author.username;
-    const targetName = message.guild?.members.cache.get(mentionedUser.id)?.displayName || mentionedUser.username;
+    const myName = profileA.name || message.member?.displayName || message.author.username;
+    const targetName = profileB.name || message.guild?.members.cache.get(mentionedUser.id)?.displayName || mentionedUser.username;
 
-    const processingMsg = await message.reply("🔮 *Đang bóc tách thông tin phong thủy thực tế để so khớp...*").catch(() => null);
+    const processingMsg = await message.reply("🔮 *Đang bóc tách thông tin phong thủy thực tế để so khớp hai chiều...*").catch(() => null);
     
-    // Parse myGuCode ra text dễ đọc cho Gemini
-    const codeParts = myData.myGuCode.replace(/^[A-Z]+_/, '');
-    const cleanChoices = codeParts.match(/\d[A-D]/g) || [];
-    const guSummary = cleanChoices.map(choice => {
+    // Parse mã gu A
+    const parsedA = parseMyGuCode(myData.myGuCode);
+    const codePartsA = parsedA.answers;
+    const cleanChoicesA = codePartsA.match(/\d[A-D]/g) || [];
+    const guSummaryA = cleanChoicesA.map(choice => {
         const qIdx = parseInt(choice.charAt(0)) - 1;
         const val = choice.charAt(1);
         const q = QUESTIONS[qIdx];
-        const opt = q?.options.find(o => o.value === val);
-        return `- ${q?.text.split(':')[0]}: ${opt?.label}`;
+        const opt = q?.getOptions(parsedA.targetGender).find(o => o.value === val);
+        return `- ${q?.text.split(':')[0]}: ${opt?.label || val}`;
     }).join('\n');
 
-    const targetProfileText = `Giới tính: ${targetProfile.gender}, Ngày sinh: ${targetProfile.birthday}, Tên: ${targetProfile.name || targetName}`;
+    // Parse mã gu B (nếu có)
+    let guSummaryB = "";
+    let parsedB: ParsedGuCode | null = null;
+    if (targetHasQuiz) {
+        parsedB = parseMyGuCode(targetData.myGuCode);
+        const codePartsB = parsedB.answers;
+        const cleanChoicesB = codePartsB.match(/\d[A-D]/g) || [];
+        guSummaryB = cleanChoicesB.map(choice => {
+            const qIdx = parseInt(choice.charAt(0)) - 1;
+            const val = choice.charAt(1);
+            const q = QUESTIONS[qIdx];
+            const opt = q?.getOptions(parsedB!.targetGender).find(o => o.value === val);
+            return `- ${q?.text.split(':')[0]}: ${opt?.label || val}`;
+        }).join('\n');
+    }
+
+    // --- TÍNH TOÁN PHONG THỦY HỌC ---
+    let zodiacA = "", ganChiA = "", menhA = "", cungA = "";
+    let zodiacB = "", ganChiB = "", menhB = "", cungB = "";
+
+    try {
+        const birthdayCleanA = profileA.birthday.replace(/\-/g, '/');
+        const dobPartsA = birthdayCleanA.split('/');
+        const solarA = Solar.fromYmd(parseInt(dobPartsA[2]), parseInt(dobPartsA[1]), parseInt(dobPartsA[0]));
+        const lunarA = solarA.getLunar();
+        zodiacA = translateShengXiao(lunarA.getYearShengXiao());
+        ganChiA = translateGanChi(lunarA.getYearInGanZhi());
+        menhA = translateNaYin(lunarA.getYearNaYin());
+        cungA = getCungPhi(birthdayCleanA, profileA.gender).name;
+
+        const birthdayCleanB = profileB.birthday.replace(/\-/g, '/');
+        const dobPartsB = birthdayCleanB.split('/');
+        const solarB = Solar.fromYmd(parseInt(dobPartsB[2]), parseInt(dobPartsB[1]), parseInt(dobPartsB[0]));
+        const lunarB = solarB.getLunar();
+        zodiacB = translateShengXiao(lunarB.getYearShengXiao());
+        ganChiB = translateGanChi(lunarB.getYearInGanZhi());
+        menhB = translateNaYin(lunarB.getYearNaYin());
+        cungB = getCungPhi(birthdayCleanB, profileB.gender).name;
+    } catch (err) {
+        console.error("Lỗi tính toán ngày sinh:", err);
+    }
+
+    // Điểm cơ bản từ phong thủy học Đông phương
+    let baseScore = 50;
+    if (zodiacA && zodiacB && menhA && menhB && cungA && cungB) {
+        baseScore = getFengShuiScore(zodiacA.split(' ')[0], zodiacB.split(' ')[0], menhA, menhB, cungA, cungB);
+    }
+
+    // --- KIỂM TRA ĐỘ LỆCH PHA GIỚI TÍNH & SUY LUẬN THÔNG MINH ---
+    let isWarningB = false;
+    let warningMsg = "";
+    let penalty = 0;
+
+    // Suy luận thông minh cho người A nếu mã của họ là hệ cũ
+    let targetGenderA = parsedA.targetGender;
+    if (parsedA.isInferred && targetGenderA === 'UNKNOWN') {
+        targetGenderA = parsedA.targetGenderInferred;
+    }
+
+    // Suy luận thông minh cho người B nếu mã của họ là hệ cũ
+    let targetGenderB = 'UNKNOWN';
+    if (targetHasQuiz && parsedB) {
+        targetGenderB = parsedB.targetGender;
+        if (parsedB.isInferred && targetGenderB === 'UNKNOWN') {
+            targetGenderB = parsedB.targetGenderInferred;
+            isWarningB = true;
+            warningMsg = `(Lưu ý: ${targetName} đang dùng mã gu cũ, giới tính mong muốn được suy luận ngầm là ${targetGenderB === 'NU' ? 'Nữ' : 'Nam'})`;
+        }
+    }
+
+    // 1. Kiểm tra khớp giới tính từ A -> B
+    const genderMatchA = (targetGenderA === 'ALL') || 
+                         (targetGenderA === 'NAM' && profileB.gender === 'Nam') || 
+                         (targetGenderA === 'NU' && profileB.gender === 'Nu');
+
+    if (!genderMatchA) {
+        penalty += 30;
+    }
+
+    // 2. Kiểm tra khớp giới tính từ B -> A (nếu B đã làm trắc nghiệm)
+    if (targetHasQuiz) {
+        const genderMatchB = (targetGenderB === 'ALL') || 
+                             (targetGenderB === 'NAM' && profileA.gender === 'Nam') || 
+                             (targetGenderB === 'NU' && profileA.gender === 'Nu');
+        if (!genderMatchB) {
+            penalty += 30;
+        }
+    }
+
+    // Phạt nhỏ 5 điểm nếu dùng mã gu suy luận (unverified)
+    if (parsedA.isInferred) {
+        penalty += 5;
+    }
+    if (targetHasQuiz && parsedB && parsedB.isInferred) {
+        penalty += 5;
+    }
+
+    const finalScore = Math.max(0, Math.min(100, baseScore - penalty));
+
+    // Gom dữ liệu gửi sang cho Gemini
+    const targetProfileText = `Giới tính: ${profileB.gender}, Ngày sinh: ${profileB.birthday}, Tên: ${targetName}, Tuổi âm: ${ganChiB} (${zodiacB}), Mệnh: ${menhB}, Cung phi: ${cungB}`;
+    const myGuText = `Giới tính bản thân: ${profileA.gender}, Gu đích: ${targetGenderA}. Chi tiết đáp án:\n${guSummaryA}`;
+    const targetGuText = targetHasQuiz ? `Giới tính bản thân: ${profileB.gender}, Gu đích: ${targetGenderB}. Chi tiết đáp án:\n${guSummaryB}` : "(Chưa làm trắc nghiệm gu)";
 
     let matchReading = '';
     try {
-        matchReading = await getGuMatchReading(myName, guSummary, targetName, targetProfileText);
-    } catch {
+        matchReading = await getGuMatchReading(
+            myName, 
+            myGuText + (parsedA.isInferred ? "\n(Lưu ý: Người A đang dùng mã cũ, giới tính đích được suy luận)" : ""), 
+            targetName, 
+            targetProfileText, 
+            targetGuText + (warningMsg ? `\n${warningMsg}` : ""), 
+            finalScore
+        );
+    } catch (err) {
+        console.error(err);
         matchReading = "Hai bên có vẻ lệch sóng, vũ trụ khuyên bạn đi uống trà sữa một mình cho lành đầu óc.";
     }
 
     await processingMsg?.delete().catch(() => {});
 
+    // Vẽ thanh tiến trình tương thích
+    const getBar = (pct: number): string => {
+        const filled = Math.round(pct / 10);
+        return '❤️'.repeat(filled) + '🖤'.repeat(10 - filled);
+    };
+
     const embed = new EmbedBuilder()
-        .setTitle(`🔮 SO GU ĐỜI THỰC — ${myName.toUpperCase()} & ${targetName.toUpperCase()}`)
-        .setColor(0xFF6EB4)
-        .setDescription(matchReading)
-        .addFields(
-            { name: `Gu mong muốn của ${myName}`, value: `\`${myData.myGuCode}\` (Đã lưu trắc nghiệm)`, inline: true },
-            { name: `Profile thực tế của ${targetName}`, value: targetProfileText, inline: true }
+        .setTitle(`🔮 SO GU HAI CHIỀU — ${myName.toUpperCase()} & ${targetName.toUpperCase()}`)
+        .setColor(finalScore >= 80 ? 0xFF00FF : (finalScore >= 50 ? 0x00FF00 : 0xFF0000))
+        .setDescription(
+            `📊 **Chỉ số Tương thích Gu:** ${getBar(finalScore)} **${finalScore}%**\n\n` +
+            `💬 **Lời Phán Của BotToan:**\n${matchReading}`
         )
-        .setFooter({ text: "BotToan Mai Mối Giang Hồ", iconURL: message.client.user?.displayAvatarURL() })
+        .addFields(
+            { name: `Gu mong muốn của ${myName}`, value: `\`${myData.myGuCode}\` (Đích: ${targetGenderA})`, inline: true },
+            { name: `Gu mong muốn của ${targetName}`, value: targetHasQuiz ? `\`${targetData.myGuCode}\` (Đích: ${targetGenderB})` : "*Chưa làm trắc nghiệm*", inline: true }
+        )
         .setTimestamp();
+
+    // Footer nhắc nhở tương thích ngược
+    let footerText = "BotToan Mai Mối Giang Hồ • Trắc nghiệm lưu vĩnh viễn";
+    if (parsedA.isInferred || (targetHasQuiz && parsedB && parsedB.isInferred)) {
+        footerText += " • ⚠️ Có người dùng mã gu cũ, hãy làm lại @BotToan mygu";
+        embed.setFooter({ text: footerText, iconURL: message.client.user?.displayAvatarURL() });
+    } else {
+        embed.setFooter({ text: footerText, iconURL: message.client.user?.displayAvatarURL() });
+    }
 
     await message.reply({ embeds: [embed] }).catch(() => {});
 }
@@ -474,28 +907,26 @@ export async function handleMyGuList(message: Message): Promise<void> {
     }
 
     // Phân nhóm
-    const moHonGroup: string[] = []; // 2B
-    const daoMoGroup: string[] = [];  // 4A hoặc 4C
-    const caUonGroup: string[] = [];  // 2D hoặc 3D
-    const overthinkGroup: string[] = []; // 3B
+    const moHonGroup: string[] = [];      // Chứa 2B (Mỏ hỗn vũ trụ)
+    const daoMoGroup: string[] = [];      // Chứa 4A hoặc 4C (Ting ting/Đào mỏ)
+    const caUonGroup: string[] = [];      // Chứa 2D hoặc 3D (Cá ươn lười rep)
+    const overthinkGroup: string[] = [];  // Chứa 3B (Gia tộc Overthink)
 
     for (const user of guildGuData) {
         const code = user.myGuCode;
         if (!code) continue;
 
-        // Parse code: check 2B
-        if (code.includes("2B")) moHonGroup.push(user.userId);
-        // Check 4A hoặc 4C
-        if (code.includes("4A") || code.includes("4C")) daoMoGroup.push(user.userId);
-        // Check 2D hoặc 3D
-        if (code.includes("2D") || code.includes("3D")) caUonGroup.push(user.userId);
-        // Check 3B
-        if (code.includes("3B")) overthinkGroup.push(user.userId);
+        const parsed = parseMyGuCode(code);
+        const ans = parsed.answers;
+
+        if (ans.includes("2B")) moHonGroup.push(user.userId);
+        if (ans.includes("4A") || ans.includes("4C")) daoMoGroup.push(user.userId);
+        if (ans.includes("2D") || ans.includes("3D")) caUonGroup.push(user.userId);
+        if (ans.includes("3B")) overthinkGroup.push(user.userId);
     }
 
     const renderList = (ids: string[]): string => {
         if (ids.length === 0) return "*Chưa có thành viên nào gia nhập*";
-        // Giới hạn 10 người mỗi nhóm để không tràn embed
         const sliced = ids.slice(0, 10);
         const listText = sliced.map((id, index) => `${index + 1}. <@${id}>`).join('\n');
         return ids.length > 10 ? `${listText}\n*và ${ids.length - 10} thành viên khác...*` : listText;
@@ -515,4 +946,30 @@ export async function handleMyGuList(message: Message): Promise<void> {
         .setTimestamp();
 
     await message.reply({ embeds: [embed] }).catch(() => {});
+}
+
+// ============================================================
+// =========== BỘ LẮNG NGHE SỰ KIỆN TƯƠNG TÁC NÚT BẤM TOÀN CỤC ===
+// ============================================================
+
+export function registerMyGuCollector(client: any) {
+    client.on('interactionCreate', async (interaction: any) => {
+        if (!interaction.isButton()) return;
+        const customId = interaction.customId;
+        if (!customId || !customId.startsWith('mygu_reset_')) return;
+
+        const authorId = customId.replace('mygu_reset_', '');
+        
+        // Kiểm tra đúng người gọi
+        if (interaction.user.id !== authorId) {
+            await interaction.reply({
+                content: "Né ra cho người ta đổi gu, vô duyên thế! 🙄",
+                ephemeral: true
+            }).catch(() => {});
+            return;
+        }
+
+        // Kích hoạt luồng trắc nghiệm chọn giới tính mới đè lên tin nhắn cũ
+        await startQuizSession(interaction, authorId);
+    });
 }

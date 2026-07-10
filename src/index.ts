@@ -24,7 +24,7 @@ import { fetchValorantRank } from './services/valorant';
 import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
 import { initTarot, handleTarot } from './games/tarot';
 import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
-import { handleMyGuQuiz, handleDoanMyGu } from './games/mygu';
+import { handleMyGuQuiz, handleDoanMyGu, registerMyGuCollector } from './games/mygu';
 import { handleGamingCourt } from './games/gamingcourt';
 import { handleWCPrediction, playWCPenalty, handleWCCommand, registerWorldCupCollector } from './games/worldcup';
 import { handleAvatarCommand, registerAvatarCollector } from './commands/avatar';
@@ -1705,6 +1705,9 @@ client.once('ready', (readyClient) => {
 
         // Đăng ký Avatar Collector
         registerAvatarCollector(client);
+
+        // Đăng ký MyGu Collector
+        registerMyGuCollector(client);
 
         // Khởi tạo Tarot
         await initTarot().catch(err => {

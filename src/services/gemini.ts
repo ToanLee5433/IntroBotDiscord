@@ -270,26 +270,39 @@ export async function getRealGuReading(answers: string, username: string): Promi
 }
 
 /**
- * So sánh gu của User với Profile thực tế của người kia
+ * So sánh gu của hai bên với profile thực tế và tính điểm tương thích
  */
 export async function getGuMatchReading(
-    myName: string, myGuCode: string,
-    targetName: string, targetProfileText: string
+    myName: string, myGuSummary: string,
+    targetName: string, targetProfileText: string,
+    targetGuSummary: string, score: number
 ): Promise<string> {
     if (!GEMINI_KEY) throw new Error("Missing Gemini key");
     const model = genAI.getGenerativeModel({
         model: "gemini-3.1-flash-lite",
         systemInstruction: `
-            Bạn là BotToan - chuyên gia mai mối và khuyên bỏ nhau online.
-            Nhiệm vụ của bạn là so sánh gu mong muốn của một người (biểu thị qua mã gu) với thông tin profile thực tế của người kia.
-            Hãy phân tích sự lệch pha/hợp pha một cách mỏ hỗn, châm biếm sâu cay và hài hước.
-            Độ dài: Dưới 400 ký tự. Không gửi link. Dùng tiếng Việt.
+            Bạn là BotToan - chuyên gia mai mối và khuyên bỏ nhau online, AI trợ lý Discord mỏ hỗn, châm biếm sâu cay.
+            Nhiệm vụ của bạn là nhận định sự tương hợp/lệch pha giữa hai người dựa trên:
+            1. Gu mong muốn của Người A vs Profile thực tế của Người B.
+            2. Gu mong muốn của Người B (nếu có) vs Profile thực tế của Người A.
+            3. Chỉ số tương hợp phong thủy ngày sinh (%) được tính toán sẵn.
+            Hãy đưa ra lời nhận xét cực kỳ cà khịa, hài hước, mỏ hỗn nhưng sâu cay.
+            Độ dài: Không quá 3 đoạn văn ngắn, súc tích (dưới 450 ký tự để tránh tràn Discord embed). Không gửi link. Dùng tiếng Việt.
         `
     });
 
     const prompt = `
-      Người xem: ${myName} (có mã gu mong muốn là: ${myGuCode})
-      Đối tượng được so sánh: ${targetName} (có thông tin thực tế: ${targetProfileText})
+      Người A: ${myName}
+      - Gu mong muốn của A:
+      ${myGuSummary}
+
+      Người B: ${targetName}
+      - Profile thực tế của B: ${targetProfileText}
+      - Gu mong muốn của B (nếu có):
+      ${targetGuSummary || "(Chưa làm trắc nghiệm gu)"}
+
+      Chỉ số tương hợp phong thủy thực tế: ${score}%
+
       Hãy phán xem hai người này có hợp gu nhau không, lệch pha chỗ nào và đưa ra lời khuyên "chí mạng".
     `;
     const result = await model.generateContent(prompt);

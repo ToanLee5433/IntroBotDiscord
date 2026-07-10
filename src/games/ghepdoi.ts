@@ -12,7 +12,7 @@ import { getMatchmakingFortune } from '../services/gemini';
 
 // ================= DỊCH NGHĨA PHONG THỦY =================
 
-function translateShengXiao(shengXiao: string): string {
+export function translateShengXiao(shengXiao: string): string {
     const map: { [key: string]: string } = {
         '鼠': 'Tý (Chuột)', '牛': 'Sửu (Trâu)', '虎': 'Dần (Hổ)', '兔': 'Mão (Mèo)',
         '龙': 'Thìn (Rồng)', '蛇': 'Tỵ (Rắn)', '马': 'Ngọ (Ngựa)', '羊': 'Mùi (Dê)',
@@ -21,7 +21,7 @@ function translateShengXiao(shengXiao: string): string {
     return map[shengXiao] || shengXiao;
 }
 
-function translateGanChi(ganChi: string): string {
+export function translateGanChi(ganChi: string): string {
     const stems: { [key: string]: string } = {
         '甲': 'Giáp', '乙': 'Ất', '丙': 'Bính', '丁': 'Đinh', '戊': 'Mậu',
         '己': 'Kỷ', '庚': 'Canh', '辛': 'Tân', '壬': 'Nhâm', '癸': 'Quý'
@@ -36,7 +36,7 @@ function translateGanChi(ganChi: string): string {
     return (stems[stemChar] || stemChar) + " " + (branches[branchChar] || branchChar);
 }
 
-function translateNaYin(naYin: string): string {
+export function translateNaYin(naYin: string): string {
     const map: { [key: string]: string } = {
         '海中金': 'Hải Trung Kim (Vàng dưới biển)',
         '炉中火': 'Lư Trung Hỏa (Lửa trong lò)',
@@ -243,7 +243,7 @@ export function getBatTrachRelation(cungA: string, cungB: string): BatTrachResul
 
 // ================= THUẬT TOÁN TÍNH ĐIỂM PHONG THỦY =================
 
-function getFengShuiScore(zodiacA: string, zodiacB: string, menhA: string, menhB: string, cungA: string, cungB: string): number {
+export function getFengShuiScore(zodiacA: string, zodiacB: string, menhA: string, menhB: string, cungA: string, cungB: string): number {
     let score = 50;
 
     // 1. Tam Hợp (+25)
