@@ -2089,7 +2089,7 @@ export async function placeWCBet(userId: string, matchId: string, team: 'A' | 'B
         }
 
         const totalAmount = existingBet.amount + amount;
-        if (totalAmount > 500000) {
+        if (totalAmount > 500) {
             return { success: false, message: `❌ Tối đa cược **500.000đ** cho mỗi trận đấu thôi ông tham lam ạ! Bạn đã cược **${formatMoney(existingBet.amount)}** trước đó rồi.` };
         }
 
@@ -2106,7 +2106,7 @@ export async function placeWCBet(userId: string, matchId: string, team: 'A' | 'B
         return { success: true, message: `✅ Đã cộng dồn thêm **${formatMoney(amount)}** vào cửa **${team === 'A' ? match.teamA : match.teamB}**. Tổng cược hiện tại của bạn: **${formatMoney(totalAmount)}**.` };
     } else {
         // Cược tối đa 500k cho lần đầu
-        if (amount > 500000) {
+        if (amount > 500) {
             return { success: false, message: "❌ Tối đa cược **500.000đ** cho mỗi trận đấu thôi ông tham lam ạ!" };
         }
 

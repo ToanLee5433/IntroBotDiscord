@@ -56,14 +56,46 @@ export const formatMoney = (amount: number): string => {
  */
 export const parseMoneyInput = (input: string): number | null => {
     // Chuẩn hóa xóa khoảng trắng
-    const normalized = removeAccents(input).toLowerCase().replace(/\s+/g, '');
-    const match = normalized.match(/(\d+(?:\.\d+)?)(k|tr|trieu|ty|b)?/);
-    if (!match) return null;
+    let normalized = removeAccents(input).toLowerCase().replace(/\s+/g, '');
+    
+    // Tìm đơn vị ở cuối
+    const unitMatch = normalized.match(/(k|tr|trieu|ty|b)$/);
+    const unit = unitMatch ? unitMatch[1] : undefined;
+    
+    // Lấy phần số trước đơn vị
+    let numberPart = unit ? normalized.slice(0, -unit.length) : normalized;
+    
+    // Đếm số lượng dấu chấm và phẩy
+    const dotCount = (numberPart.match(/\./g) || []).length;
+    const commaCount = (numberPart.match(/,/g) || []).length;
+    
+    let isAbsoluteVND = false;
 
-    const value = parseFloat(match[1]);
-    const unit = match[2];
-
-    if (!unit || unit === 'k') {
+    if (dotCount > 1 || commaCount > 1) {
+        // Có nhiều dấu ngăn cách (ví dụ: 3.000.000 hoặc 3,000,000) -> xóa hết để lấy số nguyên
+        numberPart = numberPart.replace(/[\.,]/g, '');
+        isAbsoluteVND = true;
+    } else if (dotCount === 1 || commaCount === 1) {
+        // Chỉ có 1 dấu ngăn cách
+        const separator = dotCount === 1 ? '.' : ',';
+        const parts = numberPart.split(separator);
+        const decimalLength = parts[1]?.length || 0;
+        
+        if (decimalLength === 3) {
+            // Nếu có đúng 3 chữ số sau dấu ngăn cách (ví dụ: 3.000 hoặc 50.000) -> treat là dấu phân cách hàng nghìn
+            numberPart = numberPart.replace(/[\.,]/g, '');
+            isAbsoluteVND = true;
+        } else {
+            // Ngược lại (ví dụ: 3.5 hoặc 10.5) -> là dấu phân cách thập phân
+            numberPart = numberPart.replace(',', '.'); // Chuẩn hóa sang dấu chấm cho parseFloat
+        }
+    }
+    
+    const value = parseFloat(numberPart);
+    if (isNaN(value)) return null;
+    
+    // Nếu có đơn vị cụ thể
+    if (unit === 'k') {
         return Math.floor(value);
     }
     if (unit === 'tr' || unit === 'trieu') {
@@ -71,6 +103,13 @@ export const parseMoneyInput = (input: string): number | null => {
     }
     if (unit === 'ty' || unit === 'b') {
         return Math.floor(value * 1000000);
+    }
+    
+    // Nếu không có đơn vị, tự động đoán:
+    // Nếu đã xác định dùng phân cách hàng nghìn (isAbsoluteVND) hoặc số gốc nhập vào >= 10000 (ví dụ 50000, 3000000)
+    // thì đó là số tiền VND tuyệt đối, quy về đơn vị k (chia 1000)
+    if (isAbsoluteVND || value >= 10000) {
+        return Math.floor(value / 1000);
     }
     return Math.floor(value);
 };

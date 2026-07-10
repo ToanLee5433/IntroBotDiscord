@@ -5,7 +5,7 @@ import {
     getAllWCMatches, updateWCMatch, deleteWCMatch
 } from '../database';
 import { getWCPrediction } from '../services/gemini';
-import { sleep, formatMoney, parseMoneyInput } from '../utils';
+import { sleep, formatMoney, parseMoneyInput, removeAccents } from '../utils';
 import { 
     joinVoiceChannel, createAudioPlayer, createAudioResource, 
     AudioPlayerStatus, VoiceConnectionStatus, entersState, getVoiceConnection 
@@ -266,19 +266,46 @@ export async function handleWCCommand(message: Message, rawInput: string) {
     const args = rawInput.trim().split(/\s+/);
     const subCommand = args[0]?.toLowerCase();
 
-    // 1. Lệnh Đặt Cược: @BotToan bat [mã_trận] [A/B] [tiền]
+    // 1. Lệnh Đặt Cược: @BotToan bat [mã_trận] [A/B hoặc Tên_Đội] [tiền]
     if (subCommand === 'bat' || subCommand === 'bet') {
         const matchId = args[1]?.toLowerCase();
-        const choice = args[2]?.toUpperCase(); // A hoặc B
+        const choice = args[2];
         const moneyArg = args[3];
 
         if (!matchId || !choice || !moneyArg) {
-            await message.reply("❌ **Sai cú pháp!** Cú pháp đặt cược: `@BotToan bat [mã_trận] [A/B] [số_tiền]`.\nVí dụ: `@BotToan bat v1 A 50k` (đặt 50k vào Đội A của trận v1).").catch(() => {});
+            await message.reply("❌ **Sai cú pháp!** Cú pháp đặt cược: `@BotToan bat [mã_trận] [A/B hoặc Tên_Đội] [số_tiền]`.\nVí dụ:\n- `@BotToan bat v1 A 50k` (đặt 50k vào Đội A)\n- `@BotToan bat v1 Tay Ban Nha 50k` (đặt 50k vào Tây Ban Nha)").catch(() => {});
             return;
         }
 
-        if (choice !== 'A' && choice !== 'B') {
-            await message.reply("❌ **Cửa đặt cược không hợp lệ!** Chọn cửa `A` (Đội A) hoặc `B` (Đội B) thôi cưng!").catch(() => {});
+        // Lấy thông tin trận đấu để đối chiếu tên đội
+        const match = await getWCMatch(matchId);
+        if (!match) {
+            await message.reply("❌ **Trận đấu này không tồn tại trong hệ thống!**").catch(() => {});
+            return;
+        }
+
+        let finalChoice: 'A' | 'B' | null = null;
+        const upperChoice = choice.toUpperCase();
+        
+        if (upperChoice === 'A') {
+            finalChoice = 'A';
+        } else if (upperChoice === 'B') {
+            finalChoice = 'B';
+        } else {
+            // Thử so khớp tên đội (không dấu, không khoảng trắng)
+            const cleanChoice = removeAccents(choice).toLowerCase().replace(/\s+/g, '');
+            const cleanTeamA = removeAccents(match.teamA).toLowerCase().replace(/\s+/g, '');
+            const cleanTeamB = removeAccents(match.teamB).toLowerCase().replace(/\s+/g, '');
+
+            if (cleanChoice === cleanTeamA || cleanTeamA.includes(cleanChoice)) {
+                finalChoice = 'A';
+            } else if (cleanChoice === cleanTeamB || cleanTeamB.includes(cleanChoice)) {
+                finalChoice = 'B';
+            }
+        }
+
+        if (!finalChoice) {
+            await message.reply(`❌ **Cửa đặt cược không hợp lệ!** Chọn cửa \`A\` (${match.teamA}), \`B\` (${match.teamB}) hoặc gõ đúng tên đội bóng nhé cưng!`).catch(() => {});
             return;
         }
 
@@ -288,7 +315,7 @@ export async function handleWCCommand(message: Message, rawInput: string) {
             return;
         }
 
-        const res = await placeWCBet(message.author.id, matchId, choice, amount);
+        const res = await placeWCBet(message.author.id, matchId, finalChoice, amount);
         await message.reply(res.message).catch(() => {});
         return;
     }
