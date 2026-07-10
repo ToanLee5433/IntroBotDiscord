@@ -118,12 +118,18 @@ export async function playWCPenalty(message: Message, rawInput: string) {
                         channelId: userVoiceChannel.id,
                         guildId: message.guild.id,
                         adapterCreator: message.guild.voiceAdapterCreator,
+                        selfDeaf: false,
+                        selfMute: false,
                     });
                     
                     await entersState(audioConnection, VoiceConnectionStatus.Ready, 5000);
                     const player = createAudioPlayer();
                     player.play(createAudioResource(audioPath));
                     audioConnection.subscribe(player);
+
+                    player.on('error', err => {
+                        console.error("[PENALTY WC AUDIO ERROR]:", err);
+                    });
                 }
             } catch (err) {
                 console.error("Lỗi phát nhạc WC penalty:", err);
@@ -265,6 +271,71 @@ export async function playWCPenalty(message: Message, rawInput: string) {
 export async function handleWCCommand(message: Message, rawInput: string) {
     const args = rawInput.trim().split(/\s+/);
     const subCommand = args[0]?.toLowerCase();
+
+    // Lệnh phát nhạc World Cup: @BotToan intro wc hoặc @BotToan wc intro
+    const isIntroWC = (subCommand === 'intro' && args[1]?.toLowerCase() === 'wc') || 
+                      (subCommand === 'wc' && args[1]?.toLowerCase() === 'intro');
+                      
+    if (isIntroWC) {
+        const userVoiceChannel = message.member?.voice.channel;
+        if (!userVoiceChannel) {
+            await message.reply("❌ **Bạn phải vào một kênh thoại (voice channel) trước mới nghe nhạc được chứ!**").catch(() => {});
+            return;
+        }
+
+        if (!message.guild) {
+            await message.reply("❌ **Lệnh này chỉ dùng được trong server!**").catch(() => {});
+            return;
+        }
+
+        const audioPath = path.join(__dirname, '../../audio', 'nhacWC.mp3');
+        if (!fs.existsSync(audioPath)) {
+            await message.reply("❌ **Không tìm thấy tệp âm thanh `nhacWC.mp3` trong thư mục audio!**").catch(() => {});
+            return;
+        }
+
+        try {
+            // Ngắt kết nối cũ nếu có
+            const existingConnection = getVoiceConnection(message.guild.id);
+            if (existingConnection) {
+                existingConnection.destroy();
+            }
+
+            const connection = joinVoiceChannel({
+                channelId: userVoiceChannel.id,
+                guildId: message.guild.id,
+                adapterCreator: message.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
+
+            await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+            
+            const player = createAudioPlayer();
+            player.play(createAudioResource(audioPath));
+            connection.subscribe(player);
+
+            await message.reply(`🎙️ **Đang phát nhạc World Cup bốc lửa tại kênh thoại \`${userVoiceChannel.name}\`!** ⚽🔥`).catch(() => {});
+
+            player.on(AudioPlayerStatus.Idle, () => {
+                player.stop();
+                connection.destroy();
+            });
+
+            player.on('error', err => {
+                console.error("[INTRO WC AUDIO ERROR]:", err);
+            });
+            
+            connection.on('error', err => {
+                console.error("[INTRO WC CONNECTION ERROR]:", err);
+            });
+
+        } catch (error) {
+            console.error("Lỗi khi chạy lệnh intro wc:", error);
+            await message.reply("❌ **Gặp lỗi khi kết nối vào kênh thoại để phát nhạc!**").catch(() => {});
+        }
+        return;
+    }
 
     // 1. Lệnh Đặt Cược: @BotToan bat [mã_trận] [A/B hoặc Tên_Đội] [tiền]
     if (subCommand === 'bat' || subCommand === 'bet') {
