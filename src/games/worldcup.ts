@@ -144,7 +144,7 @@ export async function playWCPenalty(message: Message, rawInput: string) {
         .setDescription(
             `Đối mặt với thủ môn huyền thoại **BotToan**. Mày có cơ hội sút phạt đền kiếm tiền thưởng!\n` +
             `💰 **Tiền cược:** **${formatMoney(betAmount)}**\n` +
-            `👉 Hãy click chọn hướng sút bên dưới trong 30 giây để bóp cò!${voiceMessage}`
+            `👉 Hãy click chọn hướng sút bên dưới trong 30 giây để thực hiện cú sút!${voiceMessage}`
         )
         .setColor(0x2ECC71)
         .setThumbnail(message.author.displayAvatarURL());
