@@ -1,7 +1,8 @@
 import { Message, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, PermissionFlagsBits } from 'discord.js';
 import { 
     addWCMatch, lockWCMatch, placeWCBet, settleWCMatch, 
-    getActiveWCMatches, getWCMatch, getProfile, getBalance, updateBalance 
+    getActiveWCMatches, getWCMatch, getProfile, getBalance, updateBalance,
+    getAllWCMatches, updateWCMatch, deleteWCMatch
 } from '../database';
 import { getWCPrediction } from '../services/gemini';
 import { sleep, formatMoney, parseMoneyInput } from '../utils';
@@ -258,6 +259,9 @@ export async function playWCPenalty(message: Message, rawInput: string) {
 /**
  * Xử lý lệnh World Cup (@BotToan wc, bat, setwc, chungwc, lockwc)
  */
+/**
+ * Xử lý lệnh World Cup (@BotToan wc, bat, setwc, chungwc, lockwc, editwc, delwc, qlwc)
+ */
 export async function handleWCCommand(message: Message, rawInput: string) {
     const args = rawInput.trim().split(/\s+/);
     const subCommand = args[0]?.toLowerCase();
@@ -289,7 +293,7 @@ export async function handleWCCommand(message: Message, rawInput: string) {
         return;
     }
 
-    // 2. Lệnh Admin mở kèo: @BotToan setwc [mã_trận] [Đội A] [Đội B] [Tỉ lệ kèo]
+    // 2. Lệnh Admin mở kèo: @BotToan setwc [mã_trận] [Đội_A] vs [Đội_B] | [Kèo_chấp]
     if (subCommand === 'setwc') {
         const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
         if (!isAdmin) {
@@ -297,15 +301,29 @@ export async function handleWCCommand(message: Message, rawInput: string) {
             return;
         }
 
-        const matchId = args[1]?.toLowerCase();
-        const teamA = args[2];
-        const teamB = args[3];
-        const odds = args.slice(4).join(" "); // Kèo chấp, tỷ lệ
+        const cmdText = rawInput.replace(/^setwc\s+/i, '').trim();
+        const pipeParts = cmdText.split('|');
+        
+        const odds = pipeParts[1]?.trim() || "";
+        const matchAndTeams = pipeParts[0].trim();
 
-        if (!matchId || !teamA || !teamB || !odds) {
-            await message.reply("❌ **Sai cú pháp!** Cách mở kèo: `@BotToan setwc [mã_trận] [Đội_A] [Đội_B] [Kèo_chấp_chi_tiết]`.\nVí dụ: `@BotToan setwc v1 Argentina Phap Argentina chấp nửa trái`.").catch(() => {});
+        const firstSpaceIdx = matchAndTeams.indexOf(' ');
+        if (firstSpaceIdx === -1 || !odds) {
+            await message.reply("❌ **Sai cú pháp!** Cách mở kèo:\n`@BotToan setwc [mã_trận] [Đội_A] vs [Đội_B] | [Kèo_chấp]`\nVí dụ: `@BotToan setwc v1 Tây Ban Nha vs Bỉ | Tây Ban Nha chấp 1 trái`").catch(() => {});
             return;
         }
+
+        const matchId = matchAndTeams.substring(0, firstSpaceIdx).trim().toLowerCase();
+        const teamsText = matchAndTeams.substring(firstSpaceIdx).trim();
+
+        const vsParts = teamsText.split(/\s+vs\s+/i);
+        if (vsParts.length < 2 || !vsParts[0].trim() || !vsParts[1].trim()) {
+            await message.reply("❌ **Sai cú pháp!** Hãy sử dụng từ khóa `vs` để phân tách hai đội.\nVí dụ: `@BotToan setwc v1 Tây Ban Nha vs Bỉ | Tây Ban Nha chấp 1 trái`").catch(() => {});
+            return;
+        }
+
+        const teamA = vsParts[0].trim();
+        const teamB = vsParts[1].trim();
 
         const success = await addWCMatch(matchId, teamA, teamB, odds);
         if (success) {
@@ -320,7 +338,7 @@ export async function handleWCCommand(message: Message, rawInput: string) {
     if (subCommand === 'lockwc') {
         const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
         if (!isAdmin) {
-            await message.reply("❌ **ĐÉO CÓ QUYỀN!**").catch(() => {});
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Quyền khóa cược chỉ dành cho Admin cưng nhé!").catch(() => {});
             return;
         }
 
@@ -343,7 +361,7 @@ export async function handleWCCommand(message: Message, rawInput: string) {
     if (subCommand === 'chungwc' || subCommand === 'chung') {
         const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
         if (!isAdmin) {
-            await message.reply("❌ **ĐÉO CÓ QUYỀN!**").catch(() => {});
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Quyền chung tiền chỉ dành cho Admin cưng nhé!").catch(() => {});
             return;
         }
 
@@ -360,7 +378,124 @@ export async function handleWCCommand(message: Message, rawInput: string) {
         return;
     }
 
-    // 5. Mặc định: Xem bảng cược hiện tại (@BotToan wc)
+    // 5. Lệnh Admin chỉnh sửa kèo: @BotToan editwc [mã_trận] [Đội_A] vs [Đội_B] | [Kèo_chấp]
+    if (subCommand === 'editwc') {
+        const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
+        if (!isAdmin) {
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Quyền chỉnh sửa kèo chỉ dành cho Admin thôi nhé cưng!").catch(() => {});
+            return;
+        }
+
+        const cmdText = rawInput.replace(/^editwc\s+/i, '').trim();
+        const pipeParts = cmdText.split('|');
+        
+        const odds = pipeParts[1]?.trim() || "";
+        const matchAndTeams = pipeParts[0].trim();
+
+        const firstSpaceIdx = matchAndTeams.indexOf(' ');
+        if (firstSpaceIdx === -1 || !odds) {
+            await message.reply("❌ **Sai cú pháp!** Cách sửa kèo:\n`@BotToan editwc [mã_trận] [Đội_A] vs [Đội_B] | [Kèo_chấp]`\nVí dụ: `@BotToan editwc v1 Tây Ban Nha vs Bỉ | Tây Ban Nha chấp 1.25 trái`").catch(() => {});
+            return;
+        }
+
+        const matchId = matchAndTeams.substring(0, firstSpaceIdx).trim().toLowerCase();
+        
+        // Kiểm tra xem trận đấu có tồn tại không và trạng thái của nó
+        const match = await getWCMatch(matchId);
+        if (!match) {
+            await message.reply("❌ Trận đấu này không tồn tại trong hệ thống!").catch(() => {});
+            return;
+        }
+        if (match.status !== 'open') {
+            await message.reply(`❌ Trận đấu hiện tại đã **${match.status === 'locked' ? 'khóa đặt cược' : 'kết thúc'}**, không được phép chỉnh sửa nữa cưng nhé! 🙄`).catch(() => {});
+            return;
+        }
+
+        const teamsText = matchAndTeams.substring(firstSpaceIdx).trim();
+        const vsParts = teamsText.split(/\s+vs\s+/i);
+        if (vsParts.length < 2 || !vsParts[0].trim() || !vsParts[1].trim()) {
+            await message.reply("❌ **Sai cú pháp!** Hãy sử dụng từ khóa `vs` để phân tách hai đội.\nVí dụ: `@BotToan editwc v1 Tây Ban Nha vs Bỉ | Tây Ban Nha chấp 1.25 trái`").catch(() => {});
+            return;
+        }
+
+        const teamA = vsParts[0].trim();
+        const teamB = vsParts[1].trim();
+
+        const success = await updateWCMatch(matchId, teamA, teamB, odds);
+        if (success) {
+            await message.reply(`✅ Cập nhật thành công thông tin trận đấu \`${matchId}\`:\n👉 **${teamA} vs ${teamB}** với tỷ lệ kèo mới: **${odds}**!`).catch(() => {});
+        } else {
+            await message.reply("❌ Gặp lỗi khi cập nhật trận đấu!").catch(() => {});
+        }
+        return;
+    }
+
+    // 6. Lệnh Admin xóa kèo (Hoàn tiền): @BotToan delwc [mã_trận] hoặc @BotToan xoawc [mã_trận]
+    if (subCommand === 'delwc' || subCommand === 'xoawc') {
+        const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
+        if (!isAdmin) {
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Quyền xóa kèo chỉ dành cho Admin cưng nhé!").catch(() => {});
+            return;
+        }
+
+        const matchId = args[1]?.toLowerCase();
+        if (!matchId) {
+            await message.reply("❌ Nhập mã trận cần xóa! Ví dụ: `@BotToan delwc v1`").catch(() => {});
+            return;
+        }
+
+        const result = await deleteWCMatch(matchId);
+        if (result.success) {
+            let msg = `🗑️ Đã xóa hoàn toàn trận đấu \`${matchId}\` khỏi hệ thống!`;
+            if (result.refundedBetsCount > 0) {
+                msg += `\n💰 Đã hoàn trả tiền cược cho **${result.refundedBetsCount}** lượt cược chưa được chung tiền của trận đấu này.`;
+            }
+            await message.reply(msg).catch(() => {});
+        } else {
+            await message.reply(result.message || "❌ Không tìm thấy trận đấu hoặc không thể xóa!").catch(() => {});
+        }
+        return;
+    }
+
+    // 7. Lệnh Admin quản lý trận đấu: @BotToan qlwc hoặc @BotToan listwc
+    if (subCommand === 'qlwc' || subCommand === 'listwc') {
+        const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
+        if (!isAdmin) {
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Quyền quản lý kèo chỉ dành cho Admin cưng nhé!").catch(() => {});
+            return;
+        }
+
+        const matches = await getAllWCMatches();
+        if (matches.length === 0) {
+            await message.reply("🏟️ **WORLD CUP 2026:** Chưa có trận đấu nào được tạo trong hệ thống. Admin hãy dùng lệnh \`@BotToan setwc\` để tạo kèo.").catch(() => {});
+            return;
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle("⚙️ BẢNG QUẢN LÝ TRẬN ĐẤU WORLD CUP 2026")
+            .setDescription("Danh sách tất cả các trận đấu hiện có trong hệ thống và trạng thái:")
+            .setColor(0xE74C3C)
+            .setFooter({ text: "BotToan System Manager" })
+            .setTimestamp();
+
+        for (const m of matches) {
+            let statusText = "";
+            if (m.status === 'open') statusText = "🟢 Đang mở đặt cược";
+            else if (m.status === 'locked') statusText = "🔒 Đã khóa đặt cược";
+            else if (m.status === 'ended') statusText = `🏁 Đã kết thúc (Thắng kèo: **${m.winner === 'HoaKeo' ? 'Hòa Kèo' : (m.winner === 'A' ? m.teamA : m.teamB)}**)`;
+
+            embed.addFields({
+                name: `⚽ Trận \`${m.matchId}\`: ${m.teamA} vs ${m.teamB}`,
+                value: `• **Trạng thái:** ${statusText}\n• **Cửa A:** ${m.teamA} | **Cửa B:** ${m.teamB}\n• **Kèo chấp:** *${m.odds}*`,
+                inline: false
+            });
+        }
+
+        await message.reply({ embeds: [embed] }).catch(() => {});
+        return;
+    }
+
+    // 8. Mặc định: Xem bảng cược hiện tại dành cho thành viên (@BotToan wc)
     const matches = await getActiveWCMatches();
     if (matches.length === 0) {
         await message.reply("🏟️ **WORLD CUP 2026:** Hiện chưa có trận đấu nào được mở cược. Admin ơi mở cược mau đi chứ!").catch(() => {});

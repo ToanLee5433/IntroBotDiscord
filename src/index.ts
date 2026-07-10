@@ -956,7 +956,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- TÍNH NĂNG WORLD CUP 2026 -----------------
-    const wcTriggers = ['wc', 'setwc', 'chungwc', 'lockwc', 'bat', 'bet'];
+    const wcTriggers = ['wc', 'setwc', 'chungwc', 'lockwc', 'bat', 'bet', 'editwc', 'delwc', 'xoawc', 'qlwc', 'listwc'];
     if (wcTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
         await handleWCCommand(message, rawInput);
         return;

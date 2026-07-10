@@ -2189,7 +2189,142 @@ export async function settleWCMatch(matchId: string, winner: 'A' | 'B' | 'HoaKeo
 }
 
 /**
+ * Lấy danh sách tất cả các trận đấu World Cup (bao gồm cả trận đã kết thúc)
+ */
+export async function getAllWCMatches(): Promise<IWorldCupMatch[]> {
+    if (useMongoDB) {
+        try {
+            return await WorldCupMatchModel.find({});
+        } catch (err) {
+            console.error("[DB LỖI] getAllWCMatches:", err);
+            return [];
+        }
+    }
+    return inMemoryWCMatches;
+}
+
+/**
+ * Cập nhật thông tin trận đấu World Cup (chỉ được phép khi trận đấu chưa khóa/chưa kết thúc - status === 'open')
+ */
+export async function updateWCMatch(matchId: string, teamA: string, teamB: string, odds: string): Promise<boolean> {
+    if (useMongoDB) {
+        try {
+            const match = await WorldCupMatchModel.findOne({ matchId });
+            if (!match) return false;
+            if (match.status !== 'open') return false; // Chỉ cho phép sửa khi đang ở trạng thái 'open'
+            match.teamA = teamA;
+            match.teamB = teamB;
+            match.odds = odds;
+            await match.save();
+            return true;
+        } catch (err) {
+            console.error("[DB LỖI] updateWCMatch:", err);
+            return false;
+        }
+    }
+    // RAM DB
+    const match = inMemoryWCMatches.find(m => m.matchId === matchId);
+    if (!match) return false;
+    if (match.status !== 'open') return false; // Chỉ cho phép sửa khi đang ở trạng thái 'open'
+    match.teamA = teamA;
+    match.teamB = teamB;
+    match.odds = odds;
+    return true;
+}
+
+/**
+ * Xóa trận đấu World Cup và hoàn trả tiền cho những lượt cược chưa được chung (settled: false)
+ * Sử dụng Session/Transaction khi sử dụng MongoDB và fallback an toàn nếu DB standalone.
+ */
+export async function deleteWCMatch(matchId: string): Promise<{ success: boolean; refundedBetsCount: number; message?: string }> {
+    // 1. Kiểm tra trận đấu có tồn tại và trạng thái thế nào
+    const match = await getWCMatch(matchId);
+    if (!match) {
+        return { success: false, refundedBetsCount: 0, message: "❌ Trận đấu này không tồn tại!" };
+    }
+    if (match.status === 'ended') {
+        return { success: false, refundedBetsCount: 0, message: "❌ Trận đấu này đã kết thúc và chia tiền xong, không thể xóa để hoàn tiền được nữa!" };
+    }
+
+    let refundedBetsCount = 0;
+
+    if (useMongoDB) {
+        const session = await mongoose.startSession();
+        try {
+            let success = false;
+            await session.withTransaction(async () => {
+                // Lấy các cược chưa thanh toán
+                const bets = await WorldCupBetModel.find({ matchId, settled: false }).session(session);
+                for (const bet of bets) {
+                    const user = await UserModel.findOne({ userId: bet.userId }).session(session);
+                    if (user) {
+                        user.balance = (user.balance || 0) + bet.amount;
+                        await user.save({ session });
+                    }
+                    refundedBetsCount++;
+                }
+
+                // Xóa tất cả các cược
+                await WorldCupBetModel.deleteMany({ matchId }).session(session);
+
+                // Xóa trận đấu
+                const res = await WorldCupMatchModel.deleteOne({ matchId }).session(session);
+                success = res.deletedCount > 0;
+            });
+            return { success, refundedBetsCount };
+        } catch (err) {
+            console.error("[DB LỖI] deleteWCMatch (Transaction Error, rolling back and falling back to sequential):", err);
+            // Fallback sang chế độ chạy tuần tự thông thường nếu session transaction không khả dụng (ví dụ MongoDB standalone)
+            refundedBetsCount = 0;
+        } finally {
+            session.endSession();
+        }
+    }
+
+    // Fallback không dùng transaction (hoặc RAM DB)
+    let bets: IWorldCupBet[] = [];
+    if (useMongoDB) {
+        try {
+            bets = await WorldCupBetModel.find({ matchId, settled: false });
+            for (const bet of bets) {
+                const userBal = await getBalance(bet.userId);
+                await updateBalance(bet.userId, userBal + bet.amount);
+                refundedBetsCount++;
+            }
+            await WorldCupBetModel.deleteMany({ matchId });
+            const res = await WorldCupMatchModel.deleteOne({ matchId });
+            return { success: res.deletedCount > 0, refundedBetsCount };
+        } catch (err) {
+            console.error("[DB LỖI] deleteWCMatch (Fallback):", err);
+            return { success: false, refundedBetsCount };
+        }
+    } else {
+        // RAM DB
+        bets = inMemoryWCBets.filter(b => b.matchId === matchId && !b.settled);
+        for (const bet of bets) {
+            const userBal = await getBalance(bet.userId);
+            await updateBalance(bet.userId, userBal + bet.amount);
+            refundedBetsCount++;
+        }
+        // Xóa các cược khỏi RAM DB
+        for (let i = inMemoryWCBets.length - 1; i >= 0; i--) {
+            if (inMemoryWCBets[i].matchId === matchId) {
+                inMemoryWCBets.splice(i, 1);
+            }
+        }
+        // Xóa trận đấu khỏi RAM DB
+        const idx = inMemoryWCMatches.findIndex(m => m.matchId === matchId);
+        if (idx !== -1) {
+            inMemoryWCMatches.splice(idx, 1);
+            return { success: true, refundedBetsCount };
+        }
+        return { success: false, refundedBetsCount };
+    }
+}
+
+/**
  * Lấy danh sách mã gu của các thành viên trong server (guild)
+
  * Được tối ưu hóa bằng cách truyền danh sách ID thành viên để lọc ngay tại DB
  */
 export async function getServerGuData(memberIds: string[]): Promise<{ userId: string; myGuCode: string }[]> {
