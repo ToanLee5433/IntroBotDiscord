@@ -28,6 +28,7 @@ import { handleMyGuQuiz, handleDoanMyGu, registerMyGuCollector } from './games/m
 import { handleGamingCourt } from './games/gamingcourt';
 import { handleWCPrediction, playWCPenalty, handleWCCommand, registerWorldCupCollector } from './games/worldcup';
 import { handleAvatarCommand, registerAvatarCollector } from './commands/avatar';
+import { registerWelcomeEvent } from './events/welcome';
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -1708,6 +1709,9 @@ client.once('ready', (readyClient) => {
 
         // Đăng ký MyGu Collector
         registerMyGuCollector(client);
+
+        // Đăng ký Welcome Event (Chào mừng thành viên mới & Nhận lì xì)
+        registerWelcomeEvent(client);
 
         // Khởi tạo Tarot
         await initTarot().catch(err => {

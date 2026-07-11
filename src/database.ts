@@ -37,6 +37,7 @@ const playerLastMyGuDateInMemory: { [userId: string]: string } = {};
 const playerMyGuCodeInMemory: { [userId: string]: string } = {};
 const playerMyGuResultCacheInMemory: { [userId: string]: string } = {};
 const playerLastDoanGuDateInMemory: { [userId: string]: string } = {};
+const playerClaimedWelcomeInMemory: { [userId: string]: boolean } = {};
 let useMongoDB = false;
 
 interface IUser {
@@ -77,6 +78,7 @@ interface IUser {
     myGuCode?: string;
     myGuResultCache?: string;
     lastDoanGuDate?: string;
+    hasClaimedWelcome?: boolean;
 }
 
 const userSchema = new Schema<IUser>({
@@ -116,7 +118,8 @@ const userSchema = new Schema<IUser>({
     lastMyGuDate: { type: String, default: "" },
     myGuCode: { type: String, default: "" },
     myGuResultCache: { type: String, default: "" },
-    lastDoanGuDate: { type: String, default: "" }
+    lastDoanGuDate: { type: String, default: "" },
+    hasClaimedWelcome: { type: Boolean, default: false }
 });
 
 const UserModel = model<IUser>('User', userSchema);
@@ -2410,6 +2413,67 @@ export async function getServerGuData(memberIds: string[]): Promise<{ userId: st
         }
     }
     return res;
+}
+
+/**
+ * Nhận tiền lì xì tân thủ (100k)
+ */
+export async function claimWelcomeGift(userId: string): Promise<{ success: boolean; amount: number; balance: number; message: string }> {
+    const giftAmount = 100; // 100 đơn vị = 100.000 VNĐ
+    if (useMongoDB) {
+        try {
+            let user = await UserModel.findOne({ userId });
+            if (!user) {
+                user = await UserModel.create({ userId, balance: 100, lastDaily: 0, streak: 0, hasClaimedWelcome: false });
+            }
+            
+            const claimed = (user as any).hasClaimedWelcome || false;
+            if (claimed) {
+                return {
+                    success: false,
+                    amount: 0,
+                    balance: user.balance,
+                    message: "Mày nhận tiền rồi con ạ! Tham lam vừa thôi, nút bấm này chỉ dùng được một lần duy nhất thôi nhé! 🙄"
+                };
+            }
+            
+            user.balance += giftAmount;
+            (user as any).hasClaimedWelcome = true;
+            await user.save();
+            
+            return {
+                success: true,
+                amount: giftAmount,
+                balance: user.balance,
+                message: `🎉 **NHẬN QUÀ TÂN THỦ THÀNH CÔNG!**\n👉 Bạn nhận được **${formatMoney(giftAmount)}** vào tài khoản. Số dư hiện tại: **${formatMoney(user.balance)}**.`
+            };
+        } catch (err) {
+            console.error("Lỗi nhận quà tân thủ MongoDB:", err);
+            return { success: false, amount: 0, balance: 0, message: "Lỗi kết nối cơ sở dữ liệu." };
+        }
+    } else {
+        if (playerClaimedWelcomeInMemory[userId]) {
+            const currentBal = playerBalancesInMemory[userId] !== undefined ? playerBalancesInMemory[userId] : 100;
+            return {
+                success: false,
+                amount: 0,
+                balance: currentBal,
+                message: "Mày nhận tiền rồi con ạ! Tham lam vừa thôi, nút bấm này chỉ dùng được một lần duy nhất thôi nhé! 🙄"
+            };
+        }
+        
+        const oldBal = playerBalancesInMemory[userId] !== undefined ? playerBalancesInMemory[userId] : 100;
+        const newBal = oldBal + giftAmount;
+        playerBalancesInMemory[userId] = newBal;
+        playerClaimedWelcomeInMemory[userId] = true;
+        
+        return {
+            success: true,
+            amount: giftAmount,
+            balance: newBal,
+            message: `🎉 **NHẬN QUÀ TÂN THỦ THÀNH CÔNG!**\n👉 Bạn nhận được **${formatMoney(giftAmount)}** vào tài khoản. Số dư hiện tại: **${formatMoney(newBal)}**.`
+        };
+    }
 }
 
 
