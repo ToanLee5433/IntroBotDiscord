@@ -27,58 +27,83 @@ export function registerWelcomeEvent(client: Client) {
             const me = guild.members.me;
             if (!me) return;
             
-            let welcomeChannel: any = null;
+            const targetChannels: any[] = [];
             
-            // Tìm kênh welcome phù hợp
-            const channelKeywords = ['welcome', 'chào-mừng', 'chao-mung', 'nhập-gia', 'nhap-gia', 'lối-vào', 'loi-vao'];
-            const targetChannel = guild.channels.cache.find(ch => {
-                if (ch.isTextBased() && !ch.isThread() && ch.viewable) {
-                    const perms = ch.permissionsFor(me);
-                    if (perms && perms.has(PermissionFlagsBits.SendMessages)) {
-                        const name = ch.name.toLowerCase();
-                        return channelKeywords.some(keyword => name.includes(keyword));
-                    }
-                }
-                return false;
-            });
-
-            if (targetChannel) {
-                welcomeChannel = targetChannel;
-            } else if (guild.systemChannel && guild.systemChannel.viewable) {
-                const perms = guild.systemChannel.permissionsFor(me);
-                if (perms && perms.has(PermissionFlagsBits.SendMessages)) {
-                    welcomeChannel = guild.systemChannel;
-                }
+            if (guild.id === '1209955080649052160') {
+                // Đối với server cụ thể này, gửi tin nhắn chào mừng vào cả 2 kênh: chào-mừng-và-nội-quy & chung
+                const ch1 = guild.channels.cache.find(ch => 
+                    ch.isTextBased() && !ch.isThread() && ch.viewable && 
+                    ch.name === 'chào-mừng-và-nội-quy' && 
+                    ch.permissionsFor(me)?.has(PermissionFlagsBits.SendMessages)
+                );
+                const ch2 = guild.channels.cache.find(ch => 
+                    ch.isTextBased() && !ch.isThread() && ch.viewable && 
+                    ch.name === 'chung' && 
+                    ch.permissionsFor(me)?.has(PermissionFlagsBits.SendMessages)
+                );
+                if (ch1) targetChannels.push(ch1);
+                if (ch2) targetChannels.push(ch2);
             }
             
-            if (!welcomeChannel) {
-                const generalKeywords = ['general', 'chat-chung', 'chat', 'luận-kiếm', 'luan-kiem'];
-                const foundGeneral = guild.channels.cache.find(ch => {
+            // Nếu không tìm thấy hoặc cho server khác, dùng logic ưu tiên cũ để tìm 1 kênh duy nhất
+            if (targetChannels.length === 0) {
+                let welcomeChannel: any = null;
+                
+                // Tìm kênh welcome phù hợp
+                const channelKeywords = ['welcome', 'chào-mừng', 'chao-mung', 'nhập-gia', 'nhap-gia', 'lối-vào', 'loi-vao'];
+                const targetChannel = guild.channels.cache.find(ch => {
                     if (ch.isTextBased() && !ch.isThread() && ch.viewable) {
                         const perms = ch.permissionsFor(me);
                         if (perms && perms.has(PermissionFlagsBits.SendMessages)) {
                             const name = ch.name.toLowerCase();
-                            return generalKeywords.some(keyword => name.includes(keyword));
+                            return channelKeywords.some(keyword => name.includes(keyword));
                         }
                     }
                     return false;
                 });
-                if (foundGeneral) {
-                    welcomeChannel = foundGeneral;
+
+                if (targetChannel) {
+                    welcomeChannel = targetChannel;
+                } else if (guild.systemChannel && guild.systemChannel.viewable) {
+                    const perms = guild.systemChannel.permissionsFor(me);
+                    if (perms && perms.has(PermissionFlagsBits.SendMessages)) {
+                        welcomeChannel = guild.systemChannel;
+                    }
+                }
+                
+                if (!welcomeChannel) {
+                    const generalKeywords = ['general', 'chat-chung', 'chat', 'luận-kiếm', 'luan-kiem'];
+                    const foundGeneral = guild.channels.cache.find(ch => {
+                        if (ch.isTextBased() && !ch.isThread() && ch.viewable) {
+                            const perms = ch.permissionsFor(me);
+                            if (perms && perms.has(PermissionFlagsBits.SendMessages)) {
+                                const name = ch.name.toLowerCase();
+                                return generalKeywords.some(keyword => name.includes(keyword));
+                            }
+                        }
+                        return false;
+                    });
+                    if (foundGeneral) {
+                        welcomeChannel = foundGeneral;
+                    }
+                }
+
+                if (!welcomeChannel) {
+                    welcomeChannel = guild.channels.cache.find(ch => {
+                        if (ch.isTextBased() && !ch.isThread() && ch.viewable) {
+                            const perms = ch.permissionsFor(me);
+                            return perms !== null && perms.has(PermissionFlagsBits.SendMessages);
+                        }
+                        return false;
+                    });
+                }
+                
+                if (welcomeChannel) {
+                    targetChannels.push(welcomeChannel);
                 }
             }
 
-            if (!welcomeChannel) {
-                welcomeChannel = guild.channels.cache.find(ch => {
-                    if (ch.isTextBased() && !ch.isThread() && ch.viewable) {
-                        const perms = ch.permissionsFor(me);
-                        return perms !== null && perms.has(PermissionFlagsBits.SendMessages);
-                    }
-                    return false;
-                });
-            }
-            
-            if (!welcomeChannel) {
+            if (targetChannels.length === 0) {
                 console.log(`[CHÀO MỪNG] Không tìm thấy kênh gửi lời chào mừng tại server: ${guild.name}`);
                 return;
             }
@@ -217,12 +242,14 @@ export function registerWelcomeEvent(client: Client) {
                 }
             }
 
-            await welcomeChannel.send({
-                content: welcomeContent,
-                embeds: [welcomeEmbed],
-                components: [row],
-                files: files
-            });
+            for (const welcomeChannel of targetChannels) {
+                await welcomeChannel.send({
+                    content: welcomeContent,
+                    embeds: [welcomeEmbed],
+                    components: [row],
+                    files: files
+                }).catch((err: any) => console.error(`Lỗi gửi chào mừng tại kênh #${welcomeChannel.name}:`, err));
+            }
             
             console.log(`[CHÀO MỪNG] Đã gửi tin nhắn chào mừng và nút bấm lì xì cho ${freshMember.user.tag}`);
             
