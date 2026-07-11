@@ -533,12 +533,12 @@ async function refineImagePrompt(vietnamesePrompt: string): Promise<string> {
  * Tạo ảnh hoàn toàn mới từ mô tả text, tự động duyệt qua các model Imagen 4 (Ultra, Standard, Fast) và Imagen 3.
  * @param userId Discord user ID — dùng để kiểm tra rate limit
  * @param prompt Mô tả ảnh muốn tạo (bằng tiếng Việt hoặc tiếng Anh)
- * @returns Buffer chứa dữ liệu ảnh JPEG đã tạo
+ * @returns Object chứa buffer ảnh JPEG và tên model đã tạo thành công
  */
 export async function generateImageWithImagen(
     userId: string,
     prompt: string
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; modelUsed: string }> {
     const quota = checkImageQuota(userId);
     if (!quota.allowed) {
         throw new Error(`QUOTA_EXCEEDED:${quota.used}:${quota.limit}`);
@@ -573,6 +573,7 @@ export async function generateImageWithImagen(
 
     let imageBytes: string | undefined;
     let lastError: any = null;
+    let modelUsed = '';
 
     // 3. Thực hiện thử nghiệm qua từng model
     for (const modelId of candidateModels) {
@@ -590,6 +591,7 @@ export async function generateImageWithImagen(
             imageBytes = response?.generatedImages?.[0]?.image?.imageBytes as string;
             if (imageBytes) {
                 console.log(`[IMAGEN GEN] Tạo ảnh thành công bằng model: ${modelId}`);
+                modelUsed = `Google ${modelId.includes('4.0') ? 'Imagen 4' : 'Imagen 3'} (${modelId})`;
                 break;
             }
         } catch (err: any) {
@@ -625,7 +627,7 @@ export async function generateImageWithImagen(
             if (!pollResponse.ok) throw new Error(`Pollinations AI error: HTTP ${pollResponse.status}`);
             const arrayBuffer = await pollResponse.arrayBuffer();
             incrementImageUsage(userId);
-            return Buffer.from(arrayBuffer);
+            return { buffer: Buffer.from(arrayBuffer), modelUsed: 'Pollinations AI Fallback (Flux/SD)' };
         } catch (pollErr: any) {
             console.error('[POLLINATIONS LỖI]:', pollErr);
             throw lastError || new Error('Không thể tạo ảnh bằng cả Google Imagen và Pollinations AI');
@@ -633,7 +635,7 @@ export async function generateImageWithImagen(
     }
 
     incrementImageUsage(userId);
-    return Buffer.from(imageBytes, 'base64');
+    return { buffer: Buffer.from(imageBytes, 'base64'), modelUsed };
 }
 
 // ============================================================
@@ -647,14 +649,14 @@ export async function generateImageWithImagen(
  * @param imageBase64 Dữ liệu ảnh gốc dạng base64
  * @param mimeType MIME type lấy từ attachment.contentType
  * @param instruction Hướng dẫn chỉnh sửa (ví dụ: "chỉnh thành phong cách anime")
- * @returns Buffer chứa dữ liệu ảnh đã chỉnh sửa
+ * @returns Object chứa buffer ảnh JPEG và tên model đã chỉnh sửa thành công
  */
 export async function editImageWithImagen(
     userId: string,
     imageBase64: string,
     mimeType: string,
     instruction: string
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; modelUsed: string }> {
     const quota = checkImageQuota(userId);
     if (!quota.allowed) {
         throw new Error(`QUOTA_EXCEEDED:${quota.used}:${quota.limit}`);
@@ -675,6 +677,7 @@ export async function editImageWithImagen(
 
     let imageBytes: string | undefined;
     let lastError: any = null;
+    let modelUsed = '';
 
     // 1. Thử phương án style reference trên các candidate model
     for (const modelId of candidateModels) {
@@ -700,6 +703,7 @@ export async function editImageWithImagen(
             imageBytes = editResponse?.generatedImages?.[0]?.image?.imageBytes as string;
             if (imageBytes) {
                 console.log(`[IMAGEN EDIT] Chỉnh ảnh thành công bằng model: ${modelId}`);
+                modelUsed = `Google ${modelId.includes('4.0') ? 'Imagen 4' : 'Imagen 3'} (${modelId})`;
                 break;
             }
         } catch (err: any) {
@@ -729,9 +733,10 @@ export async function editImageWithImagen(
                         aspectRatio: '1:1'
                     }
                 });
-                imageBytes = textOnlyResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+                 imageBytes = textOnlyResponse?.generatedImages?.[0]?.image?.imageBytes as string;
                 if (imageBytes) {
                     console.log(`[IMAGEN EDIT Fallback] Tạo ảnh text-only thành công với model: ${modelId}`);
+                    modelUsed = `Google ${modelId.includes('4.0') ? 'Imagen 4' : 'Imagen 3'} (Text Fallback: ${modelId})`;
                     break;
                 }
             } catch (err: any) {
@@ -752,7 +757,7 @@ export async function editImageWithImagen(
             if (!pollResponse.ok) throw new Error(`Pollinations AI error: HTTP ${pollResponse.status}`);
             const arrayBuffer = await pollResponse.arrayBuffer();
             incrementImageUsage(userId);
-            return Buffer.from(arrayBuffer);
+            return { buffer: Buffer.from(arrayBuffer), modelUsed: 'Pollinations AI Fallback (Flux/SD)' };
         } catch (pollErr: any) {
             console.error('[POLLINATIONS EDIT LỖI]:', pollErr);
             throw lastError || new Error('Không thể chỉnh sửa hoặc tạo ảnh bằng cả Google Imagen và Pollinations AI');
@@ -760,5 +765,5 @@ export async function editImageWithImagen(
     }
 
     incrementImageUsage(userId);
-    return Buffer.from(imageBytes, 'base64');
+    return { buffer: Buffer.from(imageBytes, 'base64'), modelUsed };
 }

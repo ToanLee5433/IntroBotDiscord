@@ -1143,6 +1143,11 @@ client.on('messageCreate', async (message: Message) => {
     const IMAGE_GEN_TRIGGERS = ['vẽ cho tao', 'generate image', 'tạo ảnh', 'sinh ảnh', 'vẽ ảnh', 'vẽ'];
     const IMAGE_EDIT_TRIGGERS = ['chỉnh cho tao', 'sửa cho tao', 'chỉnh ảnh', 'sửa ảnh', 'edit ảnh'];
 
+    // Helper: Dọn dẹp pings/mentions (role, user, channel) để tránh spam ID
+    function cleanMentions(text: string): string {
+        return text.replace(/<@&?\d+>/g, '').replace(/<#\d+>/g, '').trim();
+    }
+
     // BƯỚC 1: Từ khóa TẠO ẢNH (text → image, không cần attachment)
     if (hasTriggerWord(rawInput, IMAGE_GEN_TRIGGERS)) {
         const imagePrompt = extractPrompt(rawInput, IMAGE_GEN_TRIGGERS);
@@ -1158,12 +1163,26 @@ client.on('messageCreate', async (message: Message) => {
         if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
         try {
             const remaining = quota.limit === Infinity ? '∞' : String(quota.limit - quota.used - 1);
-            const imageBuffer = await generateImageWithImagen(message.author.id, imagePrompt);
-            const attachment = new AttachmentBuilder(imageBuffer, { name: 'bottoan_art.jpg' });
-            await message.reply({
-                content: `🎨 **Đây, tao vẽ cho mày!** \`${imagePrompt}\`\n*Còn **${remaining}** lượt hôm nay.*`,
+            const { buffer, modelUsed } = await generateImageWithImagen(message.author.id, imagePrompt);
+            const attachment = new AttachmentBuilder(buffer, { name: 'bottoan_art.jpg' });
+            
+            const quotePrompt = cleanMentions(imagePrompt);
+            const sentMsg = await message.reply({
+                content: `🎨 **Đây, tao vẽ cho mày!** \`${quotePrompt}\`\n*Model: \`${modelUsed}\` • Còn **${remaining}** lượt hôm nay.*`,
                 files: [attachment]
             });
+
+            // Lấy URL thực tế từ Discord CDN sau khi upload và edit gắn nút mở ảnh gốc
+            const uploadedUrl = sentMsg.attachments.first()?.url;
+            if (uploadedUrl) {
+                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                        .setLabel('🔗 Mở ảnh gốc')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(uploadedUrl)
+                );
+                await sentMsg.edit({ components: [row] }).catch(() => {});
+            }
         } catch (err: any) {
             if (err.message?.startsWith('QUOTA_EXCEEDED')) {
                 const [, used, limit] = err.message.split(':');
@@ -1204,12 +1223,27 @@ client.on('messageCreate', async (message: Message) => {
             const imgBuffer = await imgResponse.arrayBuffer();
             const imageBase64 = Buffer.from(imgBuffer).toString('base64');
             const remaining = quota.limit === Infinity ? '∞' : String(quota.limit - quota.used - 1);
-            const editedBuffer = await editImageWithImagen(message.author.id, imageBase64, mimeType, instruction);
-            const editAttachment = new AttachmentBuilder(editedBuffer, { name: 'bottoan_edited.jpg' });
-            await message.reply({
-                content: `✏️ **Xong rồi đây!** Đã chỉnh theo yêu cầu: \`${instruction}\`\n*Còn **${remaining}** lượt hôm nay.*`,
+            
+            const { buffer, modelUsed } = await editImageWithImagen(message.author.id, imageBase64, mimeType, instruction);
+            const editAttachment = new AttachmentBuilder(buffer, { name: 'bottoan_edited.jpg' });
+            
+            const quoteInstruction = cleanMentions(instruction);
+            const sentMsg = await message.reply({
+                content: `✏️ **Xong rồi đây!** Đã chỉnh theo yêu cầu: \`${quoteInstruction}\`\n*Model: \`${modelUsed}\` • Còn **${remaining}** lượt hôm nay.*`,
                 files: [editAttachment]
             });
+
+            // Edit gắn nút mở ảnh gốc
+            const uploadedUrl = sentMsg.attachments.first()?.url;
+            if (uploadedUrl) {
+                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                        .setLabel('🔗 Mở ảnh gốc')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(uploadedUrl)
+                );
+                await sentMsg.edit({ components: [row] }).catch(() => {});
+            }
         } catch (err: any) {
             if (err.message?.startsWith('QUOTA_EXCEEDED')) {
                 await message.reply('🚫 Hết lượt chỉnh ảnh hôm nay rồi! Ngày mai quay lại nhé!');
