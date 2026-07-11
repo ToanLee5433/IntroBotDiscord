@@ -531,6 +531,7 @@ async function refineImagePrompt(vietnamesePrompt: string): Promise<string> {
 
 /**
  * Tạo ảnh hoàn toàn mới từ mô tả text, dùng Imagen 4 Ultra.
+ * Tự động fallback về Imagen 3 (imagen-3.0-generate-002) nếu API key không hỗ trợ Imagen 4.
  * @param userId Discord user ID — dùng để kiểm tra rate limit
  * @param prompt Mô tả ảnh muốn tạo (bằng tiếng Việt hoặc tiếng Anh)
  * @returns Buffer chứa dữ liệu ảnh JPEG đã tạo
@@ -561,23 +562,47 @@ export async function generateImageWithImagen(
     const refinedPrompt = await refineImagePrompt(prompt);
     console.log(`[IMAGEN GEN] Prompt gốc: "${prompt}" -> Prompt tối ưu: "${refinedPrompt}" (Aspect Ratio: ${aspectRatio})`);
 
-    const response = await genAINew.models.generateImages({
-        model: 'imagen-4-ultra-generate',
-        prompt: refinedPrompt,
-        config: {
-            numberOfImages: 1,
-            aspectRatio: aspectRatio,
-            outputMimeType: 'image/jpeg'
-        }
-    });
+    let imageBytes: string | undefined;
 
-    const imageBytes = response?.generatedImages?.[0]?.image?.imageBytes;
+    // 3. Thực hiện tạo ảnh với Imagen 4 Ultra, fallback sang Imagen 3 nếu không khả dụng
+    try {
+        const response = await genAINew.models.generateImages({
+            model: 'imagen-4-ultra-generate',
+            prompt: refinedPrompt,
+            config: {
+                numberOfImages: 1,
+                aspectRatio: aspectRatio,
+                outputMimeType: 'image/jpeg'
+            }
+        });
+        imageBytes = response?.generatedImages?.[0]?.image?.imageBytes as string;
+    } catch (err: any) {
+        const errMsg = (err.message || '').toLowerCase();
+        console.warn(`[IMAGEN GEN] Thử Imagen 4 Ultra thất bại: ${err.message}. Đang tiến hành fallback sang Imagen 3...`);
+        
+        // Chỉ fallback nếu là lỗi model không tồn tại hoặc lỗi phân quyền
+        if (errMsg.includes('not found') || errMsg.includes('404') || errMsg.includes('invalid') || errMsg.includes('permission') || errMsg.includes('support')) {
+            const response = await genAINew.models.generateImages({
+                model: 'imagen-3.0-generate-002',
+                prompt: refinedPrompt,
+                config: {
+                    numberOfImages: 1,
+                    aspectRatio: aspectRatio,
+                    outputMimeType: 'image/jpeg'
+                }
+            });
+            imageBytes = response?.generatedImages?.[0]?.image?.imageBytes as string;
+        } else {
+            throw err; // Ném tiếp các lỗi khác như Safety block, Quota exceeded...
+        }
+    }
+
     if (!imageBytes) {
-        throw new Error('Imagen 4 không trả về dữ liệu ảnh');
+        throw new Error('Imagen không trả về dữ liệu ảnh');
     }
 
     incrementImageUsage(userId);
-    return Buffer.from(imageBytes as string, 'base64');
+    return Buffer.from(imageBytes, 'base64');
 }
 
 // ============================================================
@@ -586,6 +611,7 @@ export async function generateImageWithImagen(
 
 /**
  * Chỉnh sửa ảnh gốc theo hướng dẫn, dùng Imagen 4 Ultra.
+ * Tự động fallback về Imagen 3 (imagen-3.0-generate-002) nếu API key không hỗ trợ Imagen 4.
  * Dùng kỹ thuật truyền ảnh gốc làm style/edit reference + prompt instruction.
  * @param userId Discord user ID — dùng để kiểm tra rate limit
  * @param imageBase64 Dữ liệu ảnh gốc dạng base64
@@ -608,11 +634,10 @@ export async function editImageWithImagen(
     const refinedInstruction = await refineImagePrompt(instruction);
     console.log(`[IMAGEN EDIT] Lệnh gốc: "${instruction}" -> Lệnh tối ưu: "${refinedInstruction}"`);
 
-    // Thử dùng editImage nếu tồn tại trong SDK, fallback sang generateImages với referenceImages
     let imageBytes: string | undefined;
 
+    // 1. Thử phương án generateImages với referenceImages bằng Imagen 4 Ultra
     try {
-        // Phương án chính: generateImages với referenceImages (style/edit reference)
         const editResponse = await genAINew.models.generateImages({
             model: 'imagen-4-ultra-generate',
             prompt: refinedInstruction,
@@ -628,27 +653,56 @@ export async function editImageWithImagen(
                         }
                     }
                 ]
-            } as any // dùng 'as any' vì typing SDK có thể chưa đủ
+            } as any
         });
         imageBytes = editResponse?.generatedImages?.[0]?.image?.imageBytes as string;
     } catch (editErr: any) {
-        // Fallback: Nếu referenceImages không hỗ trợ, tạo ảnh mới từ prompt mô tả kỹ hơn
-        console.warn('[IMAGE EDIT] Không dùng được referenceImages, fallback sang text-only generation:', editErr?.message);
-        const fallbackPrompt = `${refinedInstruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
-        const fallbackResponse = await genAINew.models.generateImages({
-            model: 'imagen-4-ultra-generate',
-            prompt: fallbackPrompt,
-            config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/jpeg',
-                aspectRatio: '1:1'
+        const errMsg = (editErr.message || '').toLowerCase();
+        console.warn(`[IMAGEN EDIT] Thử Imagen 4 Ultra thất bại: ${editErr.message}. Đang tiến hành fallback sang Imagen 3...`);
+
+        // Tiến hành fallback sang Imagen 3
+        if (errMsg.includes('not found') || errMsg.includes('404') || errMsg.includes('invalid') || errMsg.includes('permission') || errMsg.includes('support')) {
+            try {
+                const fallbackResponse = await genAINew.models.generateImages({
+                    model: 'imagen-3.0-generate-002',
+                    prompt: refinedInstruction,
+                    config: {
+                        numberOfImages: 1,
+                        outputMimeType: 'image/jpeg',
+                        referenceImages: [
+                            {
+                                referenceType: 'STYLE',
+                                referenceImage: {
+                                    imageBytes: imageBase64,
+                                    mimeType: mimeType
+                                }
+                            }
+                        ]
+                    } as any
+                });
+                imageBytes = fallbackResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+            } catch (fallbackErr: any) {
+                // Nếu referenceImages cũng tèo trên Imagen 3, làm fallback text-only trên Imagen 3
+                console.warn('[IMAGEN EDIT] Imagen 3 referenceImages thất bại, tạo ảnh text-only...');
+                const textOnlyPrompt = `${refinedInstruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
+                const textOnlyResponse = await genAINew.models.generateImages({
+                    model: 'imagen-3.0-generate-002',
+                    prompt: textOnlyPrompt,
+                    config: {
+                        numberOfImages: 1,
+                        outputMimeType: 'image/jpeg',
+                        aspectRatio: '1:1'
+                    }
+                });
+                imageBytes = textOnlyResponse?.generatedImages?.[0]?.image?.imageBytes as string;
             }
-        });
-        imageBytes = fallbackResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+        } else {
+            throw editErr; // Ném tiếp lỗi Safety block, Quota...
+        }
     }
 
     if (!imageBytes) {
-        throw new Error('Imagen 4 không trả về dữ liệu ảnh khi chỉnh sửa');
+        throw new Error('Imagen không trả về dữ liệu ảnh khi chỉnh sửa');
     }
 
     incrementImageUsage(userId);
