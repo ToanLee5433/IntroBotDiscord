@@ -1220,7 +1220,7 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
-    // BƯỚC 3: CÓ ảnh đính kèm (không phải lệnh tạo/chỉnh ảnh) → Nhận xét ảnh
+    // BƯỚC 3: CÓ ảnh đính kèm TRONG TIN HIỆN TẠI → Nhận xét ảnh
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first()!;
         const mimeType = attachment.contentType;
@@ -1237,6 +1237,28 @@ client.on('messageCreate', async (message: Message) => {
                 await message.reply('❌ Ảnh này tao không xem được! Link hỏng hoặc định dạng lạ quá, up lại đi mày!');
             }
             return;
+        }
+    }
+
+    // BƯỚC 3b: USER REPLY VÀO MỘT TIN CÓ ẢNH → Bot đọc ảnh từ tin được reply
+    if (message.reference?.messageId) {
+        try {
+            const refMsg = await message.channel.messages.fetch(message.reference.messageId);
+            const refAttachment = refMsg.attachments.first();
+            const refMime = refAttachment?.contentType;
+            if (refAttachment && refMime && refMime.startsWith('image/')) {
+                if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+                // Prompt kết hợp cả nội dung user gõ + tin nhắn gốc được reply
+                const contextPrompt = rawInput
+                    ? rawInput
+                    : 'Nhìn vào ảnh này và nhận xét đi!';
+                const analysisText = await analyzeImageWithGemini(refAttachment.url, refMime, contextPrompt);
+                const cleanText = analysisText.replace(/https?:\/\/[^\s]+/g, '');
+                await message.reply(cleanText.trim() || '...Tao nhìn ảnh này mà không biết nói gì luôn 🤔');
+                return;
+            }
+        } catch (_) {
+            // Không fetch được tin gốc → chạy tiếp sang chat thường
         }
     }
 
@@ -1921,6 +1943,13 @@ async function handleHelpCommand(message: Message, client: any) {
             { name: "🗣️ CHAT AI & VOICE HORN-BOT", value:
                 "• `@BotToan [nội dung]`: Chat trực tiếp với Gemini AI thông minh mỏ hỗn\n" +
                 "• `cam mom` | `im di` | `nin`: Tắt tiếng / di chuyển Horn-Bot welcome ra khỏi voice",
+                inline: false
+            },
+            { name: "🎨 AI NHÌN ẢNH & TẠO ẢNH (Imagen 4 Ultra)", value:
+                "• `@BotToan` + ảnh đính kèm: Bot tự động nhận xét ảnh bựa bựa (không tốn lượt)\n" +
+                "• Reply vào tin có ảnh + tag @BotToan: Bot đọc ảnh từ tin được reply\n" +
+                "• `vẽ [mô tả]` | `tạo ảnh [mô tả]`: Tạo ảnh AI chất lượng cao (3 lượt/ngày)\n" +
+                "• `chỉnh ảnh [hướng dẫn]` + ảnh: Chỉnh sửa ảnh gốc (3 lượt/ngày)",
                 inline: false
             }
         )
