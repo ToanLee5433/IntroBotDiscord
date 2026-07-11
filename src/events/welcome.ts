@@ -83,6 +83,8 @@ export function registerWelcomeEvent(client: Client) {
                 return;
             }
 
+            const isRoyal = freshMember.id === '1525389831113539586';
+
             // Chọn 2 "Tiếp viên tiếp đón" ngẫu nhiên
             const activeHosts = guild.members.cache.filter(m => !m.user.bot && m.id !== freshMember.id);
             const hostArray = Array.from(activeHosts.values());
@@ -97,10 +99,13 @@ export function registerWelcomeEvent(client: Client) {
                     selected.push(`<@${tempHosts[idx].id}>`);
                     tempHosts.splice(idx, 1);
                 }
-                hostsTagStr = `\n\n🎲 **Tiếp viên sới bạc được chỉ định đón cưng hôm nay:** ${selected.join(" và ")}.\nHai đứa ra dắt khách vào bàn VIP mau lên, không là cắt lương! 🍾`;
+                if (isRoyal) {
+                    hostsTagStr = `\n\n💂 **Thần dân cận vệ được chỉ định hầu hạ Nữ Hoàng hôm nay:** ${selected.join(" và ")}.\nHai đứa khẩn trương dẫn đường dâng kiệu, sơ suất là bị chém đầu thị chúng! ⚔️`;
+                } else {
+                    hostsTagStr = `\n\n🎲 **Tiếp viên sới bạc được chỉ định đón cưng hôm nay:** ${selected.join(" và ")}.\nHai đứa ra dắt khách vào bàn VIP mau lên, không là cắt lương! 🍾`;
+                }
             }
 
-            const isRoyal = freshMember.id === '1525389831113539586';
             let welcomeEmbed: EmbedBuilder;
             let claimButtonLabel = "🧧 Nhận 100k Tân Thủ!";
             let claimButtonStyle = ButtonStyle.Danger;
@@ -120,7 +125,8 @@ export function registerWelcomeEvent(client: Client) {
                     .setDescription(
                         `🙇‍♂️ Kính cẩn nghiêng mình cúi đầu cung nghênh **Nữ Hoàng ${freshMember.user.username}** (<@${freshMember.id}>) đã hạ giá lâm phàm, ghé thăm vương quốc sới bạc hoàng gia **${guild.name}** (thành viên thứ **${guild.memberCount}** của server)!\n\n` +
                         `Người chính là hiện thân của quyền lực, sự thanh lịch và sang trọng tối thượng. Hào quang lấp lánh của Nữ Hoàng chiếu sáng rực rỡ toàn bộ sòng bài, mang lại vinh hạnh vô bờ bến cho thần dân chúng thần! 👸✨\n\n` +
-                        `💰 **CỐNG PHẨM HOÀNG GIA:** Nữ Hoàng hãy nhận lấy bảo vật **1 Tỷ VNĐ** tiền mặt hoàng gia từ ngân khố dâng lên để vi hành càn quét sới bạc!`
+                        `💰 **CỐNG PHẨM HOÀNG GIA:** Nữ Hoàng hãy nhận lấy bảo vật **1 Tỷ VNĐ** tiền mặt hoàng gia từ ngân khố dâng lên để vi hành càn quét sới bạc!` +
+                        hostsTagStr
                     )
                     .setColor(0xF1C40F) // Màu vàng Gold hoàng gia cực đỉnh
                     .setThumbnail(freshMember.user.displayAvatarURL({ size: 256, forceStatic: false }))
