@@ -19,7 +19,8 @@ import { playTaiXiu } from './games/taixiu';
 import { handleLixi } from './games/lixi';
 import { playRussianRoulette } from './games/russianroulette';
 import { playPokerRoulette } from './games/pokerroulette';
-import { chatWithGemini } from './services/gemini';
+import { chatWithGemini, analyzeImageWithGemini, generateImageWithImagen, editImageWithImagen, checkImageQuota } from './services/gemini';
+import { AttachmentBuilder } from 'discord.js';
 import { fetchValorantRank } from './services/valorant';
 import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
 import { initTarot, handleTarot } from './games/tarot';
@@ -1121,7 +1122,120 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
-    // ----------------- TÍNH NĂNG CHAT VỚI GEMINI -----------------
+    // ============ ROUTING LOGIC: XỬ LÝ ẢNH & TẠO ẢNH (ƯU TIÊN TRƯỚC CHAT) ============
+
+    // Helper: kiểm tra từ khóa trigger trong text
+    function hasTriggerWord(text: string, keywords: string[]): boolean {
+        const lower = text.toLowerCase();
+        return keywords.some(kw => lower.includes(kw));
+    }
+
+    // Helper: bỏ từ khóa trigger ra khỏi text, lấy phần còn lại làm prompt
+    function extractPrompt(text: string, keywords: string[]): string {
+        let result = text;
+        for (const kw of keywords) {
+            result = result.replace(new RegExp(kw, 'gi'), '').trim();
+        }
+        return result.trim();
+    }
+
+    const IMAGE_GEN_TRIGGERS = ['vẽ', 'vẽ cho tao', 'tạo ảnh', 'sinh ảnh', 'generate image', 'vẽ ảnh'];
+    const IMAGE_EDIT_TRIGGERS = ['chỉnh ảnh', 'sửa ảnh', 'edit ảnh', 'chỉnh cho tao', 'sửa cho tao'];
+
+    // BƯỚC 1: Từ khóa TẠO ẢNH (text → image, không cần attachment)
+    if (hasTriggerWord(rawInput, IMAGE_GEN_TRIGGERS)) {
+        const imagePrompt = extractPrompt(rawInput, IMAGE_GEN_TRIGGERS);
+        if (!imagePrompt) {
+            await message.reply('Vẽ cái gì? Nói rõ cho tao biết đi! Ví dụ: `@BotToan vẽ một con mèo đang đánh bài` 🎨');
+            return;
+        }
+        const quota = checkImageQuota(message.author.id);
+        if (!quota.allowed) {
+            await message.reply(`🚫 **Hết quota vẽ ảnh rồi ông ơi!** Mày đã dùng **${quota.used}/${quota.limit} lượt** hôm nay. Ngày mai quay lại nhé, đừng spam tao! 😤`);
+            return;
+        }
+        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+        try {
+            const remaining = quota.limit === Infinity ? '∞' : String(quota.limit - quota.used - 1);
+            const imageBuffer = await generateImageWithImagen(message.author.id, imagePrompt);
+            const attachment = new AttachmentBuilder(imageBuffer, { name: 'bottoan_art.jpg' });
+            await message.reply({
+                content: `🎨 **Đây, tao vẽ cho mày!** \`${imagePrompt}\`\n*Còn **${remaining}** lượt hôm nay.*`,
+                files: [attachment]
+            });
+        } catch (err: any) {
+            if (err.message?.startsWith('QUOTA_EXCEEDED')) {
+                const [, used, limit] = err.message.split(':');
+                await message.reply(`🚫 Hết ${used}/${limit} lượt vẽ ảnh hôm nay rồi! Ngày mai quay lại nhé!`);
+            } else if (err.message?.includes('safety') || err.message?.includes('block') || err.message?.includes('policy')) {
+                await message.reply('🚫 **Cái này tao không vẽ được!** Nội dung vi phạm chính sách, chọn chủ đề khác đi mày!');
+            } else {
+                console.error('[IMAGE GEN LỖI]:', err);
+                await message.reply('❌ Tao đang không vẽ được, API lag hay gì ấy. Thử lại sau nhé!');
+            }
+        }
+        return;
+    }
+
+    // BƯỚC 2: Từ khóa CHỈNH ẢNH + CÓ ảnh đính kèm
+    if (hasTriggerWord(rawInput, IMAGE_EDIT_TRIGGERS) && message.attachments.size > 0) {
+        const instruction = extractPrompt(rawInput, IMAGE_EDIT_TRIGGERS) || 'Chỉnh ảnh này đẹp hơn';
+        const attachment = message.attachments.first()!;
+        const mimeType = attachment.contentType || 'image/jpeg';
+        if (!mimeType.startsWith('image/')) {
+            await message.reply('⚠️ Tao chỉ chỉnh được ảnh thôi nha, không phải file khác!');
+            return;
+        }
+        const quota = checkImageQuota(message.author.id);
+        if (!quota.allowed) {
+            await message.reply(`🚫 **Hết quota chỉnh ảnh rồi!** Mày đã dùng **${quota.used}/${quota.limit} lượt** hôm nay.`);
+            return;
+        }
+        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+        try {
+            const imgResponse = await fetch(attachment.url);
+            if (!imgResponse.ok) throw new Error('Không tải được ảnh gốc');
+            const imgBuffer = await imgResponse.arrayBuffer();
+            const imageBase64 = Buffer.from(imgBuffer).toString('base64');
+            const remaining = quota.limit === Infinity ? '∞' : String(quota.limit - quota.used - 1);
+            const editedBuffer = await editImageWithImagen(message.author.id, imageBase64, mimeType, instruction);
+            const editAttachment = new AttachmentBuilder(editedBuffer, { name: 'bottoan_edited.jpg' });
+            await message.reply({
+                content: `✏️ **Xong rồi đây!** Đã chỉnh theo yêu cầu: \`${instruction}\`\n*Còn **${remaining}** lượt hôm nay.*`,
+                files: [editAttachment]
+            });
+        } catch (err: any) {
+            if (err.message?.startsWith('QUOTA_EXCEEDED')) {
+                await message.reply('🚫 Hết lượt chỉnh ảnh hôm nay rồi! Ngày mai quay lại nhé!');
+            } else {
+                console.error('[IMAGE EDIT LỖI]:', err);
+                await message.reply('❌ Tao chỉnh ảnh không được lúc này, thử lại sau nhé!');
+            }
+        }
+        return;
+    }
+
+    // BƯỚC 3: CÓ ảnh đính kèm (không phải lệnh tạo/chỉnh ảnh) → Nhận xét ảnh
+    if (message.attachments.size > 0) {
+        const attachment = message.attachments.first()!;
+        const mimeType = attachment.contentType;
+        if (!mimeType || !mimeType.startsWith('image/')) {
+            // Không phải ảnh (có thể là file khác), bỏ qua và chat thường
+        } else {
+            if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+            try {
+                const analysisText = await analyzeImageWithGemini(attachment.url, mimeType, rawInput || undefined);
+                const cleanText = analysisText.replace(/https?:\/\/[^\s]+/g, '');
+                await message.reply(cleanText.trim() || '...Tao nhìn ảnh này mà không biết nói gì luôn 🤔');
+            } catch (err) {
+                console.error('[IMAGE ANALYZE LỖI]:', err);
+                await message.reply('❌ Ảnh này tao không xem được! Link hỏng hoặc định dạng lạ quá, up lại đi mày!');
+            }
+            return;
+        }
+    }
+
+    // ============ BƯỚC 4 FALLBACK: CHAT TEXT THƯỜNG VỚI GEMINI ============
     await sleep(2000);
 
     try {

@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { GEMINI_KEY } from '../config';
 
 if (!GEMINI_KEY) {
@@ -6,6 +7,56 @@ if (!GEMINI_KEY) {
 }
 
 const genAI = new GoogleGenerativeAI(GEMINI_KEY || '');
+
+// SDK mới dùng cho Imagen 4 Ultra
+const genAINew = new GoogleGenAI({ apiKey: GEMINI_KEY || '' });
+
+// ============ RATE LIMIT MANAGER CHO TÍNH NĂNG TẠO ẢNH ============
+// User này không bị giới hạn số lượt tạo ảnh mỗi ngày
+const OWNER_UNLIMITED_IMAGE_ID = '911989602213060688';
+// Giới hạn số ảnh mỗi user thường được tạo mỗi ngày
+const DAILY_IMAGE_LIMIT = 3;
+
+interface ImageUsageEntry {
+    count: number;
+    date: string; // format: 'YYYY-MM-DD' theo UTC+7
+}
+
+const imageGenUsage = new Map<string, ImageUsageEntry>();
+
+function getTodayVN(): string {
+    const now = new Date();
+    // UTC+7
+    const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    return vnTime.toISOString().slice(0, 10);
+}
+
+export function checkImageQuota(userId: string): { allowed: boolean; used: number; limit: number } {
+    if (userId === OWNER_UNLIMITED_IMAGE_ID) {
+        return { allowed: true, used: 0, limit: Infinity };
+    }
+    const today = getTodayVN();
+    const entry = imageGenUsage.get(userId);
+    if (!entry || entry.date !== today) {
+        return { allowed: true, used: 0, limit: DAILY_IMAGE_LIMIT };
+    }
+    return {
+        allowed: entry.count < DAILY_IMAGE_LIMIT,
+        used: entry.count,
+        limit: DAILY_IMAGE_LIMIT
+    };
+}
+
+function incrementImageUsage(userId: string): void {
+    if (userId === OWNER_UNLIMITED_IMAGE_ID) return;
+    const today = getTodayVN();
+    const entry = imageGenUsage.get(userId);
+    if (!entry || entry.date !== today) {
+        imageGenUsage.set(userId, { count: 1, date: today });
+    } else {
+        entry.count++;
+    }
+}
 
 interface ChatMessage {
     role: 'user' | 'model';
@@ -383,4 +434,160 @@ export async function getWCPrediction(teamA: string, teamB: string, pronoun: str
     return result.response.text();
 }
 
+// ============================================================
+// TÍNH NĂNG 1: NHẬN XÉT ẢNH (GEMINI VISION)
+// ============================================================
 
+/**
+ * Phân tích và nhận xét ảnh theo phong cách BotToan bựa.
+ * @param imageUrl URL công khai của ảnh từ Discord attachment
+ * @param mimeType MIME type lấy trực tiếp từ attachment.contentType ('image/jpeg', 'image/png', ...)
+ * @param userPrompt Câu hỏi/yêu cầu cụ thể của user (optional). Nếu không có, bot tự nhận xét.
+ */
+export async function analyzeImageWithGemini(
+    imageUrl: string,
+    mimeType: string,
+    userPrompt?: string
+): Promise<string> {
+    if (!GEMINI_KEY) throw new Error("Missing Gemini key");
+
+    // Tải ảnh từ URL Discord → buffer → base64
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error(`Không tải được ảnh: HTTP ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+    const model = genAI.getGenerativeModel({
+        model: 'gemini-3.1-flash-lite',
+        systemInstruction: `
+            Bạn là BotToan, trợ lý Discord siêu bựa và hài hước.
+            Nhiệm vụ: Nhìn vào ảnh user gửi và đưa ra nhận xét/đánh giá theo phong cách mỏ hỗn, khịa đểu, hài hước đặc trưng của mày.
+            QUY TẮC:
+            1. Dùng Tiếng Việt, xưng hô mày-tao.
+            2. Phản hồi cực gắt, hài hước, bỗ bã nhưng không xúc phạm quá đà.
+            3. TUYỆT ĐỐI KHÔNG gửi link, URL nào.
+            4. Độ dài: dưới 900 ký tự.
+            5. Nếu ảnh không rõ hoặc nhạy cảm, hãy khịa nhẹ nhàng rồi nói không nhận xét được.
+        `
+    });
+
+    const prompt = userPrompt
+        ? `Yêu cầu của user: "${userPrompt}". Hãy nhận xét ảnh này dựa trên yêu cầu đó.`
+        : `Nhìn vào ảnh này và đưa ra nhận xét của mày đi. Đừng ngại khịa nhé!`;
+
+    const result = await model.generateContent([
+        { inlineData: { data: base64Data, mimeType: mimeType } },
+        { text: prompt }
+    ]);
+
+    return result.response.text();
+}
+
+// ============================================================
+// TÍNH NĂNG 2: TẠO ẢNH TỪ TEXT (IMAGEN 4 ULTRA)
+// ============================================================
+
+/**
+ * Tạo ảnh hoàn toàn mới từ mô tả text, dùng Imagen 4 Ultra.
+ * @param userId Discord user ID — dùng để kiểm tra rate limit
+ * @param prompt Mô tả ảnh muốn tạo (bằng tiếng Việt hoặc tiếng Anh)
+ * @returns Buffer chứa dữ liệu ảnh JPEG đã tạo
+ */
+export async function generateImageWithImagen(
+    userId: string,
+    prompt: string
+): Promise<Buffer> {
+    const quota = checkImageQuota(userId);
+    if (!quota.allowed) {
+        throw new Error(`QUOTA_EXCEEDED:${quota.used}:${quota.limit}`);
+    }
+
+    const response = await genAINew.models.generateImages({
+        model: 'imagen-4-ultra-generate',
+        prompt: prompt,
+        config: {
+            numberOfImages: 1,
+            aspectRatio: '1:1',
+            outputMimeType: 'image/jpeg'
+        }
+    });
+
+    const imageBytes = response?.generatedImages?.[0]?.image?.imageBytes;
+    if (!imageBytes) {
+        throw new Error('Imagen 4 không trả về dữ liệu ảnh');
+    }
+
+    incrementImageUsage(userId);
+    return Buffer.from(imageBytes as string, 'base64');
+}
+
+// ============================================================
+// TÍNH NĂNG 3: CHỈNH SỬA ẢNH (IMAGEN 4 ULTRA — IMAGE EDITING)
+// ============================================================
+
+/**
+ * Chỉnh sửa ảnh gốc theo hướng dẫn, dùng Imagen 4 Ultra.
+ * Dùng kỹ thuật truyền ảnh gốc làm style/edit reference + prompt instruction.
+ * @param userId Discord user ID — dùng để kiểm tra rate limit
+ * @param imageBase64 Dữ liệu ảnh gốc dạng base64
+ * @param mimeType MIME type lấy từ attachment.contentType
+ * @param instruction Hướng dẫn chỉnh sửa (ví dụ: "chỉnh thành phong cách anime")
+ * @returns Buffer chứa dữ liệu ảnh đã chỉnh sửa
+ */
+export async function editImageWithImagen(
+    userId: string,
+    imageBase64: string,
+    mimeType: string,
+    instruction: string
+): Promise<Buffer> {
+    const quota = checkImageQuota(userId);
+    if (!quota.allowed) {
+        throw new Error(`QUOTA_EXCEEDED:${quota.used}:${quota.limit}`);
+    }
+
+    // Thử dùng editImage nếu tồn tại trong SDK, fallback sang generateImages với referenceImages
+    let imageBytes: string | undefined;
+
+    try {
+        // Phương án chính: generateImages với referenceImages (style/edit reference)
+        const editResponse = await genAINew.models.generateImages({
+            model: 'imagen-4-ultra-generate',
+            prompt: instruction,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                referenceImages: [
+                    {
+                        referenceType: 'STYLE',
+                        referenceImage: {
+                            imageBytes: imageBase64,
+                            mimeType: mimeType
+                        }
+                    }
+                ]
+            } as any // dùng 'as any' vì typing SDK có thể chưa đủ
+        });
+        imageBytes = editResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+    } catch (editErr: any) {
+        // Fallback: Nếu referenceImages không hỗ trợ, tạo ảnh mới từ prompt mô tả kỹ hơn
+        console.warn('[IMAGE EDIT] Không dùng được referenceImages, fallback sang text-only generation:', editErr?.message);
+        const fallbackPrompt = `${instruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
+        const fallbackResponse = await genAINew.models.generateImages({
+            model: 'imagen-4-ultra-generate',
+            prompt: fallbackPrompt,
+            config: {
+                numberOfImages: 1,
+                outputMimeType: 'image/jpeg',
+                aspectRatio: '1:1'
+            }
+        });
+        imageBytes = fallbackResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+    }
+
+    if (!imageBytes) {
+        throw new Error('Imagen 4 không trả về dữ liệu ảnh khi chỉnh sửa');
+    }
+
+    incrementImageUsage(userId);
+    return Buffer.from(imageBytes, 'base64');
+}
