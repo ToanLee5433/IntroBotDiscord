@@ -84,34 +84,22 @@ export function registerWelcomeEvent(client: Client) {
             }
 
             const isRoyal = freshMember.id === '1525389831113539586';
-
-            // Chọn 2 "Tiếp viên tiếp đón" ngẫu nhiên
-            const activeHosts = guild.members.cache.filter(m => !m.user.bot && m.id !== freshMember.id);
-            const hostArray = Array.from(activeHosts.values());
-            let hostsTagStr = "";
-            
-            if (hostArray.length > 0) {
-                const count = Math.min(hostArray.length, 2);
-                const tempHosts = [...hostArray];
-                const selected: string[] = [];
-                for (let i = 0; i < count; i++) {
-                    const idx = Math.floor(Math.random() * tempHosts.length);
-                    selected.push(`<@${tempHosts[idx].id}>`);
-                    tempHosts.splice(idx, 1);
-                }
-                if (isRoyal) {
-                    hostsTagStr = `\n\n💂 **Thần dân cận vệ được chỉ định hầu hạ Nữ Hoàng hôm nay:** ${selected.join(" và ")}.\nHai đứa khẩn trương dẫn đường dâng kiệu, sơ suất là bị chém đầu thị chúng! ⚔️`;
-                } else {
-                    hostsTagStr = `\n\n🎲 **Tiếp viên sới bạc được chỉ định đón cưng hôm nay:** ${selected.join(" và ")}.\nHai đứa ra dắt khách vào bàn VIP mau lên, không là cắt lương! 🍾`;
-                }
-            }
-
             let welcomeEmbed: EmbedBuilder;
             let claimButtonLabel = "🧧 Nhận 100k Tân Thủ!";
             let claimButtonStyle = ButtonStyle.Danger;
             let welcomeContent = `Chào mừng <@${freshMember.id}> đến với sới bạc! 🎉`;
+            let hostsTagStr = "";
 
             if (isRoyal) {
+                // Định danh rõ 2 cá nhân đón Nữ Hoàng
+                const host1 = guild.members.cache.find(m => m.user.username.toLowerCase() === 'letoanmoon');
+                const host2 = guild.members.cache.find(m => m.user.username.toLowerCase() === 'v2d2823');
+                
+                const host1Tag = host1 ? `<@${host1.id}>` : `@letoanmoon`;
+                const host2Tag = host2 ? `<@${host2.id}>` : `@v2d2823`;
+
+                hostsTagStr = `\n\n💂 **Thần dân cận vệ được chỉ định hầu hạ Nữ Hoàng hôm nay:** ${host1Tag} và ${host2Tag}.\nHai đứa khẩn trương dẫn đường dâng kiệu, sơ suất là bị chém đầu thị chúng! ⚔️`;
+
                 // Lấy danh sách các Admin của Guild
                 const admins = guild.members.cache.filter(m => !m.user.bot && m.permissions.has(PermissionFlagsBits.Administrator));
                 const adminTags = admins.size > 0 
@@ -130,6 +118,7 @@ export function registerWelcomeEvent(client: Client) {
                     )
                     .setColor(0xF1C40F) // Màu vàng Gold hoàng gia cực đỉnh
                     .setThumbnail(freshMember.user.displayAvatarURL({ size: 256, forceStatic: false }))
+                    .setImage('attachment://anh_don_tiep.png') // Tham chiếu tới ảnh đính kèm làm banner trong Embed
                     .addFields(
                         { 
                             name: "👑 CỐNG PHẨM HOÀNG GIA (1 TỶ VNĐ)", 
@@ -148,6 +137,22 @@ export function registerWelcomeEvent(client: Client) {
                 claimButtonLabel = "👑 Nhận 1 Tỷ Cống Phẩm Nữ Hoàng!";
                 claimButtonStyle = ButtonStyle.Success; // Màu xanh lá hoàng tộc
             } else {
+                // Chọn 2 "Tiếp viên tiếp đón" ngẫu nhiên cho thành viên thường
+                const activeHosts = guild.members.cache.filter(m => !m.user.bot && m.id !== freshMember.id);
+                const hostArray = Array.from(activeHosts.values());
+                
+                if (hostArray.length > 0) {
+                    const count = Math.min(hostArray.length, 2);
+                    const tempHosts = [...hostArray];
+                    const selected: string[] = [];
+                    for (let i = 0; i < count; i++) {
+                        const idx = Math.floor(Math.random() * tempHosts.length);
+                        selected.push(`<@${tempHosts[idx].id}>`);
+                        tempHosts.splice(idx, 1);
+                    }
+                    hostsTagStr = `\n\n🎲 **Tiếp viên sới bạc được chỉ định đón cưng hôm nay:** ${selected.join(" và ")}.\nHai đứa ra dắt khách vào bàn VIP mau lên, không là cắt lương! 🍾`;
+                }
+
                 // Danh sách các câu chào mừng mỏ hỗn / khịa bựa ngẫu nhiên
                 const welcomeQuotes = [
                     `Chào mừng con giời **${freshMember.user.username}** (<@${freshMember.id}>) đã tự nguyện nhảy hố vào sới bạc **${guild.name}**! Hiện tại bạn là thành viên thứ **${guild.memberCount}**. Chuẩn bị tinh thần bị xiết nợ nát gáo đi nhé cưng! 💸`,
@@ -198,11 +203,18 @@ export function registerWelcomeEvent(client: Client) {
 
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(claimButton, guideButton);
 
-            // Kiểm tra và đính kèm video chào mừng cụ Pewpew nếu có
-            const videoPath = path.join(__dirname, '../../assets/Pewpew_hi_ch_o_c_u.mp4');
-            const files = [];
-            if (fs.existsSync(videoPath)) {
-                files.push(videoPath);
+            // Kiểm tra và đính kèm tệp phương tiện tương ứng
+            const files: any[] = [];
+            if (isRoyal) {
+                const imagePath = path.join(__dirname, '../../assets/anh_don_tiep.png');
+                if (fs.existsSync(imagePath)) {
+                    files.push({ attachment: imagePath, name: 'anh_don_tiep.png' });
+                }
+            } else {
+                const videoPath = path.join(__dirname, '../../assets/Pewpew_hi_ch_o_c_u.mp4');
+                if (fs.existsSync(videoPath)) {
+                    files.push(videoPath);
+                }
             }
 
             await welcomeChannel.send({
