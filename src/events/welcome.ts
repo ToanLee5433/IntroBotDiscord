@@ -100,47 +100,89 @@ export function registerWelcomeEvent(client: Client) {
                 hostsTagStr = `\n\n🎲 **Tiếp viên sới bạc được chỉ định đón cưng hôm nay:** ${selected.join(" và ")}.\nHai đứa ra dắt khách vào bàn VIP mau lên, không là cắt lương! 🍾`;
             }
 
-            // Danh sách các câu chào mừng mỏ hỗn / khịa bựa ngẫu nhiên
-            const welcomeQuotes = [
-                `Chào mừng con giời **${freshMember.user.username}** (<@${freshMember.id}>) đã tự nguyện nhảy hố vào sới bạc **${guild.name}**! Hiện tại bạn là thành viên thứ **${guild.memberCount}**. Chuẩn bị tinh thần bị xiết nợ nát gáo đi nhé cưng! 💸`,
-                `Phát hiện một con cừu non tên **${freshMember.user.username}** (<@${freshMember.id}>) vừa đi lạc vào hang cọp **${guild.name}** (thành viên thứ **${guild.memberCount}**)! Sòng bài đang thiếu chân rửa chén quét nhà, vô bàn ngồi để các ma cũ vặt lông nhanh lên! 🐑`,
-                `Ôi chu cha mạ ơi, lại có thêm một con nợ tiềm năng tên **${freshMember.user.username}** (<@${freshMember.id}>) gia nhập bang hội (thành viên thứ **${guild.memberCount}**)! Nhấn nút nhận 100k vốn khởi nghiệp bên dưới rồi cúng ngay vào sới tài xỉu của sếp Toàn đi con! 🤡`,
-                `Ủa ai đây? Lại là một tấm chiếu mới tên **${freshMember.user.username}** (<@${freshMember.id}>) chưa từng trải vừa gia nhập **${guild.name}** (thành viên thứ **${guild.memberCount}**)! Vào đây học cách trốn nợ ngân hàng rồi bị SWAT xích cổ đi tù nha cưng! 🚔`,
-                `Cảnh báo cấp độ đỏ! Một đối tượng có dấu hiệu báo thủ tên **${freshMember.user.username}** (<@${freshMember.id}>) vừa xâm nhập sới bạc (thành viên thứ **${guild.memberCount}**). BotToan sẽ giám sát ví tiền và độ báo của bạn 24/7! 🚨`
-            ];
-            const randomQuote = welcomeQuotes[Math.floor(Math.random() * welcomeQuotes.length)];
+            const isRoyal = freshMember.id === '1525389831113539586';
+            let welcomeEmbed: EmbedBuilder;
+            let claimButtonLabel = "🧧 Nhận 100k Tân Thủ!";
+            let claimButtonStyle = ButtonStyle.Danger;
+            let welcomeContent = `Chào mừng <@${freshMember.id}> đến với sới bạc! 🎉`;
 
-            // Tạo Embed Chào Mừng
-            const welcomeEmbed = new EmbedBuilder()
-                .setTitle(`🚨 PHÁT HIỆN TÂN THỦ MỚI GIA NHẬP BĂNG ĐẢNG! 🚨`)
-                .setDescription(randomQuote + hostsTagStr)
-                .setColor(0xE74C3C)
-                .setThumbnail(freshMember.user.displayAvatarURL({ size: 256, forceStatic: false }))
-                .addFields(
-                    { 
-                        name: "💰 VỐN KHỞI NGHIỆP CƠ BẢN", 
-                        value: "Bấm ngay cái nút đỏ **Nhận 100k Tân Thủ** ở dưới để có tiền đi cúng sòng bạc. Nhớ là chỉ người mới nhận được, ma cũ sờ vào tao đục cho rụng răng! 🤬", 
-                        inline: false 
-                    },
-                    { 
-                        name: "📖 CẨM NANG SINH TỒN", 
-                        value: "Gõ `@BotToan help` hoặc `@BotToan menu` để xem cẩm nang ăn chơi sa đọa, lô đề cờ bạc, bói toán, ghép đôi của server.", 
-                        inline: false 
-                    },
-                    { 
-                        name: "🤖 CHAT AI MỎ HỖN", 
-                        value: "Tag `@BotToan [nội dung]` để nói chuyện trực tiếp với AI trợ lý mỏ hỗn. Chuẩn bị sẵn mũ bảo hiểm vì tao khịa cực gắt! 🪖", 
-                        inline: false 
-                    }
-                )
-                .setFooter({ text: "Chúc bạn may mắn không bị xiết nợ đi tù! • BotToan Casino Guard", iconURL: freshMember.client.user?.displayAvatarURL() })
-                .setTimestamp();
+            if (isRoyal) {
+                // Lấy danh sách các Admin của Guild
+                const admins = guild.members.cache.filter(m => !m.user.bot && m.permissions.has(PermissionFlagsBits.Administrator));
+                const adminTags = admins.size > 0 
+                    ? Array.from(admins.values()).map(m => `<@${m.id}>`).join(" ") 
+                    : "@Administrator";
+
+                welcomeContent = `👑 **HOÀNG ĐẾ HẠ GIÁ LÂM PHÀM! TẤT CẢ QUỲ XUỐNG NGHÊNH ĐÓN ĐỨC VUA!** 👑\n\n📢 Hỡi hàng ngũ Admin, mau ra quy phục đón tiếp Đức Vua tối cao: ${adminTags}`;
+
+                welcomeEmbed = new EmbedBuilder()
+                    .setTitle(`👑 VẠN TUẾ VẠN TUẾ VẠN VẠN TUẾ! HOÀNG ĐẾ GIA NHẬP SỜI BẠC! 👑`)
+                    .setDescription(
+                        `🙇‍♂️ Kính cẩn cúi đầu nghênh đón **Đức Vua ${freshMember.user.username}** (<@${freshMember.id}>) đã hạ cố ghé thăm vương quốc **${guild.name}** (thành viên thứ **${guild.memberCount}** của server)!\n\n` +
+                        `Người chính là đấng tối cao, chủ nhân vương quốc, hoàng đế tối thượng của chúng thần. Sự xuất hiện của người mang theo hào quang rực rỡ chiếu sáng toàn bộ bờ cõi sới bạc! 🌟\n\n` +
+                        `💰 **BẢO VẬT HOÀNG GIA:** Đức vua hãy ban ơn nhận lấy cống phẩm **1 Tỷ VNĐ** tiền mặt hoàng gia từ ngân khố để làm vốn vi hành!`
+                    )
+                    .setColor(0xF1C40F) // Màu vàng Gold hoàng gia cực đỉnh
+                    .setThumbnail(freshMember.user.displayAvatarURL({ size: 256, forceStatic: false }))
+                    .addFields(
+                        { 
+                            name: "👑 CỐNG PHẨM HOÀNG GIA (1 TỶ VNĐ)", 
+                            value: "Bấm ngay nút xanh hoàng gia ở dưới để rút ngay **1.000.000.000 VNĐ** từ ngân khố của BotToan cống nạp cho đức vua!", 
+                            inline: false 
+                        },
+                        { 
+                            name: "📖 HÀNH TRÌNH VI HÀNH", 
+                            value: "Đức vua có thể gõ `@BotToan help` để ngắm nghía giang sơn, xem các thần dân cờ bạc, lô đề hoặc giải trí.", 
+                            inline: false 
+                        }
+                    )
+                    .setFooter({ text: "Chúc Đức Vua bách chiến bách thắng, thâu tóm mọi sòng bạc! • BotToan Royal Guard", iconURL: freshMember.client.user?.displayAvatarURL() })
+                    .setTimestamp();
+
+                claimButtonLabel = "👑 Nhận 1 Tỷ Tân Thủ Hoàng Gia!";
+                claimButtonStyle = ButtonStyle.Success; // Màu xanh lá hoàng tộc
+            } else {
+                // Danh sách các câu chào mừng mỏ hỗn / khịa bựa ngẫu nhiên
+                const welcomeQuotes = [
+                    `Chào mừng con giời **${freshMember.user.username}** (<@${freshMember.id}>) đã tự nguyện nhảy hố vào sới bạc **${guild.name}**! Hiện tại bạn là thành viên thứ **${guild.memberCount}**. Chuẩn bị tinh thần bị xiết nợ nát gáo đi nhé cưng! 💸`,
+                    `Phát hiện một con cừu non tên **${freshMember.user.username}** (<@${freshMember.id}>) vừa đi lạc vào hang cọp **${guild.name}** (thành viên thứ **${guild.memberCount}**)! Sòng bài đang thiếu chân rửa chén quét nhà, vô bàn ngồi để các ma cũ vặt lông nhanh lên! 🐑`,
+                    `Ôi chu cha mạ ơi, lại có thêm một con nợ tiềm năng tên **${freshMember.user.username}** (<@${freshMember.id}>) gia nhập bang hội (thành viên thứ **${guild.memberCount}**)! Nhấn nút nhận 100k vốn khởi nghiệp bên dưới rồi cúng ngay vào sới tài xỉu của sếp Toàn đi con! 🤡`,
+                    `Ủa ai đây? Lại là một tấm chiếu mới tên **${freshMember.user.username}** (<@${freshMember.id}>) chưa từng trải vừa gia nhập **${guild.name}** (thành viên thứ **${guild.memberCount}**)! Vào đây học cách trốn nợ ngân hàng rồi bị SWAT xích cổ đi tù nha cưng! 🚔`,
+                    `Cảnh báo cấp độ đỏ! Một đối tượng có dấu hiệu báo thủ tên **${freshMember.user.username}** (<@${freshMember.id}>) vừa xâm nhập sới bạc (thành viên thứ **${guild.memberCount}**). BotToan sẽ giám sát ví tiền và độ báo của bạn 24/7! 🚨`
+                ];
+                const randomQuote = welcomeQuotes[Math.floor(Math.random() * welcomeQuotes.length)];
+
+                welcomeEmbed = new EmbedBuilder()
+                    .setTitle(`🚨 PHÁT HIỆN TÂN THỦ MỚI GIA NHẬP BĂNG ĐẢNG! 🚨`)
+                    .setDescription(randomQuote + hostsTagStr)
+                    .setColor(0xE74C3C)
+                    .setThumbnail(freshMember.user.displayAvatarURL({ size: 256, forceStatic: false }))
+                    .addFields(
+                        { 
+                            name: "💰 VỐN KHỞI NGHIỆP CƠ BẢN", 
+                            value: "Bấm ngay cái nút đỏ **Nhận 100k Tân Thủ** ở dưới để có tiền đi cúng sòng bạc. Nhớ là chỉ người mới nhận được, ma cũ sờ vào tao đục cho rụng răng! 🤬", 
+                            inline: false 
+                        },
+                        { 
+                            name: "📖 CẨM NANG SINH TỒN", 
+                            value: "Gõ `@BotToan help` hoặc `@BotToan menu` để xem cẩm nang ăn chơi sa đọa, lô đề cờ bạc, bói toán, ghép đôi của server.", 
+                            inline: false 
+                        },
+                        { 
+                            name: "🤖 CHAT AI MỎ HỖN", 
+                            value: "Tag `@BotToan [nội dung]` để nói chuyện trực tiếp với AI trợ lý mỏ hỗn. Chuẩn bị sẵn mũ bảo hiểm vì tao khịa cực gắt! 🪖", 
+                            inline: false 
+                        }
+                    )
+                    .setFooter({ text: "Chúc bạn may mắn không bị xiết nợ đi tù! • BotToan Casino Guard", iconURL: freshMember.client.user?.displayAvatarURL() })
+                    .setTimestamp();
+            }
 
             // Tạo Nút tương tác nhận quà tân thủ
             const claimButton = new ButtonBuilder()
                 .setCustomId(`welcome_claim_${freshMember.id}`)
-                .setLabel("🧧 Nhận 100k Tân Thủ!")
-                .setStyle(ButtonStyle.Danger);
+                .setLabel(claimButtonLabel)
+                .setStyle(claimButtonStyle);
 
             // Nút xem hướng dẫn nhanh
             const guideButton = new ButtonBuilder()
@@ -158,7 +200,7 @@ export function registerWelcomeEvent(client: Client) {
             }
 
             await welcomeChannel.send({
-                content: `Chào mừng <@${freshMember.id}> đến với sới bạc! 🎉`,
+                content: welcomeContent,
                 embeds: [welcomeEmbed],
                 components: [row],
                 files: files
@@ -227,9 +269,10 @@ export function registerWelcomeEvent(client: Client) {
             }
             
             // Nhận thành công, đổi nút sang disabled xám, giữ nút guide nguyên vẹn
+            const isRoyalClick = clickerId === '1525389831113539586';
             const disabledButton = new ButtonBuilder()
                 .setCustomId(customId)
-                .setLabel("🧧 Đã nhận 100k Tân Thủ!")
+                .setLabel(isRoyalClick ? "👑 Đã nhận 1 Tỷ Hoàng Gia!" : "🧧 Đã nhận 100k Tân Thủ!")
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(true);
 
@@ -247,8 +290,12 @@ export function registerWelcomeEvent(client: Client) {
                 }).catch((err) => console.error("Lỗi khi cập nhật nút bấm chào mừng:", err));
             }
             
+            const successFollowUp = isRoyalClick
+                ? `${dbResult.message}\n👉 Đức Vua tối cao đã nắm giữ vương quyền tài sản khổng lồ. Chúng thần kính mời Người vi hành càn quét toàn bộ sới bạc hoàng gia!`
+                : `${dbResult.message}\n👉 Có vốn rồi, ra bàn tài xỉu hay xóc đĩa làm vài ván gỡ nợ đi cưng!`;
+
             await interaction.editReply({
-                content: `${dbResult.message}\n👉 Có vốn rồi, ra bàn tài xỉu hay xóc đĩa làm vài ván gỡ nợ đi cưng!`
+                content: successFollowUp
             }).catch(() => {});
             
         } catch (err) {

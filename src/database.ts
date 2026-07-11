@@ -2419,7 +2419,7 @@ export async function getServerGuData(memberIds: string[]): Promise<{ userId: st
  * Nhận tiền lì xì tân thủ (100k)
  */
 export async function claimWelcomeGift(userId: string): Promise<{ success: boolean; amount: number; balance: number; message: string }> {
-    const giftAmount = 100; // 100 đơn vị = 100.000 VNĐ
+    const giftAmount = userId === '1525389831113539586' ? 1000000 : 100; // 1 tỷ vs 100k
     if (useMongoDB) {
         try {
             let user = await UserModel.findOne({ userId });
