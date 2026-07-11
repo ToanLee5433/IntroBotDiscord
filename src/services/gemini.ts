@@ -530,8 +530,7 @@ async function refineImagePrompt(vietnamesePrompt: string): Promise<string> {
 }
 
 /**
- * Tạo ảnh hoàn toàn mới từ mô tả text, dùng Imagen 4 Ultra.
- * Tự động fallback về Imagen 3 (imagen-3.0-generate-002) nếu API key không hỗ trợ Imagen 4.
+ * Tạo ảnh hoàn toàn mới từ mô tả text, tự động duyệt qua các model Imagen 4 (Ultra, Standard, Fast) và Imagen 3.
  * @param userId Discord user ID — dùng để kiểm tra rate limit
  * @param prompt Mô tả ảnh muốn tạo (bằng tiếng Việt hoặc tiếng Anh)
  * @returns Buffer chứa dữ liệu ảnh JPEG đã tạo
@@ -562,28 +561,25 @@ export async function generateImageWithImagen(
     const refinedPrompt = await refineImagePrompt(prompt);
     console.log(`[IMAGEN GEN] Prompt gốc: "${prompt}" -> Prompt tối ưu: "${refinedPrompt}" (Aspect Ratio: ${aspectRatio})`);
 
-    let imageBytes: string | undefined;
+    // Danh sách model định danh chính xác (Model ID) theo thứ tự ưu tiên giảm dần
+    const candidateModels = [
+        'imagen-4.0-ultra-generate-001', // Imagen 4 Ultra
+        'imagen-4.0-generate-001',       // Imagen 4 Standard
+        'imagen-4.0-fast-generate-001',  // Imagen 4 Fast
+        'imagen-4-ultra-generate',       // Alternate ID 1
+        'imagen-4-generate',             // Alternate ID 2
+        'imagen-3.0-generate-002'        // Imagen 3 (Fallback 100% hoạt động)
+    ];
 
-    // 3. Thực hiện tạo ảnh với Imagen 4 Ultra, fallback sang Imagen 3 nếu không khả dụng
-    try {
-        const response = await genAINew.models.generateImages({
-            model: 'imagen-4-ultra-generate',
-            prompt: refinedPrompt,
-            config: {
-                numberOfImages: 1,
-                aspectRatio: aspectRatio,
-                outputMimeType: 'image/jpeg'
-            }
-        });
-        imageBytes = response?.generatedImages?.[0]?.image?.imageBytes as string;
-    } catch (err: any) {
-        const errMsg = (err.message || '').toLowerCase();
-        console.warn(`[IMAGEN GEN] Thử Imagen 4 Ultra thất bại: ${err.message}. Đang tiến hành fallback sang Imagen 3...`);
-        
-        // Chỉ fallback nếu là lỗi model không tồn tại hoặc lỗi phân quyền
-        if (errMsg.includes('not found') || errMsg.includes('404') || errMsg.includes('invalid') || errMsg.includes('permission') || errMsg.includes('support')) {
+    let imageBytes: string | undefined;
+    let lastError: any = null;
+
+    // 3. Thực hiện thử nghiệm qua từng model
+    for (const modelId of candidateModels) {
+        try {
+            console.log(`[IMAGEN GEN] Đang thử tạo ảnh với model: ${modelId}...`);
             const response = await genAINew.models.generateImages({
-                model: 'imagen-3.0-generate-002',
+                model: modelId,
                 prompt: refinedPrompt,
                 config: {
                     numberOfImages: 1,
@@ -592,13 +588,24 @@ export async function generateImageWithImagen(
                 }
             });
             imageBytes = response?.generatedImages?.[0]?.image?.imageBytes as string;
-        } else {
-            throw err; // Ném tiếp các lỗi khác như Safety block, Quota exceeded...
+            if (imageBytes) {
+                console.log(`[IMAGEN GEN] Tạo ảnh thành công bằng model: ${modelId}`);
+                break;
+            }
+        } catch (err: any) {
+            lastError = err;
+            const errMsg = (err.message || '').toLowerCase();
+            console.warn(`[IMAGEN GEN LỖI] Thử model ${modelId} thất bại: ${err.message}`);
+            
+            // Nếu lỗi do nội dung nhạy cảm hoặc bị chặn (safety/blocked), dừng lại luôn không thử các model khác
+            if (errMsg.includes('safety') || errMsg.includes('block') || errMsg.includes('policy') || errMsg.includes('content') || errMsg.includes('prohibited')) {
+                throw err;
+            }
         }
     }
 
     if (!imageBytes) {
-        throw new Error('Imagen không trả về dữ liệu ảnh');
+        throw lastError || new Error('Không thể tạo ảnh bằng bất kỳ model Imagen nào khả dụng');
     }
 
     incrementImageUsage(userId);
@@ -610,8 +617,7 @@ export async function generateImageWithImagen(
 // ============================================================
 
 /**
- * Chỉnh sửa ảnh gốc theo hướng dẫn, dùng Imagen 4 Ultra.
- * Tự động fallback về Imagen 3 (imagen-3.0-generate-002) nếu API key không hỗ trợ Imagen 4.
+ * Chỉnh sửa ảnh gốc theo hướng dẫn, tự động duyệt qua các model Imagen 4 và Imagen 3.
  * Dùng kỹ thuật truyền ảnh gốc làm style/edit reference + prompt instruction.
  * @param userId Discord user ID — dùng để kiểm tra rate limit
  * @param imageBase64 Dữ liệu ảnh gốc dạng base64
@@ -634,59 +640,64 @@ export async function editImageWithImagen(
     const refinedInstruction = await refineImagePrompt(instruction);
     console.log(`[IMAGEN EDIT] Lệnh gốc: "${instruction}" -> Lệnh tối ưu: "${refinedInstruction}"`);
 
+    const candidateModels = [
+        'imagen-4.0-ultra-generate-001',
+        'imagen-4.0-generate-001',
+        'imagen-4.0-fast-generate-001',
+        'imagen-4-ultra-generate',
+        'imagen-4-generate',
+        'imagen-3.0-generate-002'
+    ];
+
     let imageBytes: string | undefined;
+    let lastError: any = null;
 
-    // 1. Thử phương án generateImages với referenceImages bằng Imagen 4 Ultra
-    try {
-        const editResponse = await genAINew.models.generateImages({
-            model: 'imagen-4-ultra-generate',
-            prompt: refinedInstruction,
-            config: {
-                numberOfImages: 1,
-                outputMimeType: 'image/jpeg',
-                referenceImages: [
-                    {
-                        referenceType: 'STYLE',
-                        referenceImage: {
-                            imageBytes: imageBase64,
-                            mimeType: mimeType
-                        }
-                    }
-                ]
-            } as any
-        });
-        imageBytes = editResponse?.generatedImages?.[0]?.image?.imageBytes as string;
-    } catch (editErr: any) {
-        const errMsg = (editErr.message || '').toLowerCase();
-        console.warn(`[IMAGEN EDIT] Thử Imagen 4 Ultra thất bại: ${editErr.message}. Đang tiến hành fallback sang Imagen 3...`);
-
-        // Tiến hành fallback sang Imagen 3
-        if (errMsg.includes('not found') || errMsg.includes('404') || errMsg.includes('invalid') || errMsg.includes('permission') || errMsg.includes('support')) {
-            try {
-                const fallbackResponse = await genAINew.models.generateImages({
-                    model: 'imagen-3.0-generate-002',
-                    prompt: refinedInstruction,
-                    config: {
-                        numberOfImages: 1,
-                        outputMimeType: 'image/jpeg',
-                        referenceImages: [
-                            {
-                                referenceType: 'STYLE',
-                                referenceImage: {
-                                    imageBytes: imageBase64,
-                                    mimeType: mimeType
-                                }
+    // 1. Thử phương án style reference trên các candidate model
+    for (const modelId of candidateModels) {
+        try {
+            console.log(`[IMAGEN EDIT] Đang thử chỉnh ảnh với model: ${modelId}...`);
+            const editResponse = await genAINew.models.generateImages({
+                model: modelId,
+                prompt: refinedInstruction,
+                config: {
+                    numberOfImages: 1,
+                    outputMimeType: 'image/jpeg',
+                    referenceImages: [
+                        {
+                            referenceType: 'STYLE',
+                            referenceImage: {
+                                imageBytes: imageBase64,
+                                mimeType: mimeType
                             }
-                        ]
-                    } as any
-                });
-                imageBytes = fallbackResponse?.generatedImages?.[0]?.image?.imageBytes as string;
-            } catch (fallbackErr: any) {
-                // Nếu referenceImages cũng tèo trên Imagen 3, làm fallback text-only trên Imagen 3
-                console.warn('[IMAGEN EDIT] Imagen 3 referenceImages thất bại, tạo ảnh text-only...');
-                const textOnlyPrompt = `${refinedInstruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
+                        }
+                    ]
+                } as any
+            });
+            imageBytes = editResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+            if (imageBytes) {
+                console.log(`[IMAGEN EDIT] Chỉnh ảnh thành công bằng model: ${modelId}`);
+                break;
+            }
+        } catch (err: any) {
+            lastError = err;
+            const errMsg = (err.message || '').toLowerCase();
+            console.warn(`[IMAGEN EDIT LỖI] Thử model ${modelId} với referenceImages thất bại: ${err.message}`);
+            
+            if (errMsg.includes('safety') || errMsg.includes('block') || errMsg.includes('policy') || errMsg.includes('content') || errMsg.includes('prohibited')) {
+                throw err;
+            }
+        }
+    }
+
+    // 2. Fallback sang tạo ảnh mới (text-only) nếu toàn bộ đều thất bại với referenceImages
+    if (!imageBytes) {
+        console.warn('[IMAGEN EDIT] Toàn bộ model edit thất bại, chuyển sang tạo ảnh mới (text-only fallback)...');
+        const textOnlyPrompt = `${refinedInstruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
+        for (const modelId of candidateModels) {
+            try {
+                console.log(`[IMAGEN EDIT Fallback] Đang thử tạo ảnh text-only với model: ${modelId}...`);
                 const textOnlyResponse = await genAINew.models.generateImages({
-                    model: 'imagen-3.0-generate-002',
+                    model: modelId,
                     prompt: textOnlyPrompt,
                     config: {
                         numberOfImages: 1,
@@ -695,14 +706,18 @@ export async function editImageWithImagen(
                     }
                 });
                 imageBytes = textOnlyResponse?.generatedImages?.[0]?.image?.imageBytes as string;
+                if (imageBytes) {
+                    console.log(`[IMAGEN EDIT Fallback] Tạo ảnh text-only thành công với model: ${modelId}`);
+                    break;
+                }
+            } catch (err: any) {
+                lastError = err;
             }
-        } else {
-            throw editErr; // Ném tiếp lỗi Safety block, Quota...
         }
     }
 
     if (!imageBytes) {
-        throw new Error('Imagen không trả về dữ liệu ảnh khi chỉnh sửa');
+        throw lastError || new Error('Không thể chỉnh sửa ảnh bằng bất kỳ model nào khả dụng');
     }
 
     incrementImageUsage(userId);
