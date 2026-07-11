@@ -113,33 +113,33 @@ export function registerWelcomeEvent(client: Client) {
                     ? Array.from(admins.values()).map(m => `<@${m.id}>`).join(" ") 
                     : "@Administrator";
 
-                welcomeContent = `👑 **HOÀNG ĐẾ HẠ GIÁ LÂM PHÀM! TẤT CẢ QUỲ XUỐNG NGHÊNH ĐÓN ĐỨC VUA!** 👑\n\n📢 Hỡi hàng ngũ Admin, mau ra quy phục đón tiếp Đức Vua tối cao: ${adminTags}`;
+                welcomeContent = `👑 **NỮ HOÀNG VẠN TUẾ! NỮ HOÀNG TỐI CAO CỦA SÒNG BẠC HẠ CỐ LÂM PHÀM!** 👑\n\n📢 Hỡi hàng ngũ Admin, mau mau quỳ gối nghênh đón Nữ Hoàng quyền lực tối thượng: ${adminTags} *(Đứa nào đón tiếp chậm trễ, cắt lương đi tù ngay!)*`;
 
                 welcomeEmbed = new EmbedBuilder()
-                    .setTitle(`👑 VẠN TUẾ VẠN TUẾ VẠN VẠN TUẾ! HOÀNG ĐẾ GIA NHẬP SỜI BẠC! 👑`)
+                    .setTitle(`👑 CUNG NGHÊNH NỮ HOÀNG TỐI CAO - THÁI HẬU SỜI BẠC GIA NHẬP! 👑`)
                     .setDescription(
-                        `🙇‍♂️ Kính cẩn cúi đầu nghênh đón **Đức Vua ${freshMember.user.username}** (<@${freshMember.id}>) đã hạ cố ghé thăm vương quốc **${guild.name}** (thành viên thứ **${guild.memberCount}** của server)!\n\n` +
-                        `Người chính là đấng tối cao, chủ nhân vương quốc, hoàng đế tối thượng của chúng thần. Sự xuất hiện của người mang theo hào quang rực rỡ chiếu sáng toàn bộ bờ cõi sới bạc! 🌟\n\n` +
-                        `💰 **BẢO VẬT HOÀNG GIA:** Đức vua hãy ban ơn nhận lấy cống phẩm **1 Tỷ VNĐ** tiền mặt hoàng gia từ ngân khố để làm vốn vi hành!`
+                        `🙇‍♂️ Kính cẩn nghiêng mình cúi đầu cung nghênh **Nữ Hoàng ${freshMember.user.username}** (<@${freshMember.id}>) đã hạ giá lâm phàm, ghé thăm vương quốc sới bạc hoàng gia **${guild.name}** (thành viên thứ **${guild.memberCount}** của server)!\n\n` +
+                        `Người chính là hiện thân của quyền lực, sự thanh lịch và sang trọng tối thượng. Hào quang lấp lánh của Nữ Hoàng chiếu sáng rực rỡ toàn bộ sòng bài, mang lại vinh hạnh vô bờ bến cho thần dân chúng thần! 👸✨\n\n` +
+                        `💰 **CỐNG PHẨM HOÀNG GIA:** Nữ Hoàng hãy nhận lấy bảo vật **1 Tỷ VNĐ** tiền mặt hoàng gia từ ngân khố dâng lên để vi hành càn quét sới bạc!`
                     )
                     .setColor(0xF1C40F) // Màu vàng Gold hoàng gia cực đỉnh
                     .setThumbnail(freshMember.user.displayAvatarURL({ size: 256, forceStatic: false }))
                     .addFields(
                         { 
                             name: "👑 CỐNG PHẨM HOÀNG GIA (1 TỶ VNĐ)", 
-                            value: "Bấm ngay nút xanh hoàng gia ở dưới để rút ngay **1.000.000.000 VNĐ** từ ngân khố của BotToan cống nạp cho đức vua!", 
+                            value: "Bấm ngay nút xanh hoàng gia ở dưới để dâng ngay **1.000.000.000 VNĐ** từ ngân khố dâng lên Nữ Hoàng tôn kính!", 
                             inline: false 
                         },
                         { 
-                            name: "📖 HÀNH TRÌNH VI HÀNH", 
-                            value: "Đức vua có thể gõ `@BotToan help` để ngắm nghía giang sơn, xem các thần dân cờ bạc, lô đề hoặc giải trí.", 
+                            name: "✨ THÁI HẬU VI HÀNH", 
+                            value: "Nữ Hoàng có thể gõ `@BotToan help` để kiểm tra giang sơn, xem các thần dân cờ bạc, lô đề hoặc giải trí.", 
                             inline: false 
                         }
                     )
-                    .setFooter({ text: "Chúc Đức Vua bách chiến bách thắng, thâu tóm mọi sòng bạc! • BotToan Royal Guard", iconURL: freshMember.client.user?.displayAvatarURL() })
+                    .setFooter({ text: "Kính chúc Nữ Hoàng bách chiến bách thắng, thống trị tối cao! • BotToan Royal Guard", iconURL: freshMember.client.user?.displayAvatarURL() })
                     .setTimestamp();
 
-                claimButtonLabel = "👑 Nhận 1 Tỷ Tân Thủ Hoàng Gia!";
+                claimButtonLabel = "👑 Nhận 1 Tỷ Cống Phẩm Nữ Hoàng!";
                 claimButtonStyle = ButtonStyle.Success; // Màu xanh lá hoàng tộc
             } else {
                 // Danh sách các câu chào mừng mỏ hỗn / khịa bựa ngẫu nhiên
