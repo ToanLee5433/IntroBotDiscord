@@ -1193,8 +1193,13 @@ client.on('messageCreate', async (message: Message) => {
         }
         if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
         try {
-            const imgResponse = await fetch(attachment.url);
-            if (!imgResponse.ok) throw new Error('Không tải được ảnh gốc');
+            const imgResponse = await fetch(attachment.url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0; +https://github.com/ToanLee5433)',
+                    'Accept': 'image/*, */*;q=0.8'
+                }
+            });
+            if (!imgResponse.ok) throw new Error(`Không tải được ảnh gốc: HTTP ${imgResponse.status}`);
             const imgBuffer = await imgResponse.arrayBuffer();
             const imageBase64 = Buffer.from(imgBuffer).toString('base64');
             const remaining = quota.limit === Infinity ? '∞' : String(quota.limit - quota.used - 1);

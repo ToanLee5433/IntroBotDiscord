@@ -104,7 +104,19 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 
 ---
 
-## 🏆 9. SỰ KIỆN WORLD CUP 2026 (Cá cược & Tấu hài)
+## 🎨 9. AI NHÌN ẢNH & TẠO ẢNH (Gemini Vision + Imagen 4 Ultra)
+
+> **Giới hạn:** Mỗi user được **3 lượt tạo/chỉnh ảnh mỗi ngày** (reset theo giờ Việt Nam). Tính năng nhận xét ảnh **không giới hạn**.
+
+| Lệnh AI Ảnh | Cú pháp cách gọi | Quy tắc & Kết quả |
+| :--- | :--- | :--- |
+| **Nhận xét ảnh** | `@BotToan [+ đính kèm ảnh]`<br>`@BotToan xem ảnh này [+ đính kèm ảnh]`<br>`@BotToan đánh giá ảnh này cho tao [+ ảnh]` | Đính kèm bất kỳ ảnh nào rồi tag @BotToan — bot sẽ tự động nhận xét ảnh theo phong cách mỏ hỗn, bựa bựa đặc trưng. Hỗ trợ jpeg, png, webp, gif. **Không tốn lượt hàng ngày.** |
+| **Tạo ảnh từ mô tả** | `@BotToan vẽ [mô tả]`<br>`@BotToan tạo ảnh [mô tả]`<br>`@BotToan sinh ảnh [mô tả]`<br>`@BotToan vẽ cho tao [mô tả]` | Nhập mô tả bằng tiếng Việt hoặc tiếng Anh — bot dùng **Imagen 4 Ultra** tạo ảnh chất lượng cao và gửi file ảnh vào chat. Ví dụ: `@BotToan vẽ một con rồng đang ngồi đánh bài poker`. **Tốn 1 lượt/lần.** |
+| **Chỉnh sửa ảnh** | `@BotToan chỉnh ảnh [hướng dẫn] [+ đính kèm ảnh]`<br>`@BotToan sửa ảnh [hướng dẫn] [+ ảnh]`<br>`@BotToan chỉnh cho tao [hướng dẫn] [+ ảnh]` | Đính kèm ảnh gốc kèm hướng dẫn chỉnh sửa — bot dùng **Imagen 4 Ultra** để thay đổi phong cách ảnh theo yêu cầu. Ví dụ: `@BotToan chỉnh ảnh này thành phong cách anime` kèm ảnh selfie. **Tốn 1 lượt/lần.** |
+
+---
+
+## 🏆 10. SỰ KIỆN WORLD CUP 2026 (Cá cược & Tấu hài)
 
 | Lệnh World Cup | Cú pháp cách gọi | Quy tắc & Kết quả |
 | :--- | :--- | :--- |

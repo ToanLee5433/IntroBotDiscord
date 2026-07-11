@@ -452,8 +452,26 @@ export async function analyzeImageWithGemini(
     if (!GEMINI_KEY) throw new Error("Missing Gemini key");
 
     // Tải ảnh từ URL Discord → buffer → base64
-    const response = await fetch(imageUrl);
-    if (!response.ok) throw new Error(`Không tải được ảnh: HTTP ${response.status}`);
+    // Phải truyền User-Agent để Cloudflare CDN của Discord không trả về trang HTML lỗi
+    const response = await fetch(imageUrl, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0; +https://github.com/ToanLee5433)',
+            'Accept': 'image/*, */*;q=0.8'
+        }
+    });
+    if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        if (errorBody.trim().startsWith('<')) {
+            throw new Error(`Discord CDN trả về HTML (Cloudflare block). Status: ${response.status}`);
+        }
+        throw new Error(`Không tải được ảnh: HTTP ${response.status}`);
+    }
+    // Kiểm tra content-type thực tế từ response header
+    const responseMime = response.headers.get('content-type') || mimeType;
+    const safeMime = responseMime.split(';')[0].trim(); // bỏ phần '; charset=...' nếu có
+    if (!safeMime.startsWith('image/')) {
+        throw new Error(`URL không trả về ảnh, nhận được: ${safeMime}`);
+    }
     const arrayBuffer = await response.arrayBuffer();
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
 
@@ -476,7 +494,7 @@ export async function analyzeImageWithGemini(
         : `Nhìn vào ảnh này và đưa ra nhận xét của mày đi. Đừng ngại khịa nhé!`;
 
     const result = await model.generateContent([
-        { inlineData: { data: base64Data, mimeType: mimeType } },
+        { inlineData: { data: base64Data, mimeType: safeMime } },
         { text: prompt }
     ]);
 
