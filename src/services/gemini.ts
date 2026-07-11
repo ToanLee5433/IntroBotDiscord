@@ -25,10 +25,13 @@ interface ImageUsageEntry {
 const imageGenUsage = new Map<string, ImageUsageEntry>();
 
 function getTodayVN(): string {
-    const now = new Date();
-    // UTC+7
-    const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
-    return vnTime.toISOString().slice(0, 10);
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    return formatter.format(new Date()); // Luôn trả về đúng dạng YYYY-MM-DD của VN
 }
 
 export function checkImageQuota(userId: string): { allowed: boolean; used: number; limit: number } {
@@ -501,9 +504,30 @@ export async function analyzeImageWithGemini(
     return result.response.text();
 }
 
-// ============================================================
-// TÍNH NĂNG 2: TẠO ẢNH TỪ TEXT (IMAGEN 4 ULTRA)
-// ============================================================
+/**
+ * Dùng Gemini dịch prompt từ tiếng Việt sang tiếng Anh và thêm các chi tiết mỹ thuật để tạo ảnh đẹp nhất.
+ */
+async function refineImagePrompt(vietnamesePrompt: string): Promise<string> {
+    if (!GEMINI_KEY) return vietnamesePrompt;
+    try {
+        const model = genAI.getGenerativeModel({
+            model: 'gemini-3.1-flash-lite',
+            systemInstruction: `
+                Bạn là một Prompt Engineer chuyên nghiệp cho Imagen 4 / Midjourney.
+                Nhiệm vụ: Nhận prompt mô tả hoặc hướng dẫn chỉnh sửa ảnh bằng bất kỳ ngôn ngữ nào (thường là Tiếng Việt), dịch sang Tiếng Anh, tối ưu hóa và thêm các chi tiết mỹ thuật thích hợp (ví dụ: cinematic lighting, hyper-detailed, digital art, 4k resolution, v.v. tùy theo nội dung) để sinh ra bức ảnh chất lượng cao nhất.
+                Yêu cầu:
+                1. CHỈ TRẢ VỀ prompt tiếng Anh cuối cùng, không giải thích, không thêm text gì khác.
+                2. Giữ nguyên ý tưởng chính của người dùng, không tự ý đổi nội dung cốt lõi.
+            `
+        });
+        const result = await model.generateContent(`Tối ưu prompt tạo ảnh này: "${vietnamesePrompt}"`);
+        const refined = result.response.text().trim();
+        return refined || vietnamesePrompt;
+    } catch (err) {
+        console.error('[PROMPT REFINE LỖI]:', err);
+        return vietnamesePrompt;
+    }
+}
 
 /**
  * Tạo ảnh hoàn toàn mới từ mô tả text, dùng Imagen 4 Ultra.
@@ -520,12 +544,29 @@ export async function generateImageWithImagen(
         throw new Error(`QUOTA_EXCEEDED:${quota.used}:${quota.limit}`);
     }
 
+    // 1. Tự động nhận diện Tỷ lệ ảnh (Aspect Ratio) từ prompt
+    let aspectRatio = '1:1';
+    const lowerPrompt = prompt.toLowerCase();
+    if (lowerPrompt.includes('16:9') || lowerPrompt.includes('ngang rộng') || lowerPrompt.includes('landscape widescreen')) {
+        aspectRatio = '16:9';
+    } else if (lowerPrompt.includes('9:16') || lowerPrompt.includes('dọc dài') || lowerPrompt.includes('portrait tall')) {
+        aspectRatio = '9:16';
+    } else if (lowerPrompt.includes('khổ ngang') || lowerPrompt.includes('4:3') || lowerPrompt.includes('ngang')) {
+        aspectRatio = '4:3';
+    } else if (lowerPrompt.includes('khổ dọc') || lowerPrompt.includes('3:4') || lowerPrompt.includes('dọc')) {
+        aspectRatio = '3:4';
+    }
+
+    // 2. Dịch và nâng cấp prompt sang tiếng Anh bằng Gemini
+    const refinedPrompt = await refineImagePrompt(prompt);
+    console.log(`[IMAGEN GEN] Prompt gốc: "${prompt}" -> Prompt tối ưu: "${refinedPrompt}" (Aspect Ratio: ${aspectRatio})`);
+
     const response = await genAINew.models.generateImages({
         model: 'imagen-4-ultra-generate',
-        prompt: prompt,
+        prompt: refinedPrompt,
         config: {
             numberOfImages: 1,
-            aspectRatio: '1:1',
+            aspectRatio: aspectRatio,
             outputMimeType: 'image/jpeg'
         }
     });
@@ -563,6 +604,10 @@ export async function editImageWithImagen(
         throw new Error(`QUOTA_EXCEEDED:${quota.used}:${quota.limit}`);
     }
 
+    // Dịch & tối ưu hóa hướng dẫn chỉnh sửa sang tiếng Anh
+    const refinedInstruction = await refineImagePrompt(instruction);
+    console.log(`[IMAGEN EDIT] Lệnh gốc: "${instruction}" -> Lệnh tối ưu: "${refinedInstruction}"`);
+
     // Thử dùng editImage nếu tồn tại trong SDK, fallback sang generateImages với referenceImages
     let imageBytes: string | undefined;
 
@@ -570,7 +615,7 @@ export async function editImageWithImagen(
         // Phương án chính: generateImages với referenceImages (style/edit reference)
         const editResponse = await genAINew.models.generateImages({
             model: 'imagen-4-ultra-generate',
-            prompt: instruction,
+            prompt: refinedInstruction,
             config: {
                 numberOfImages: 1,
                 outputMimeType: 'image/jpeg',
@@ -589,7 +634,7 @@ export async function editImageWithImagen(
     } catch (editErr: any) {
         // Fallback: Nếu referenceImages không hỗ trợ, tạo ảnh mới từ prompt mô tả kỹ hơn
         console.warn('[IMAGE EDIT] Không dùng được referenceImages, fallback sang text-only generation:', editErr?.message);
-        const fallbackPrompt = `${instruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
+        const fallbackPrompt = `${refinedInstruction}. Hãy tạo ảnh theo đúng hướng dẫn này.`;
         const fallbackResponse = await genAINew.models.generateImages({
             model: 'imagen-4-ultra-generate',
             prompt: fallbackPrompt,

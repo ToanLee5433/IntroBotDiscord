@@ -1130,17 +1130,18 @@ client.on('messageCreate', async (message: Message) => {
         return keywords.some(kw => lower.includes(kw));
     }
 
-    // Helper: bỏ từ khóa trigger ra khỏi text, lấy phần còn lại làm prompt
+    // Helper: bỏ từ khóa trigger ra khỏi text, lấy phần còn lại làm prompt (ưu tiên xóa từ khóa dài nhất trước)
     function extractPrompt(text: string, keywords: string[]): string {
         let result = text;
-        for (const kw of keywords) {
+        const sortedKeywords = [...keywords].sort((a, b) => b.length - a.length);
+        for (const kw of sortedKeywords) {
             result = result.replace(new RegExp(kw, 'gi'), '').trim();
         }
         return result.trim();
     }
 
-    const IMAGE_GEN_TRIGGERS = ['vẽ', 'vẽ cho tao', 'tạo ảnh', 'sinh ảnh', 'generate image', 'vẽ ảnh'];
-    const IMAGE_EDIT_TRIGGERS = ['chỉnh ảnh', 'sửa ảnh', 'edit ảnh', 'chỉnh cho tao', 'sửa cho tao'];
+    const IMAGE_GEN_TRIGGERS = ['vẽ cho tao', 'generate image', 'tạo ảnh', 'sinh ảnh', 'vẽ ảnh', 'vẽ'];
+    const IMAGE_EDIT_TRIGGERS = ['chỉnh cho tao', 'sửa cho tao', 'chỉnh ảnh', 'sửa ảnh', 'edit ảnh'];
 
     // BƯỚC 1: Từ khóa TẠO ẢNH (text → image, không cần attachment)
     if (hasTriggerWord(rawInput, IMAGE_GEN_TRIGGERS)) {
