@@ -1220,45 +1220,84 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
-    // BƯỚC 3: CÓ ảnh đính kèm TRONG TIN HIỆN TẠI → Nhận xét ảnh
-    if (message.attachments.size > 0) {
-        const attachment = message.attachments.first()!;
-        const mimeType = attachment.contentType;
-        if (!mimeType || !mimeType.startsWith('image/')) {
-            // Không phải ảnh (có thể là file khác), bỏ qua và chat thường
-        } else {
-            if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
-            try {
-                const analysisText = await analyzeImageWithGemini(attachment.url, mimeType, rawInput || undefined);
-                const cleanText = analysisText.replace(/https?:\/\/[^\s]+/g, '');
-                await message.reply(cleanText.trim() || '...Tao nhìn ảnh này mà không biết nói gì luôn 🤔');
-            } catch (err) {
-                console.error('[IMAGE ANALYZE LỖI]:', err);
-                await message.reply('❌ Ảnh này tao không xem được! Link hỏng hoặc định dạng lạ quá, up lại đi mày!');
+    // Helper: trích xuất ảnh từ tin nhắn (đính kèm, embed, hoặc link raw)
+    function extractImageFromMessage(msg: any): { url: string; mimeType: string } | null {
+        // 1. Check attachments
+        if (msg.attachments && msg.attachments.size > 0) {
+            const attachment = msg.attachments.first();
+            if (attachment && attachment.contentType?.startsWith('image/')) {
+                return { url: attachment.url, mimeType: attachment.contentType };
             }
-            return;
         }
+
+        // 2. Check embeds (ví dụ: ảnh avatar, ảnh tự sinh, embed link)
+        if (msg.embeds && msg.embeds.length > 0) {
+            for (const embed of msg.embeds) {
+                const imgUrl = embed.image?.url || embed.thumbnail?.url;
+                if (imgUrl) {
+                    let mime = 'image/jpeg';
+                    if (imgUrl.toLowerCase().includes('.png')) mime = 'image/png';
+                    else if (imgUrl.toLowerCase().includes('.gif')) mime = 'image/gif';
+                    else if (imgUrl.toLowerCase().includes('.webp')) mime = 'image/webp';
+                    return { url: imgUrl, mimeType: mime };
+                }
+            }
+        }
+
+        // 3. Check raw image links in content
+        if (msg.content) {
+            const urlRegex = /(https?:\/\/[^\s]+)/gi;
+            const matches = msg.content.match(urlRegex);
+            if (matches) {
+                for (const url of matches) {
+                    const lower = url.toLowerCase();
+                    if (lower.includes('.png') || lower.includes('.jpg') || lower.includes('.jpeg') || lower.includes('.gif') || lower.includes('.webp')) {
+                        let mime = 'image/jpeg';
+                        if (lower.includes('.png')) mime = 'image/png';
+                        else if (lower.includes('.gif')) mime = 'image/gif';
+                        else if (lower.includes('.webp')) mime = 'image/webp';
+                        return { url, mimeType: mime };
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
-    // BƯỚC 3b: USER REPLY VÀO MỘT TIN CÓ ẢNH → Bot đọc ảnh từ tin được reply
+    // BƯỚC 3: CÓ ảnh đính kèm/embed TRONG TIN HIỆN TẠI → Nhận xét ảnh
+    const currentImg = extractImageFromMessage(message);
+    if (currentImg) {
+        if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
+        try {
+            const analysisText = await analyzeImageWithGemini(currentImg.url, currentImg.mimeType, rawInput || undefined);
+            const cleanText = analysisText.replace(/https?:\/\/[^\s]+/g, '');
+            await message.reply(cleanText.trim() || '...Tao nhìn ảnh này mà không biết nói gì luôn 🤔');
+        } catch (err) {
+            console.error('[IMAGE ANALYZE LỖI]:', err);
+            await message.reply('❌ Ảnh này tao không xem được! Link hỏng hoặc định dạng lạ quá, up lại đi mày!');
+        }
+        return;
+    }
+
+    // BƯỚC 3b: USER REPLY VÀO MỘT TIN CÓ ẢNH (đính kèm, embed, link) → Bot đọc ảnh từ tin được reply
     if (message.reference?.messageId) {
         try {
             const refMsg = await message.channel.messages.fetch(message.reference.messageId);
-            const refAttachment = refMsg.attachments.first();
-            const refMime = refAttachment?.contentType;
-            if (refAttachment && refMime && refMime.startsWith('image/')) {
+            const refImg = extractImageFromMessage(refMsg);
+            if (refImg) {
                 if ('sendTyping' in message.channel) await (message.channel as any).sendTyping();
                 // Prompt kết hợp cả nội dung user gõ + tin nhắn gốc được reply
                 const contextPrompt = rawInput
                     ? rawInput
                     : 'Nhìn vào ảnh này và nhận xét đi!';
-                const analysisText = await analyzeImageWithGemini(refAttachment.url, refMime, contextPrompt);
+                const analysisText = await analyzeImageWithGemini(refImg.url, refImg.mimeType, contextPrompt);
                 const cleanText = analysisText.replace(/https?:\/\/[^\s]+/g, '');
                 await message.reply(cleanText.trim() || '...Tao nhìn ảnh này mà không biết nói gì luôn 🤔');
                 return;
             }
-        } catch (_) {
-            // Không fetch được tin gốc → chạy tiếp sang chat thường
+        } catch (err) {
+            console.error('[REPLY IMAGE ANALYZE LỖI]:', err);
         }
     }
 
