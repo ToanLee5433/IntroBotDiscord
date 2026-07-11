@@ -605,7 +605,31 @@ export async function generateImageWithImagen(
     }
 
     if (!imageBytes) {
-        throw lastError || new Error('Không thể tạo ảnh bằng bất kỳ model Imagen nào khả dụng');
+        console.warn('[IMAGEN GEN] Toàn bộ model Imagen của Google thất bại (do tài khoản Free tier hoặc lỗi khác). Đang tiến hành fallback sang Pollinations AI...');
+        try {
+            // Xác định size dựa trên aspect ratio
+            let width = 1024;
+            let height = 1024;
+            if (aspectRatio === '16:9') { width = 1280; height = 720; }
+            else if (aspectRatio === '9:16') { width = 720; height = 1280; }
+            else if (aspectRatio === '4:3') { width = 1024; height = 768; }
+            else if (aspectRatio === '3:4') { width = 768; height = 1024; }
+
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(refinedPrompt)}?width=${width}&height=${height}&nologo=true&private=true&enhance=false`;
+            
+            const pollResponse = await fetch(pollinationsUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0; +https://github.com/ToanLee5433)'
+                }
+            });
+            if (!pollResponse.ok) throw new Error(`Pollinations AI error: HTTP ${pollResponse.status}`);
+            const arrayBuffer = await pollResponse.arrayBuffer();
+            incrementImageUsage(userId);
+            return Buffer.from(arrayBuffer);
+        } catch (pollErr: any) {
+            console.error('[POLLINATIONS LỖI]:', pollErr);
+            throw lastError || new Error('Không thể tạo ảnh bằng cả Google Imagen và Pollinations AI');
+        }
     }
 
     incrementImageUsage(userId);
@@ -715,9 +739,24 @@ export async function editImageWithImagen(
             }
         }
     }
-
+    // 3. Fallback tối thượng sang Pollinations AI nếu tất cả Google API đều thất bại/chặn
     if (!imageBytes) {
-        throw lastError || new Error('Không thể chỉnh sửa ảnh bằng bất kỳ model nào khả dụng');
+        console.warn('[IMAGEN EDIT] Fallback Google Imagen thất bại. Đang tiến hành fallback sang Pollinations AI...');
+        try {
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(refinedInstruction)}?width=1024&height=1024&nologo=true&private=true&enhance=false`;
+            const pollResponse = await fetch(pollinationsUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0; +https://github.com/ToanLee5433)'
+                }
+            });
+            if (!pollResponse.ok) throw new Error(`Pollinations AI error: HTTP ${pollResponse.status}`);
+            const arrayBuffer = await pollResponse.arrayBuffer();
+            incrementImageUsage(userId);
+            return Buffer.from(arrayBuffer);
+        } catch (pollErr: any) {
+            console.error('[POLLINATIONS EDIT LỖI]:', pollErr);
+            throw lastError || new Error('Không thể chỉnh sửa hoặc tạo ảnh bằng cả Google Imagen và Pollinations AI');
+        }
     }
 
     incrementImageUsage(userId);
