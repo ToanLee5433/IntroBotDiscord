@@ -35,7 +35,30 @@ export let globalWarmupCache: ICachedWarmupVideo[] = [];
 export const activeVideoMessages = new Map<string, string>(); // channelId -> messageId
 
 function getCategoryEmoji(category: string): string {
-    return (CATEGORY_EMOJIS as any)[category] || '🎬';
+    const catLower = category.toLowerCase().trim();
+    
+    // Tự động nhận diện từ khóa để gán emoji phù hợp cho các thể loại tự nhập
+    if (catLower.includes('valorant') || catLower.includes('lol') || catLower.includes('cs') || catLower.includes('game') || catLower.includes('pubg') || catLower.includes('lien quan') || catLower.includes('toc chien')) {
+        return '🎮';
+    }
+    if (catLower.includes('tiktok') || catLower.includes('douyin') || catLower.includes('shorts') || catLower.includes('reels')) {
+        return '📱';
+    }
+    if (catLower.includes('dance') || catLower.includes('vu dao') || catLower.includes('dancer') || catLower.includes('nhay')) {
+        return '💃';
+    }
+    if (catLower.includes('music') || catLower.includes('nhac') || catLower.includes('song') || catLower.includes('sing')) {
+        return '🎶';
+    }
+    if (catLower.includes('meme') || catLower.includes('hai') || catLower.includes('funny') || catLower.includes('comedy')) {
+        return '😂';
+    }
+    
+    // Khớp chính xác theo map mặc định
+    const matchedKey = Object.keys(CATEGORY_EMOJIS).find(k => k.toLowerCase() === catLower);
+    if (matchedKey) return CATEGORY_EMOJIS[matchedKey];
+    
+    return '🎬';
 }
 
 /** Kiểm tra URL có phải YouTube không */
