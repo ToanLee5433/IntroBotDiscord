@@ -2599,5 +2599,47 @@ export async function deleteWarmupVideo(id: string): Promise<boolean> {
     return false;
 }
 
+export async function updateWarmupVideo(
+    id: string,
+    data: { title?: string; description?: string; category?: string; videoUrl?: string; videoType?: string }
+): Promise<IWarmupVideo | null> {
+    if (useMongoDB) {
+        try {
+            const updated = await WarmupVideoModel.findByIdAndUpdate(
+                id,
+                { $set: data },
+                { new: true }
+            );
+            if (updated) {
+                return {
+                    id: updated._id.toString(),
+                    title: updated.title,
+                    description: updated.description,
+                    category: updated.category,
+                    messageId: updated.messageId,
+                    videoUrl: updated.videoUrl,
+                    videoType: updated.videoType,
+                    fileName: updated.fileName,
+                    fileSize: updated.fileSize,
+                    addedBy: updated.addedBy,
+                    addedAt: updated.addedAt
+                };
+            }
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi cập nhật video warmup trong MongoDB:", error);
+        }
+    }
+
+    const idx = inMemoryWarmupVideos.findIndex(v => v.id === id);
+    if (idx !== -1) {
+        inMemoryWarmupVideos[idx] = {
+            ...inMemoryWarmupVideos[idx],
+            ...data
+        };
+        return inMemoryWarmupVideos[idx];
+    }
+    return null;
+}
+
 
 

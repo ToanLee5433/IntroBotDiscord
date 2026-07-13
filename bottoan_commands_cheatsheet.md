@@ -129,4 +129,18 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 | **Khóa cược trận** | `@BotToan lockwc [mã]` | *Chỉ Admin:* Khóa cửa không nhận thêm cược mới của trận đấu này (gõ lệnh chat hoặc bấm nút `🔒 Khóa cược` trực tiếp trong console admin). |
 | **Chung tiền cược** | `@BotToan chungwc [mã] [A/B/HoaKeo]` | *Chỉ Admin:* Settle kết quả trận đấu (gõ lệnh hoặc bấm nút kết quả thắng cửa A/B/Hòa trực tiếp trên giao diện - nút tự động khóa khi bấm để chống Double Click). Trả thưởng x2 cho người thắng, nuốt tiền người thua, hoặc hoàn tiền 100% nếu là Hòa Kèo (`HoaKeo`) an toàn tuyệt đối qua MongoDB Transaction. |
 | **Sửa kèo trận đấu** | `@BotToan editwc [mã] [Đội A] [Đội B] [Kèo]` | *Chỉ Admin:* Chỉnh sửa thông tin trận đấu (gõ lệnh hoặc bấm nút `📝 Sửa kèo` trên UI để hiện Modal điền sẵn dữ liệu cũ). Chỉ cho phép sửa khi trận đấu đang mở cược. |
-| **Xóa kèo trận đấu** | `@BotToan delwc [mã]`<br>`@BotToan xoawc [mã]` | *Chỉ Admin:* Xóa trận đấu khỏi hệ thống (gõ lệnh hoặc bấm nút `🗑️ Xóa & Hoàn tiền` trên UI). Tự động hoàn tiền 100% cho mọi người chơi đã cược. Chỉ cho phép xóa khi trận đấu chưa kết thúc chia tiền. |
+| **Xóa kèo trận đấu** | `@BotToan delwc [mã]`<br>`@BotToan xoawc [mã]` | *Chỉ Admin:* Xóa trận đấu khỏi hệ thống (gõ lệnh hoặc bấm nút `🗑️ Xóa & Hoàn tiền` on UI). Tự động hoàn tiền 100% cho mọi người chơi đã cược. Chỉ cho phép xóa khi trận đấu chưa kết thúc chia tiền. |
+
+---
+
+## 🎬 11. GIẢI TRÍ & WARMUP VIDEO (Xem video giải trí)
+
+| Chức năng | Cú pháp cách gọi | Quy tắc & Kết quả |
+| :--- | :--- | :--- |
+| **Xem video giải trí** | `@BotToan warmup`<br>`@BotToan video`<br>`@BotToan khoi dong` | Hiển thị giao diện menu 2 bước (chọn thể loại -> chọn video) và tìm kiếm tự do theo từ khóa để mở rạp chiếu phim mini của BotToan. |
+| **Xem danh sách video** | `@BotToan warmup list`<br>`@BotToan warmup ds`<br>`@BotToan warmup danhsach` | Hiển thị danh sách toàn bộ các video hiện có trong kho dữ liệu, kèm theo ID cơ sở dữ liệu và kích thước file để lấy ID quản lý. |
+| **Thêm video mới** | `@BotToan warmup add [Tiêu đề] \| [Mô tả] \| [Thể loại] \| [Link]` | *Chỉ Admin:* Đăng ký thêm video mới vào kho. Bạn có thể đính kèm file video trực tiếp (MP4/WebM dưới 25MB) hoặc dán đường link video (YouTube, TikTok, Facebook, Google Drive, direct mp4...). |
+| **Sửa thông tin / Di chuyển** | `@BotToan warmup edit [ID] \| [Tiêu đề mới] \| [Mô tả mới] \| [Thể loại mới]` | *Chỉ Admin:* Sửa đổi thông tin chi tiết của video hoặc di chuyển video sang Thể loại (thư mục) khác bằng cách nhập thể loại mới. Để trống phần nào nếu muốn giữ nguyên. |
+| **Xóa video khỏi kho** | `@BotToan warmup delete [ID]`<br>`@BotToan warmup remove [ID]` | *Chỉ Admin:* Xóa video khỏi cơ sở dữ liệu và tự động dọn dẹp file lưu trữ trên kênh ẩn Discord. |
+| **Làm mới dữ liệu** | `@BotToan warmup reload`<br>`@BotToan warmup refresh` | *Chỉ Admin:* Làm mới và nạp lại toàn bộ RAM Cache của video từ cơ sở dữ liệu MongoDB và kênh Discord. |
+

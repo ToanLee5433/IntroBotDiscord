@@ -3,7 +3,7 @@ import {
     StringSelectMenuOptionBuilder, TextChannel, Client, PermissionFlagsBits,
     AttachmentBuilder
 } from 'discord.js';
-import { addWarmupVideo, getWarmupVideos, deleteWarmupVideo } from '../database';
+import { addWarmupVideo, getWarmupVideos, deleteWarmupVideo, updateWarmupVideo } from '../database';
 import { WARMUP_CHANNEL_ID } from '../config';
 
 // Bản đồ Emoji tương ứng với từng thể loại video
@@ -332,23 +332,29 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         const description = parts[1] ? parts[1].trim() : '';
         let category = parts[2] ? parts[2].trim() : 'General';
 
-        // Kiểm tra xem có YouTube URL trong phần còn lại không
+        // Kiểm tra xem có URL trong phần còn lại không
         // Ưu tiên: tìm URL trong part[3], sau đó tìm trong toàn bộ nội dung
-        let youtubeUrl: string | null = null;
+        let inputUrl: string | null = null;
+        let videoType: 'youtube' | 'external' = 'external';
         const urlSearchText = parts.slice(3).join('|').trim() || rest;
         const urlMatch = urlSearchText.match(/(https?:\/\/[^\s|]+)/i);
-        if (urlMatch && isYouTubeUrl(urlMatch[1])) {
-            youtubeUrl = urlMatch[1].trim();
+        if (urlMatch) {
+            inputUrl = urlMatch[1].trim();
+            if (isYouTubeUrl(inputUrl)) {
+                videoType = 'youtube';
+            } else {
+                videoType = 'external';
+            }
         }
 
-        // Nếu không có YouTube URL và không có file đính kèm thì báo lỗi
+        // Nếu không có URL và không có file đính kèm thì báo lỗi
         const attachment = message.attachments.first();
-        if (!youtubeUrl && !attachment) {
+        if (!inputUrl && !attachment) {
             await message.reply(
                 "❌ **Thiếu nội dung video!** Bạn cần một trong hai:\n" +
                 "📎 Upload file video (MP4/WebM) kèm theo tin nhắn\n" +
-                "📺 Hoặc thêm link YouTube vào cuối lệnh:\n" +
-                "`@BotToan warmup add Tiêu đề | Mô tả | General | https://youtube.com/watch?v=...`"
+                "📺 Hoặc thêm link (YouTube, Tiktok, Facebook, link video...) vào cuối lệnh:\n" +
+                "`@BotToan warmup add Tiêu đề | Mô tả | General | https://...`"
             ).catch(() => {});
             return;
         }
@@ -369,17 +375,19 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
             return;
         }
 
-        // === LUONG 1: THÊM VIDEO YOUTUBE ===
-        if (youtubeUrl) {
-            const processingMsg = await message.reply(`⏳ **Đang lưu video YouTube vào Database...**`).catch(() => null);
+        // === LUONG 1: THÊM VIDEO QUA ĐƯỜNG LINK (YOUTUBE HOẶC LIÊN KẾT NGOÀI) ===
+        if (inputUrl) {
+            const isYt = videoType === 'youtube';
+            const linkTypeName = isYt ? 'YouTube' : 'liên kết ngoài';
+            const processingMsg = await message.reply(`⏳ **Đang lưu video ${linkTypeName} vào Database...**`).catch(() => null);
             try {
                 const dbVideo = await addWarmupVideo({
                     title,
                     description,
                     category,
                     messageId: "",
-                    videoUrl: youtubeUrl,
-                    videoType: 'youtube',
+                    videoUrl: inputUrl,
+                    videoType: videoType,
                     fileName: "",
                     fileSize: 0,
                     addedBy: message.author.id
@@ -389,25 +397,31 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                     title: dbVideo.title,
                     description: dbVideo.description || "",
                     category: dbVideo.category,
-                    videoUrl: youtubeUrl,
-                    videoType: 'youtube',
+                    videoUrl: inputUrl,
+                    videoType: videoType,
                     addedBy: dbVideo.addedBy || "",
                     fileName: ""
                 });
                 const catEmoji = getCategoryEmoji(category);
-                const ytId = getYouTubeId(youtubeUrl);
+                let embedThumbnail = '';
+                if (isYt) {
+                    const ytId = getYouTubeId(inputUrl);
+                    if (ytId) {
+                        embedThumbnail = `\n🎞️ Thumbnail: https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+                    }
+                }
                 await processingMsg?.edit(
-                    `✅ **Thêm video YouTube thành công!**\n` +
+                    `✅ **Thêm video thành công!**\n` +
                     `🎬 Tiêu đề: **${title}**\n` +
                     `🆔 ID Database: \`${dbVideo.id}\` *(Dùng để xóa khi cần)*\n` +
-                    `📺 Link: ${youtubeUrl}\n` +
+                    `📺 Link: ${inputUrl}\n` +
                     `📂 Thể loại: ${catEmoji} **${category}**\n` +
                     `📝 Mô tả: ${description || '*(Không có)*'}\n` +
                     `👤 Đăng bởi: <@${message.author.id}>` +
-                    (ytId ? `\n🎞️ Thumbnail: https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : '')
+                    embedThumbnail
                 ).catch(() => {});
             } catch (error: any) {
-                console.error("Lỗi khi thêm video YouTube:", error);
+                console.error(`Lỗi khi thêm video ${linkTypeName}:`, error);
                 await processingMsg?.edit(`❌ Lỗi khi lưu video: ${error.message || error}`).catch(() => {});
             }
             return;
@@ -516,6 +530,115 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         } catch (error: any) {
             console.error("Lỗi khi xóa video:", error);
             await processingMsg?.edit(`❌ Gặp lỗi khi xóa video: ${error.message || error}`).catch(() => {});
+        }
+        return;
+    }
+
+    // 2.5 EDIT/MOVE VIDEO
+    if (subCommand === 'edit' || subCommand === 'move' || subCommand === 'sua' || subCommand === 'move_folder') {
+        if (!isAdmin) {
+            await message.reply("❌ **ĐÉO CÓ QUYỀN!** Quyền chỉnh sửa/di chuyển video warmup chỉ dành cho Admin thôi cưng! 😤").catch(() => {});
+            return;
+        }
+        const rest = rawInput.replace(/^(warmup|video)\s+(edit|move|sua|move_folder)\s*/i, '').trim();
+        if (!rest) {
+            await message.reply(
+                "❌ **Sai cú pháp!** Hãy gõ theo mẫu:\n" +
+                "`@BotToan warmup edit [ID] | [Tiêu đề mới] | [Mô tả mới] | [Thể loại mới]`\n" +
+                "*(Để trống phần nào nếu muốn giữ nguyên, ví dụ: `@BotToan warmup edit <ID> | | | Meme` để chuyển thể loại sang Meme)*"
+            ).catch(() => {});
+            return;
+        }
+
+        const parts = rest.split('|');
+        const targetId = parts[0] ? parts[0].trim() : '';
+        if (!targetId) {
+            await message.reply("❌ **Lỗi:** Vui lòng cung cấp ID video cần chỉnh sửa!").catch(() => {});
+            return;
+        }
+
+        const dbVideos = await getWarmupVideos();
+        const video = dbVideos.find(v => v.id === targetId || v.messageId === targetId);
+        if (!video) {
+            await message.reply("❌ Không tìm thấy video nào có ID Database hoặc Message ID này trong Database!").catch(() => {});
+            return;
+        }
+
+        const newTitle = parts[1] ? parts[1].trim() : '';
+        const newDescription = parts[2] ? parts[2].trim() : '';
+        let newCategory = parts[3] ? parts[3].trim() : '';
+
+        const updateData: any = {};
+        if (newTitle) updateData.title = newTitle;
+        if (newDescription) updateData.description = newDescription;
+        if (newCategory) {
+            // Chuẩn hóa category
+            const validCategories = Object.keys(CATEGORY_EMOJIS);
+            const matchedCat = validCategories.find(c => c.toLowerCase() === newCategory.toLowerCase());
+            if (matchedCat) {
+                newCategory = matchedCat;
+            } else {
+                newCategory = newCategory.split(/\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+            }
+            updateData.category = newCategory;
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            await message.reply("⚠️ Bạn chưa nhập thông tin nào mới để chỉnh sửa cả!").catch(() => {});
+            return;
+        }
+
+        const processingMsg = await message.reply(`⏳ Đang cập nhật thông tin video **${video.title}**...`).catch(() => null);
+        try {
+            const actualDbId = video.id || targetId;
+            const updatedVideo = await updateWarmupVideo(actualDbId, updateData);
+            if (updatedVideo) {
+                // Cập nhật lại RAM Cache
+                const cacheIdx = globalWarmupCache.findIndex(v => v.id === actualDbId);
+                if (cacheIdx !== -1) {
+                    globalWarmupCache[cacheIdx] = {
+                        ...globalWarmupCache[cacheIdx],
+                        ...updateData
+                    };
+                }
+                
+                // Cập nhật lại thông tin hiển thị trên Discord tin nhắn lưu trữ nếu có
+                if (video.messageId && WARMUP_CHANNEL_ID) {
+                    const storageChannel = await client.channels.fetch(WARMUP_CHANNEL_ID).catch(() => null) as TextChannel;
+                    if (storageChannel) {
+                        const msgToEdit = await storageChannel.messages.fetch(video.messageId).catch(() => null);
+                        if (msgToEdit) {
+                            const displayTitle = updatedVideo.title;
+                            const displayCategory = updatedVideo.category;
+                            const displayDesc = updatedVideo.description || 'Không có';
+                            await msgToEdit.edit({
+                                content: `🎥 **Video:** ${displayTitle}\n📂 **Thể loại:** ${displayCategory}\n📝 **Mô tả:** ${displayDesc}\n👤 **Đăng bởi:** <@${updatedVideo.addedBy || ''}>`
+                            }).catch(() => {});
+                        }
+                    }
+                }
+
+                const oldCat = video.category;
+                const newCat = updatedVideo.category;
+                const isMoved = oldCat !== newCat;
+                
+                let successMessage = `✅ **Cập nhật thông tin video thành công!**\n` +
+                    `🆔 ID: \`${actualDbId}\`\n` +
+                    `🎬 Tiêu đề: **${updatedVideo.title}**\n` +
+                    `📂 Thể loại: **${updatedVideo.category}**\n` +
+                    `📝 Mô tả: ${updatedVideo.description || '*(Không có)*'}`;
+                
+                if (isMoved) {
+                    successMessage += `\n📦 *Đã di chuyển video từ thể loại \`${oldCat}\` sang \`${newCat}\`*`;
+                }
+
+                await processingMsg?.edit(successMessage).catch(() => {});
+            } else {
+                await processingMsg?.edit("❌ Lỗi khi thực hiện cập nhật bản ghi trong cơ sở dữ liệu.").catch(() => {});
+            }
+        } catch (error: any) {
+            console.error("Lỗi khi chỉnh sửa video:", error);
+            await processingMsg?.edit(`❌ Gặp lỗi khi chỉnh sửa video: ${error.message || error}`).catch(() => {});
         }
         return;
     }

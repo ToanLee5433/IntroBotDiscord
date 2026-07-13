@@ -2016,7 +2016,8 @@ async function handleHelpCommand(message: Message, client: any) {
             { name: "🎬 GIẢI TRÍ & WARMUP (MỚI)", value:
                 "• `warmup` | `video`: Xem video giải trí khởi động trước trận đấu\n" +
                 "• `warmup list`: Xem danh sách video hiện có\n" +
-                "• `warmup add [Tiêu đề] | [Mô tả] | [Thể loại]` (Admin, đính kèm file): Thêm video\n" +
+                "• `warmup add [Tiêu đề] | [Mô tả] | [Thể loại]` (Admin, đính kèm file/link): Thêm video\n" +
+                "• `warmup edit [ID] | [Tiêu đề] | [Mô tả] | [Thể loại]` (Admin): Sửa thông tin hoặc Di chuyển thể loại\n" +
                 "• `warmup delete [ID]` (Admin): Xóa video khỏi hệ thống",
                 inline: false
             },
