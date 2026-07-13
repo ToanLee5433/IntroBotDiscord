@@ -221,8 +221,17 @@ async function sendVideoToUser(
 
     // Nếu vẫn không tìm thấy videoUrl (file đã bị xóa hẳn khỏi Discord)
     if (video.videoType === 'discord' && !videoUrl) {
+        // Tự động xóa khỏi Database và RAM Cache để dọn dẹp dữ liệu rác
+        try {
+            await deleteWarmupVideo(video.id);
+            globalWarmupCache = globalWarmupCache.filter(v => v.id !== video.id);
+            console.log(`[WARMUP AUTO-CLEAN] Đã tự động xóa video hỏng khỏi DB: ID = ${video.id}, Tiêu đề = ${video.title}`);
+        } catch (dbErr) {
+            console.error("[WARMUP] Lỗi tự động dọn dẹp video hỏng khỏi DB:", dbErr);
+        }
+
         await interaction.editReply({
-            content: `❌ **Không thể phát video này!** File đính kèm trên Discord của video này đã bị xóa hoặc không thể truy cập.`,
+            content: `❌ **Không thể phát video này!** File đính kèm trên Discord của video này đã bị xóa hoặc không thể truy cập.\n*Bot đã tự động dọn dẹp và xóa video này khỏi danh sách.*`,
             embeds: [],
             components: []
         }).catch(() => {});
