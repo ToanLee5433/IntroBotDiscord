@@ -486,18 +486,20 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         }
         const targetId = rawInput.replace(/^(warmup|video)\s+(delete|remove|xoa)\s*/i, '').trim();
         if (!targetId) {
-            await message.reply("❌ **Thiếu ID!** Cú pháp: `@BotToan warmup delete <ID_Database>`").catch(() => {});
+            await message.reply("❌ **Thiếu ID!** Cú pháp: `@BotToan warmup delete <ID_Database hoặc Message_ID>`").catch(() => {});
             return;
         }
         const dbVideos = await getWarmupVideos();
-        const video = dbVideos.find(v => v.id === targetId);
+        // Hỗ trợ tìm kiếm theo cả ID Database và Message ID để xóa!
+        const video = dbVideos.find(v => v.id === targetId || v.messageId === targetId);
         if (!video) {
-            await message.reply("❌ Không tìm thấy video nào có ID này trong Database!").catch(() => {});
+            await message.reply("❌ Không tìm thấy video nào có ID Database hoặc Message ID này trong Database!").catch(() => {});
             return;
         }
         const processingMsg = await message.reply(`⏳ Đang xóa video **${video.title}**...`).catch(() => null);
         try {
-            const success = await deleteWarmupVideo(targetId);
+            const actualDbId = video.id || targetId;
+            const success = await deleteWarmupVideo(actualDbId);
             if (success) {
                 if (video.messageId && WARMUP_CHANNEL_ID) {
                     const storageChannel = await client.channels.fetch(WARMUP_CHANNEL_ID).catch(() => null) as TextChannel;
@@ -506,7 +508,7 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                         if (msgToDelete) await msgToDelete.delete().catch(() => {});
                     }
                 }
-                globalWarmupCache = globalWarmupCache.filter(v => v.id !== targetId);
+                globalWarmupCache = globalWarmupCache.filter(v => v.id !== actualDbId);
                 await processingMsg?.edit(`✅ Đã xóa video **${video.title}** khỏi hệ thống thành công!`).catch(() => {});
             } else {
                 await processingMsg?.edit("❌ Lỗi khi thực hiện xóa bản ghi trong cơ sở dữ liệu.").catch(() => {});
