@@ -22,6 +22,7 @@ export interface ICachedWarmupVideo {
     description: string;
     category: string;
     videoUrl: string;
+    videoType: string;  // 'discord' | 'youtube' | 'external'
     addedBy: string;
     fileName?: string;
 }
@@ -31,6 +32,17 @@ export let globalWarmupCache: ICachedWarmupVideo[] = [];
 
 function getCategoryEmoji(category: string): string {
     return (CATEGORY_EMOJIS as any)[category] || '🎬';
+}
+
+/** Kiểm tra URL có phải YouTube không */
+function isYouTubeUrl(url: string): boolean {
+    return /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)/i.test(url);
+}
+
+/** Lấy video ID từ YouTube URL (dùng để tạo thumbnail) */
+function getYouTubeId(url: string): string | null {
+    const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]{11})/);
+    return m ? m[1] : null;
 }
 
 export async function loadWarmupVideosCache(client: Client): Promise<void> {
@@ -71,6 +83,23 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
         }
         const newCache: ICachedWarmupVideo[] = [];
         for (const video of dbVideos) {
+            // Video YouTube/external: lấy URL thẳng từ DB, không cần scan Discord message
+            if (video.videoType === 'youtube' || video.videoType === 'external') {
+                if (video.videoUrl) {
+                    newCache.push({
+                        id: video.id || "",
+                        title: video.title,
+                        description: video.description || "",
+                        category: video.category,
+                        videoUrl: video.videoUrl,
+                        videoType: video.videoType,
+                        addedBy: video.addedBy || "",
+                        fileName: ""
+                    });
+                }
+                continue;
+            }
+            // Video Discord: tìm URL file từ Discord CDN qua messageId
             const data = messageMap.get(video.messageId);
             if (data) {
                 newCache.push({
@@ -79,6 +108,7 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
                     description: video.description || "",
                     category: video.category,
                     videoUrl: data.url,
+                    videoType: 'discord',
                     addedBy: video.addedBy || "",
                     fileName: data.fileName || video.fileName || "video.mp4"
                 });
@@ -112,14 +142,41 @@ async function sendVideoToUser(
         .setTimestamp();
 
     // Bước 1: Dùng deferUpdate() để Discord biết bot đang xử lý.
-    // Điều này cho phép editReply() hoạt động ổn định sau đó.
     try {
         await interaction.deferUpdate();
     } catch {
-        // Nếu interaction đã hết hạn (>3 giây), bỏ qua
         return;
     }
 
+    // Video YouTube/external: chỉ cần gửi URL → Discord tự embed player
+    if (video.videoType === 'youtube' || video.videoType === 'external') {
+        const ytId = isYouTubeUrl(video.videoUrl) ? getYouTubeId(video.videoUrl) : null;
+        const ytEmbed = new EmbedBuilder()
+            .setTitle(`🎬 ĐANG XEM: ${video.title.toUpperCase()}`)
+            .setDescription(video.description || "Khởi động giải trí cùng BotToan!")
+            .addFields(
+                { name: "📂 Thể loại", value: `${emoji} \`${video.category}\``, inline: true },
+                { name: "👤 Đóng góp bởi", value: video.addedBy ? `<@${video.addedBy}>` : "Ẩn danh", inline: true },
+                { name: "🌐 Nguồn", value: video.videoType === 'youtube' ? '📹 YouTube' : '🔗 Link ngoài', inline: true }
+            )
+            .setColor(0xFF0000) // Đỏ YouTube
+            .setFooter({ text: "Bạn có thể tiếp tục chọn video khác từ menu bên dưới", iconURL: client.user?.displayAvatarURL() })
+            .setTimestamp();
+
+        if (ytId) {
+            ytEmbed.setThumbnail(`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`);
+        }
+
+        await interaction.editReply({
+            content: video.videoUrl, // Discord tự render YouTube player inline
+            embeds: [ytEmbed],
+            components: [row],
+            files: []
+        }).catch((e: any) => console.error("[WARMUP] Lỗi gửi YouTube:", e));
+        return;
+    }
+
+    // Video Discord file: tải về và đính kèm trực tiếp
     const MAX_SIZE = 24 * 1024 * 1024;
 
     // Bước 2: Cập nhật ngay embed + thông báo đang tải (không có file)
@@ -183,26 +240,39 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
             await message.reply(
                 "❌ **Sai cú pháp!** Hãy gõ theo mẫu:\n" +
                 "`@BotToan warmup add Tiêu đề | Mô tả | Thể loại`\n" +
-                "*(Thể loại: Gaming / Meme / Music / Tiktok / Dance / General hoặc tự nhập)*\n" +
-                "**và đính kèm tệp video (MP4/WebM)**."
+                "*(Kèm file video đính kèm HOAC thêm link YouTube vào Mô tả)*\n" +
+                "*(Thể loại: Gaming / Meme / Music / Tiktok / Dance / General hoặc tự nhập)*"
             ).catch(() => {});
             return;
         }
-        const attachment = message.attachments.first();
-        if (!attachment) {
-            await message.reply("❌ **Thiếu file đính kèm!** Bạn phải upload đính kèm 1 file video (MP4/WebM) khi chạy lệnh này.").catch(() => {});
-            return;
-        }
-        const isVideo = attachment.contentType?.startsWith('video/') ||
-            /\.(mp4|webm|mov|mkv|avi|flv|m4v)$/i.test(attachment.name || '');
-        if (!isVideo) {
-            await message.reply("❌ **File không hợp lệ!** Chỉ chấp nhận file video (MP4, WebM, MOV, v.v.).").catch(() => {});
-            return;
-        }
+
         const parts = rest.split('|');
         const title = parts[0] ? parts[0].trim() : '';
         const description = parts[1] ? parts[1].trim() : '';
         let category = parts[2] ? parts[2].trim() : 'General';
+
+        // Kiểm tra xem có YouTube URL trong phần còn lại không
+        // Ưu tiên: tìm URL trong part[3], sau đó tìm trong toàn bộ nội dung
+        let youtubeUrl: string | null = null;
+        const urlSearchText = parts.slice(3).join('|').trim() || rest;
+        const urlMatch = urlSearchText.match(/(https?:\/\/[^\s|]+)/i);
+        if (urlMatch && isYouTubeUrl(urlMatch[1])) {
+            youtubeUrl = urlMatch[1].trim();
+        }
+
+        // Nếu không có YouTube URL và không có file đính kèm thì báo lỗi
+        const attachment = message.attachments.first();
+        if (!youtubeUrl && !attachment) {
+            await message.reply(
+                "❌ **Thiếu nội dung video!** Bạn cần một trong hai:\n" +
+                "📎 Upload file video (MP4/WebM) kèm theo tin nhắn\n" +
+                "📺 Hoặc thêm link YouTube vào cuối lệnh:\n" +
+                "`@BotToan warmup add Tiêu đề | Mô tả | General | https://youtube.com/watch?v=...`"
+            ).catch(() => {});
+            return;
+        }
+
+        // Chuẩn hóa category
         const validCategories = Object.keys(CATEGORY_EMOJIS);
         const matchedCat = validCategories.find(c => c.toLowerCase() === category.toLowerCase());
         if (matchedCat) {
@@ -212,16 +282,69 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         } else {
             category = 'General';
         }
+
         if (!title) {
             await message.reply("❌ **Lỗi:** Tiêu đề video không được bỏ trống!").catch(() => {});
+            return;
+        }
+
+        // === LUONG 1: THÊM VIDEO YOUTUBE ===
+        if (youtubeUrl) {
+            const processingMsg = await message.reply(`⏳ **Đang lưu video YouTube vào Database...**`).catch(() => null);
+            try {
+                const dbVideo = await addWarmupVideo({
+                    title,
+                    description,
+                    category,
+                    messageId: "",
+                    videoUrl: youtubeUrl,
+                    videoType: 'youtube',
+                    fileName: "",
+                    fileSize: 0,
+                    addedBy: message.author.id
+                });
+                globalWarmupCache.unshift({
+                    id: dbVideo.id || "",
+                    title: dbVideo.title,
+                    description: dbVideo.description || "",
+                    category: dbVideo.category,
+                    videoUrl: youtubeUrl,
+                    videoType: 'youtube',
+                    addedBy: dbVideo.addedBy || "",
+                    fileName: ""
+                });
+                const catEmoji = getCategoryEmoji(category);
+                const ytId = getYouTubeId(youtubeUrl);
+                await processingMsg?.edit(
+                    `✅ **Thêm video YouTube thành công!**\n` +
+                    `🎬 Tiêu đề: **${title}**\n` +
+                    `🆔 ID Database: \`${dbVideo.id}\` *(Dùng để xóa khi cần)*\n` +
+                    `📺 Link: ${youtubeUrl}\n` +
+                    `📂 Thể loại: ${catEmoji} **${category}**\n` +
+                    `📝 Mô tả: ${description || '*(Không có)*'}\n` +
+                    `👤 Đăng bởi: <@${message.author.id}>` +
+                    (ytId ? `\n🎞️ Thumbnail: https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : '')
+                ).catch(() => {});
+            } catch (error: any) {
+                console.error("Lỗi khi thêm video YouTube:", error);
+                await processingMsg?.edit(`❌ Lỗi khi lưu video: ${error.message || error}`).catch(() => {});
+            }
+            return;
+        }
+
+        // === LUONG 2: THÊM VIDEO FILE ĐÍNH KÈM ===
+        const isVideo = attachment!.contentType?.startsWith('video/') ||
+            /\.(mp4|webm|mov|mkv|avi|flv|m4v)$/i.test(attachment!.name || '');
+        if (!isVideo) {
+            await message.reply("❌ **File không hợp lệ!** Chỉ chấp nhận file video (MP4, WebM, MOV, v.v.).").catch(() => {});
             return;
         }
         if (!WARMUP_CHANNEL_ID) {
             await message.reply("❌ **Cấu hình lỗi:** Bot chưa được thiết lập `WARMUP_CHANNEL_ID` trong cấu hình!").catch(() => {});
             return;
         }
-        const sizeMB = (attachment.size / (1024 * 1024)).toFixed(2);
-        const processingMsg = await message.reply(`⏳ **Đang tải video lên Discord CDN và cập nhật Database...**\n📁 File: \`${attachment.name}\` (${sizeMB} MB) — Vui lòng đợi!`).catch(() => null);
+        const sizeMB = (attachment!.size / (1024 * 1024)).toFixed(2);
+        const processingMsg = await message.reply(`⏳ **Đang tải video lên Discord CDN và cập nhật Database...**\n📁 File: \`${attachment!.name}\` (${sizeMB} MB) — Vui lòng đợi!`).catch(() => null);
         try {
             const storageChannel = await client.channels.fetch(WARMUP_CHANNEL_ID).catch(() => null) as TextChannel;
             if (!storageChannel) {
@@ -230,19 +353,20 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
             }
             const sentMsg = await storageChannel.send({
                 content: `🎥 **Video:** ${title}\n📂 **Thể loại:** ${category}\n📝 **Mô tả:** ${description || 'Không có'}\n👤 **Đăng bởi:** <@${message.author.id}>`,
-                files: [attachment.url]
+                files: [attachment!.url]
             }).catch((err) => { console.error("Lỗi gửi file tới kênh lưu trữ ẩn:", err); return null; });
             if (!sentMsg) {
                 await processingMsg?.edit("❌ Gửi tệp lên kênh ẩn thất bại! File có thể quá lớn hoặc bot thiếu quyền.").catch(() => {});
                 return;
             }
-            const freshUrl = sentMsg.attachments.first()?.url || attachment.url;
-            const freshFileName = sentMsg.attachments.first()?.name || attachment.name || 'video.mp4';
+            const freshUrl = sentMsg.attachments.first()?.url || attachment!.url;
+            const freshFileName = sentMsg.attachments.first()?.name || attachment!.name || 'video.mp4';
             const dbVideo = await addWarmupVideo({
                 title, description, category,
                 messageId: sentMsg.id,
-                fileName: attachment.name || 'video.mp4',
-                fileSize: attachment.size || 0,
+                videoType: 'discord',
+                fileName: attachment!.name || 'video.mp4',
+                fileSize: attachment!.size || 0,
                 addedBy: message.author.id
             });
             globalWarmupCache.unshift({
@@ -251,12 +375,13 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                 description: dbVideo.description || "",
                 category: dbVideo.category,
                 videoUrl: freshUrl,
+                videoType: 'discord',
                 addedBy: dbVideo.addedBy || "",
                 fileName: freshFileName
             });
             const catEmoji = getCategoryEmoji(category);
             await processingMsg?.edit(
-                `✅ Thêm video thành công!\n` +
+                `✅ **Thêm video thành công!**\n` +
                 `🎬 Tiêu đề: **${title}**\n` +
                 `🆔 ID Database: \`${dbVideo.id}\` *(Dùng ID này để xóa khi cần)*\n` +
                 `🎥 Video: **${title}**\n` +

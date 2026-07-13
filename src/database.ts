@@ -2482,7 +2482,9 @@ export interface IWarmupVideo {
     title: string;
     description?: string;
     category: string;
-    messageId: string;
+    messageId: string;      // ID tin nhan Discord luu file (rong neu la YouTube)
+    videoUrl?: string;      // URL truc tiep cho YouTube/link ngoai
+    videoType?: string;     // 'discord' | 'youtube' | 'external'
     fileName?: string;
     fileSize?: number;
     addedBy?: string;
@@ -2493,7 +2495,9 @@ const warmupVideoSchema = new Schema<IWarmupVideo>({
     title: { type: String, required: true },
     description: { type: String, default: "" },
     category: { type: String, default: 'General' },
-    messageId: { type: String, required: true },
+    messageId: { type: String, default: "" },      // Khong bat buoc neu dung videoUrl
+    videoUrl: { type: String, default: "" },        // Luu truc tiep URL YouTube/external
+    videoType: { type: String, default: 'discord' },// 'discord' | 'youtube' | 'external'
     fileName: { type: String, default: "" },
     fileSize: { type: Number, default: 0 },
     addedBy: { type: String, default: "" },
@@ -2509,20 +2513,30 @@ export async function addWarmupVideo(data: {
     title: string;
     description?: string;
     category: string;
-    messageId: string;
+    messageId?: string;
+    videoUrl?: string;
+    videoType?: string;
     fileName?: string;
     fileSize?: number;
     addedBy?: string;
 }): Promise<IWarmupVideo> {
+    const payload = {
+        ...data,
+        messageId: data.messageId || "",
+        videoUrl: data.videoUrl || "",
+        videoType: data.videoType || 'discord'
+    };
     if (useMongoDB) {
         try {
-            const doc = await WarmupVideoModel.create(data);
+            const doc = await WarmupVideoModel.create(payload);
             return {
                 id: doc._id.toString(),
                 title: doc.title,
                 description: doc.description,
                 category: doc.category,
                 messageId: doc.messageId,
+                videoUrl: doc.videoUrl,
+                videoType: doc.videoType,
                 fileName: doc.fileName,
                 fileSize: doc.fileSize,
                 addedBy: doc.addedBy,
@@ -2536,7 +2550,7 @@ export async function addWarmupVideo(data: {
     // In-memory fallback
     const newVideo: IWarmupVideo = {
         id: `local_${localWarmupIdCounter++}`,
-        ...data,
+        ...payload,
         addedAt: new Date()
     };
     inMemoryWarmupVideos.push(newVideo);
@@ -2553,6 +2567,8 @@ export async function getWarmupVideos(): Promise<IWarmupVideo[]> {
                 description: doc.description,
                 category: doc.category,
                 messageId: doc.messageId,
+                videoUrl: doc.videoUrl,
+                videoType: doc.videoType,
                 fileName: doc.fileName,
                 fileSize: doc.fileSize,
                 addedBy: doc.addedBy,
