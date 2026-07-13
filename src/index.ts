@@ -30,6 +30,8 @@ import { handleGamingCourt } from './games/gamingcourt';
 import { handleWCPrediction, playWCPenalty, handleWCCommand, registerWorldCupCollector } from './games/worldcup';
 import { handleAvatarCommand, registerAvatarCollector } from './commands/avatar';
 import { registerWelcomeEvent } from './events/welcome';
+import { handleWarmupCommand, loadWarmupVideosCache } from './commands/warmup';
+
 
 import cron from 'node-cron';
 import { sleep, removeAccents, formatMoney, parseMoneyInput, activeGamePlayers, sendToJail, trueRandom } from './utils';
@@ -261,6 +263,13 @@ client.on('messageCreate', async (message: Message) => {
     const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
     const cleanInput = removeAccents(rawInput).toLowerCase();
     
+    // ----------------- TÍNH NĂNG WARMUP VIDEO -----------------
+    const warmupTriggers = ['warmup', 'khoi dong', 'video'];
+    if (warmupTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        await handleWarmupCommand(message, rawInput, client);
+        return;
+    }
+
     // ----------------- TÍNH NĂNG XEM AVATAR -----------------
     const avatarTriggers = ['avatar', 'avt', 'anhdaidien', 'anh dai dien'];
     if (avatarTriggers.some(t => cleanInput.startsWith(t))) {
@@ -1933,6 +1942,18 @@ client.once('clientReady', (readyClient) => {
             console.error("[TAROT LỖI] Không thể khởi tạo Tarot:", err);
         });
 
+        // Nạp cache video warmup
+        await loadWarmupVideosCache(client).catch(err => {
+            console.error("[WARMUP LỖI] Không thể nạp cache video warmup:", err);
+        });
+
+        // Tự động cập nhật cache video warmup mỗi 15 phút
+        setInterval(async () => {
+            console.log("[WARMUP] Đang tự động làm mới RAM Cache video...");
+            await loadWarmupVideosCache(client).catch(err => console.error("Lỗi tự động cập nhật cache video:", err));
+        }, 15 * 60 * 1000);
+
+
     } catch (startupError) {
         console.error("[HỆ THỐNG LỖI] Lỗi nghiêm trọng trong quá trình khởi chạy:", startupError);
     }
@@ -1991,6 +2012,13 @@ async function handleHelpCommand(message: Message, client: any) {
                 "• `rank val` | `rank val [Tên#Tag]`: Tra cứu rank & thông số ELO\n" +
                 "• `pick tuong` | `quay tuong`: Draft đội hình Valorant 5 người\n" +
                 "• `toaan @User` | `lt @User`: Tòa án Gaming phân tích độ báo thủ và luận tội",
+                inline: false
+            },
+            { name: "🎬 GIẢI TRÍ & WARMUP (MỚI)", value:
+                "• `warmup` | `video`: Xem video giải trí khởi động trước trận đấu\n" +
+                "• `warmup list`: Xem danh sách video hiện có\n" +
+                "• `warmup add [Tiêu đề] | [Mô tả] | [Thể loại]` (Admin, đính kèm file): Thêm video\n" +
+                "• `warmup delete [ID]` (Admin): Xóa video khỏi hệ thống",
                 inline: false
             },
             { name: "🌸 GÓC CHỊ EM PHỤ NỮ (Viral)", value:

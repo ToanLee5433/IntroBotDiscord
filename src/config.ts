@@ -3,6 +3,8 @@ export const TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN;
 export const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMINI_API;
 export const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 export const VALORANT_API_KEY = process.env.VALORANT_API_KEY;
+export const WARMUP_CHANNEL_ID = process.env.WARMUP_CHANNEL_ID || "";
+
 
 export const agentIcons = new Map<string, string>();
 

@@ -2476,4 +2476,112 @@ export async function claimWelcomeGift(userId: string): Promise<{ success: boole
     }
 }
 
+// --- WARMUP VIDEO DATA MODELS & HELPERS ---
+export interface IWarmupVideo {
+    id?: string;
+    title: string;
+    description?: string;
+    category: string;
+    messageId: string;
+    fileName?: string;
+    fileSize?: number;
+    addedBy?: string;
+    addedAt?: Date;
+}
+
+const warmupVideoSchema = new Schema<IWarmupVideo>({
+    title: { type: String, required: true },
+    description: { type: String, default: "" },
+    category: { type: String, default: 'General' },
+    messageId: { type: String, required: true },
+    fileName: { type: String, default: "" },
+    fileSize: { type: Number, default: 0 },
+    addedBy: { type: String, default: "" },
+    addedAt: { type: Date, default: Date.now }
+});
+
+const WarmupVideoModel = model<IWarmupVideo>('WarmupVideo', warmupVideoSchema);
+
+const inMemoryWarmupVideos: IWarmupVideo[] = [];
+let localWarmupIdCounter = 1;
+
+export async function addWarmupVideo(data: {
+    title: string;
+    description?: string;
+    category: string;
+    messageId: string;
+    fileName?: string;
+    fileSize?: number;
+    addedBy?: string;
+}): Promise<IWarmupVideo> {
+    if (useMongoDB) {
+        try {
+            const doc = await WarmupVideoModel.create(data);
+            return {
+                id: doc._id.toString(),
+                title: doc.title,
+                description: doc.description,
+                category: doc.category,
+                messageId: doc.messageId,
+                fileName: doc.fileName,
+                fileSize: doc.fileSize,
+                addedBy: doc.addedBy,
+                addedAt: doc.addedAt
+            };
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi thêm video warmup vào MongoDB:", error);
+        }
+    }
+    
+    // In-memory fallback
+    const newVideo: IWarmupVideo = {
+        id: `local_${localWarmupIdCounter++}`,
+        ...data,
+        addedAt: new Date()
+    };
+    inMemoryWarmupVideos.push(newVideo);
+    return newVideo;
+}
+
+export async function getWarmupVideos(): Promise<IWarmupVideo[]> {
+    if (useMongoDB) {
+        try {
+            const docs = await WarmupVideoModel.find().sort({ addedAt: -1 });
+            return docs.map(doc => ({
+                id: doc._id.toString(),
+                title: doc.title,
+                description: doc.description,
+                category: doc.category,
+                messageId: doc.messageId,
+                fileName: doc.fileName,
+                fileSize: doc.fileSize,
+                addedBy: doc.addedBy,
+                addedAt: doc.addedAt
+            }));
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi lấy danh sách video warmup từ MongoDB:", error);
+        }
+    }
+    return [...inMemoryWarmupVideos];
+}
+
+export async function deleteWarmupVideo(id: string): Promise<boolean> {
+    if (useMongoDB) {
+        try {
+            const res = await WarmupVideoModel.findByIdAndDelete(id);
+            return !!res;
+        } catch (error) {
+            console.error("[DB LỖI] Lỗi xóa video warmup khỏi MongoDB:", error);
+        }
+    }
+    
+    const idx = inMemoryWarmupVideos.findIndex(v => v.id === id);
+    if (idx !== -1) {
+        inMemoryWarmupVideos.splice(idx, 1);
+        return true;
+    }
+    return false;
+}
+
+
 

@@ -1,7 +1,7 @@
 import { Message, EmbedBuilder, AttachmentBuilder, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { 
+import {
     getProfile, getBalance, updateBalance, getDebt,
     hasTarotToday, recordTarotPlay, cancelTarotPlay
 } from '../database';
@@ -23,115 +23,159 @@ export interface TarotCard {
 
 // 22 lá bài Major Arcana chuẩn Rider-Waite-Smith với đầy đủ thông tin phong thủy
 export const TAROT_DECK: TarotCard[] = [
-    { id: "00", name: "Chàng Khờ", englishName: "The Fool", element: "Khí/Không Khí",
-      meaningUpright: "Khởi đầu mới, tự do tuyệt đối, tin tưởng vào vũ trụ, phiêu lưu mạo hiểm, ngây thơ thuần khiết.",
-      meaningReversed: "Liều lĩnh vô trách nhiệm, bất cẩn, đưa ra quyết định ngớ ngẩn, trì hoãn khởi đầu, sống trong ảo tưởng.",
-      keywords: ["khởi đầu", "tự do", "phiêu lưu", "ngây thơ", "vô tư"] },
+    {
+        id: "00", name: "Chàng Khờ", englishName: "The Fool", element: "Khí/Không Khí",
+        meaningUpright: "Khởi đầu mới, tự do tuyệt đối, tin tưởng vào vũ trụ, phiêu lưu mạo hiểm, ngây thơ thuần khiết.",
+        meaningReversed: "Liều lĩnh vô trách nhiệm, bất cẩn, đưa ra quyết định ngớ ngẩn, trì hoãn khởi đầu, sống trong ảo tưởng.",
+        keywords: ["khởi đầu", "tự do", "phiêu lưu", "ngây thơ", "vô tư"]
+    },
 
-    { id: "01", name: "Pháp Sư", englishName: "The Magician", element: "Khí/Thủy Ngân",
-      meaningUpright: "Sức mạnh ý chí, sáng tạo, tập trung tuyệt đối, khả năng biến ý tưởng thành hiện thực, nắm giữ đủ tài nguyên.",
-      meaningReversed: "Thao túng, lừa đảo, ảo tưởng sức mạnh, tài năng bị lãng phí, thiếu tập trung, kế hoạch tồi.",
-      keywords: ["ý chí", "sáng tạo", "hành động", "tài năng", "tập trung"] },
+    {
+        id: "01", name: "Pháp Sư", englishName: "The Magician", element: "Khí/Thủy Ngân",
+        meaningUpright: "Sức mạnh ý chí, sáng tạo, tập trung tuyệt đối, khả năng biến ý tưởng thành hiện thực, nắm giữ đủ tài nguyên.",
+        meaningReversed: "Thao túng, lừa đảo, ảo tưởng sức mạnh, tài năng bị lãng phí, thiếu tập trung, kế hoạch tồi.",
+        keywords: ["ý chí", "sáng tạo", "hành động", "tài năng", "tập trung"]
+    },
 
-    { id: "02", name: "Nữ Tư Tế", englishName: "The High Priestess", element: "Thủy/Mặt Trăng",
-      meaningUpright: "Trực giác sâu sắc, tiềm thức, bí ẩn, tri thức bên trong, kiên nhẫn chờ đợi, sự tĩnh lặng tâm hồn.",
-      meaningReversed: "Thiếu trực giác, nông cạn hời hợt, bí mật bị che giấu hại người, bất ổn cảm xúc, đưa ra quyết định khi chưa đủ thông tin.",
-      keywords: ["trực giác", "bí ẩn", "tiềm thức", "tri thức", "nội tâm"] },
+    {
+        id: "02", name: "Nữ Tư Tế", englishName: "The High Priestess", element: "Thủy/Mặt Trăng",
+        meaningUpright: "Trực giác sâu sắc, tiềm thức, bí ẩn, tri thức bên trong, kiên nhẫn chờ đợi, sự tĩnh lặng tâm hồn.",
+        meaningReversed: "Thiếu trực giác, nông cạn hời hợt, bí mật bị che giấu hại người, bất ổn cảm xúc, đưa ra quyết định khi chưa đủ thông tin.",
+        keywords: ["trực giác", "bí ẩn", "tiềm thức", "tri thức", "nội tâm"]
+    },
 
-    { id: "03", name: "Nữ Hoàng", englishName: "The Empress", element: "Đất/Kim Tinh",
-      meaningUpright: "Sự sung túc dồi dào, thiên nhiên sinh sôi, nuôi dưỡng yêu thương, sáng tạo nghệ thuật, vẻ đẹp và giác quan.",
-      meaningReversed: "Thiếu sáng tạo, phụ thuộc cảm xúc, hoang phí xa hoa, kiểm soát quá mức, bế tắc sáng tạo.",
-      keywords: ["sung túc", "nuôi dưỡng", "sáng tạo", "thiên nhiên", "phong phú"] },
+    {
+        id: "03", name: "Nữ Hoàng", englishName: "The Empress", element: "Đất/Kim Tinh",
+        meaningUpright: "Sự sung túc dồi dào, thiên nhiên sinh sôi, nuôi dưỡng yêu thương, sáng tạo nghệ thuật, vẻ đẹp và giác quan.",
+        meaningReversed: "Thiếu sáng tạo, phụ thuộc cảm xúc, hoang phí xa hoa, kiểm soát quá mức, bế tắc sáng tạo.",
+        keywords: ["sung túc", "nuôi dưỡng", "sáng tạo", "thiên nhiên", "phong phú"]
+    },
 
-    { id: "04", name: "Hoàng Đế", englishName: "The Emperor", element: "Lửa/Hỏa Tinh",
-      meaningUpright: "Quyền lực lãnh đạo, trật tự kỷ luật, bảo vệ che chở, sự ổn định vững chắc, tư duy lý trí logic.",
-      meaningReversed: "Độc đoán chuyên quyền, kiểm soát quá đà, bất lực mất uy, thiếu tổ chức linh hoạt, cứng nhắc bảo thủ.",
-      keywords: ["quyền lực", "kỷ luật", "ổn định", "lãnh đạo", "trật tự"] },
+    {
+        id: "04", name: "Hoàng Đế", englishName: "The Emperor", element: "Lửa/Hỏa Tinh",
+        meaningUpright: "Quyền lực lãnh đạo, trật tự kỷ luật, bảo vệ che chở, sự ổn định vững chắc, tư duy lý trí logic.",
+        meaningReversed: "Độc đoán chuyên quyền, kiểm soát quá đà, bất lực mất uy, thiếu tổ chức linh hoạt, cứng nhắc bảo thủ.",
+        keywords: ["quyền lực", "kỷ luật", "ổn định", "lãnh đạo", "trật tự"]
+    },
 
-    { id: "05", name: "Giáo Hoàng", englishName: "The Hierophant", element: "Đất/Kim Ngưu",
-      meaningUpright: "Truyền thống và niềm tin, giáo dục tâm linh, sự phù hợp với chuẩn mực, hướng dẫn tinh thần, tuân theo lề thói.",
-      meaningReversed: "Nổi loạn chống đối, tự do tư tưởng cực đoan, giáo điều mù quáng, phá vỡ quy chuẩn, không chịu học hỏi.",
-      keywords: ["truyền thống", "niềm tin", "giáo dục", "hướng dẫn", "tâm linh"] },
+    {
+        id: "05", name: "Giáo Hoàng", englishName: "The Hierophant", element: "Đất/Kim Ngưu",
+        meaningUpright: "Truyền thống và niềm tin, giáo dục tâm linh, sự phù hợp với chuẩn mực, hướng dẫn tinh thần, tuân theo lề thói.",
+        meaningReversed: "Nổi loạn chống đối, tự do tư tưởng cực đoan, giáo điều mù quáng, phá vỡ quy chuẩn, không chịu học hỏi.",
+        keywords: ["truyền thống", "niềm tin", "giáo dục", "hướng dẫn", "tâm linh"]
+    },
 
-    { id: "06", name: "Tình Nhân", englishName: "The Lovers", element: "Khí/Song Tử",
-      meaningUpright: "Tình yêu hòa hợp, mối quan hệ đích thực, sự lựa chọn quan trọng từ trái tim, sự gắn kết giá trị, sự liên kết tâm hồn.",
-      meaningReversed: "Mất cân bằng trong quan hệ, xung đột tình cảm, lựa chọn sai lầm, thiếu cam kết, không hòa hợp giá trị.",
-      keywords: ["tình yêu", "lựa chọn", "hòa hợp", "cam kết", "mối quan hệ"] },
+    {
+        id: "06", name: "Tình Nhân", englishName: "The Lovers", element: "Khí/Song Tử",
+        meaningUpright: "Tình yêu hòa hợp, mối quan hệ đích thực, sự lựa chọn quan trọng từ trái tim, sự gắn kết giá trị, sự liên kết tâm hồn.",
+        meaningReversed: "Mất cân bằng trong quan hệ, xung đột tình cảm, lựa chọn sai lầm, thiếu cam kết, không hòa hợp giá trị.",
+        keywords: ["tình yêu", "lựa chọn", "hòa hợp", "cam kết", "mối quan hệ"]
+    },
 
-    { id: "07", name: "Chiến Xa", englishName: "The Chariot", element: "Thủy/Cự Giải",
-      meaningUpright: "Ý chí sắt đá, chiến thắng qua nỗ lực, kiểm soát bản thân và hoàn cảnh, vượt qua mọi trở ngại, định hướng rõ ràng.",
-      meaningReversed: "Mất kiểm soát hoàn toàn, thiếu hướng đi, thất bại trước áp lực, bướng bỉnh cố chấp, xung đột nội tâm.",
-      keywords: ["ý chí", "chiến thắng", "kiểm soát", "quyết tâm", "vượt khó"] },
+    {
+        id: "07", name: "Chiến Xa", englishName: "The Chariot", element: "Thủy/Cự Giải",
+        meaningUpright: "Ý chí sắt đá, chiến thắng qua nỗ lực, kiểm soát bản thân và hoàn cảnh, vượt qua mọi trở ngại, định hướng rõ ràng.",
+        meaningReversed: "Mất kiểm soát hoàn toàn, thiếu hướng đi, thất bại trước áp lực, bướng bỉnh cố chấp, xung đột nội tâm.",
+        keywords: ["ý chí", "chiến thắng", "kiểm soát", "quyết tâm", "vượt khó"]
+    },
 
-    { id: "08", name: "Sức Mạnh", englishName: "Strength", element: "Lửa/Sư Tử",
-      meaningUpright: "Sức mạnh nội tâm bền vững, lòng dũng cảm từ bên trong, kiên nhẫn bất khuất, lòng trắc ẩn chữa lành, chế ngự bản năng thú tính.",
-      meaningReversed: "Yếu đuối thiếu nghị lực, tự ti mặc cảm, hung hăng mất kiểm soát, thiếu lòng trắc ẩn, để bản năng dẫn đường.",
-      keywords: ["nội lực", "dũng cảm", "kiên nhẫn", "trắc ẩn", "kỷ luật bản thân"] },
+    {
+        id: "08", name: "Sức Mạnh", englishName: "Strength", element: "Lửa/Sư Tử",
+        meaningUpright: "Sức mạnh nội tâm bền vững, lòng dũng cảm từ bên trong, kiên nhẫn bất khuất, lòng trắc ẩn chữa lành, chế ngự bản năng thú tính.",
+        meaningReversed: "Yếu đuối thiếu nghị lực, tự ti mặc cảm, hung hăng mất kiểm soát, thiếu lòng trắc ẩn, để bản năng dẫn đường.",
+        keywords: ["nội lực", "dũng cảm", "kiên nhẫn", "trắc ẩn", "kỷ luật bản thân"]
+    },
 
-    { id: "09", name: "Ẩn Sĩ", englishName: "The Hermit", element: "Đất/Xử Nữ",
-      meaningUpright: "Chiêm nghiệm sâu sắc, hướng nội tìm kiếm sự thật, trí tuệ qua cô độc, ánh sáng dẫn đường nội tâm, tạm lui về suy ngẫm.",
-      meaningReversed: "Cô lập tiêu cực, cô đơn không cần thiết, từ chối lời khuyên người khác, xa cách thực tế, thu mình quá mức.",
-      keywords: ["chiêm nghiệm", "cô độc", "trí tuệ", "hướng nội", "tự tìm hiểu"] },
+    {
+        id: "09", name: "Ẩn Sĩ", englishName: "The Hermit", element: "Đất/Xử Nữ",
+        meaningUpright: "Chiêm nghiệm sâu sắc, hướng nội tìm kiếm sự thật, trí tuệ qua cô độc, ánh sáng dẫn đường nội tâm, tạm lui về suy ngẫm.",
+        meaningReversed: "Cô lập tiêu cực, cô đơn không cần thiết, từ chối lời khuyên người khác, xa cách thực tế, thu mình quá mức.",
+        keywords: ["chiêm nghiệm", "cô độc", "trí tuệ", "hướng nội", "tự tìm hiểu"]
+    },
 
-    { id: "10", name: "Vòng Quay Số Phận", englishName: "Wheel of Fortune", element: "Mộc/Mộc Tinh",
-      meaningUpright: "Sự thay đổi không ngừng của số phận, may mắn bất ngờ, bước ngoặt cuộc đời, chu kỳ nhân quả, định mệnh vận hành.",
-      meaningReversed: "Vận xui liên tiếp, kháng cự thay đổi vô ích, xui xẻo kéo dài, bài học cứ lặp lại, không chịu chấp nhận hoàn cảnh.",
-      keywords: ["số phận", "may mắn", "thay đổi", "chu kỳ", "định mệnh"] },
+    {
+        id: "10", name: "Vòng Quay Số Phận", englishName: "Wheel of Fortune", element: "Mộc/Mộc Tinh",
+        meaningUpright: "Sự thay đổi không ngừng của số phận, may mắn bất ngờ, bước ngoặt cuộc đời, chu kỳ nhân quả, định mệnh vận hành.",
+        meaningReversed: "Vận xui liên tiếp, kháng cự thay đổi vô ích, xui xẻo kéo dài, bài học cứ lặp lại, không chịu chấp nhận hoàn cảnh.",
+        keywords: ["số phận", "may mắn", "thay đổi", "chu kỳ", "định mệnh"]
+    },
 
-    { id: "11", name: "Công Lý", englishName: "Justice", element: "Khí/Thiên Bình",
-      meaningUpright: "Sự công bằng tuyệt đối, chân lý được phơi bày, luật nhân quả hiển hiện, quyết định sáng suốt công tâm, trung thực minh bạch.",
-      meaningReversed: "Bất công, che giấu sự thật, thiếu trách nhiệm, phán xét thiên lệch, kết quả không xứng đáng với nỗ lực.",
-      keywords: ["công bằng", "sự thật", "nhân quả", "quyết định", "trung thực"] },
+    {
+        id: "11", name: "Công Lý", englishName: "Justice", element: "Khí/Thiên Bình",
+        meaningUpright: "Sự công bằng tuyệt đối, chân lý được phơi bày, luật nhân quả hiển hiện, quyết định sáng suốt công tâm, trung thực minh bạch.",
+        meaningReversed: "Bất công, che giấu sự thật, thiếu trách nhiệm, phán xét thiên lệch, kết quả không xứng đáng với nỗ lực.",
+        keywords: ["công bằng", "sự thật", "nhân quả", "quyết định", "trung thực"]
+    },
 
-    { id: "12", name: "Người Treo", englishName: "The Hanged Man", element: "Thủy/Hải Vương",
-      meaningUpright: "Sự hy sinh có mục đích, buông bỏ để nhận điều lớn hơn, góc nhìn hoàn toàn mới, trì hoãn có lý do, kiên nhẫn chờ thời.",
-      meaningReversed: "Trì trệ vô ích không đến đâu, phản kháng sự buông bỏ cần thiết, hy sinh không xứng đáng, ích kỷ giữ chặt cái cũ.",
-      keywords: ["hy sinh", "buông bỏ", "góc nhìn mới", "kiên nhẫn", "chuyển hóa"] },
+    {
+        id: "12", name: "Người Treo", englishName: "The Hanged Man", element: "Thủy/Hải Vương",
+        meaningUpright: "Sự hy sinh có mục đích, buông bỏ để nhận điều lớn hơn, góc nhìn hoàn toàn mới, trì hoãn có lý do, kiên nhẫn chờ thời.",
+        meaningReversed: "Trì trệ vô ích không đến đâu, phản kháng sự buông bỏ cần thiết, hy sinh không xứng đáng, ích kỷ giữ chặt cái cũ.",
+        keywords: ["hy sinh", "buông bỏ", "góc nhìn mới", "kiên nhẫn", "chuyển hóa"]
+    },
 
-    { id: "13", name: "Tử Thần", englishName: "Death", element: "Thủy/Bọ Cạp",
-      meaningUpright: "Kết thúc hoàn toàn một giai đoạn, chuyển hóa sâu sắc không thể đảo ngược, tái sinh từ tro tàn, buông bỏ hoàn toàn cái cũ.",
-      meaningReversed: "Sợ hãi sự thay đổi cần thiết, trì hoãn điều không thể tránh khỏi, mắc kẹt trong quá khứ, kháng cự sự chuyển hóa.",
-      keywords: ["kết thúc", "chuyển hóa", "tái sinh", "buông bỏ", "thay đổi tất yếu"] },
+    {
+        id: "13", name: "Tử Thần", englishName: "Death", element: "Thủy/Bọ Cạp",
+        meaningUpright: "Kết thúc hoàn toàn một giai đoạn, chuyển hóa sâu sắc không thể đảo ngược, tái sinh từ tro tàn, buông bỏ hoàn toàn cái cũ.",
+        meaningReversed: "Sợ hãi sự thay đổi cần thiết, trì hoãn điều không thể tránh khỏi, mắc kẹt trong quá khứ, kháng cự sự chuyển hóa.",
+        keywords: ["kết thúc", "chuyển hóa", "tái sinh", "buông bỏ", "thay đổi tất yếu"]
+    },
 
-    { id: "14", name: "Tiết Độ", englishName: "Temperance", element: "Lửa/Nhân Mã",
-      meaningUpright: "Cân bằng hoàn hảo, ôn hòa kiên định, kiên nhẫn lâu dài, sự hòa hợp giữa các mặt đối lập, mục đích rõ ràng và bền vững.",
-      meaningReversed: "Mất cân bằng nghiêm trọng, thừa thãi cực đoan, xung đột lợi ích, vội vã thiếu kiên nhẫn, thiếu sự điều hòa.",
-      keywords: ["cân bằng", "ôn hòa", "kiên nhẫn", "hòa hợp", "điều độ"] },
+    {
+        id: "14", name: "Tiết Độ", englishName: "Temperance", element: "Lửa/Nhân Mã",
+        meaningUpright: "Cân bằng hoàn hảo, ôn hòa kiên định, kiên nhẫn lâu dài, sự hòa hợp giữa các mặt đối lập, mục đích rõ ràng và bền vững.",
+        meaningReversed: "Mất cân bằng nghiêm trọng, thừa thãi cực đoan, xung đột lợi ích, vội vã thiếu kiên nhẫn, thiếu sự điều hòa.",
+        keywords: ["cân bằng", "ôn hòa", "kiên nhẫn", "hòa hợp", "điều độ"]
+    },
 
-    { id: "15", name: "Ác Quỷ", englishName: "The Devil", element: "Đất/Ma Kết",
-      meaningUpright: "Ràng buộc bởi vật chất và cám dỗ, nghiện ngập mất kiểm soát, nỗi sợ hãi vô hình trói buộc, bị tư duy hạn hẹp giam cầm.",
-      meaningReversed: "Giải thoát khỏi ràng buộc, nhận thức được xiềng xích vô hình, vượt qua cám dỗ, lấy lại tự do ý chí thực sự.",
-      keywords: ["ràng buộc", "cám dỗ", "nghiện ngập", "ảo tưởng", "xiềng xích"] },
+    {
+        id: "15", name: "Ác Quỷ", englishName: "The Devil", element: "Đất/Ma Kết",
+        meaningUpright: "Ràng buộc bởi vật chất và cám dỗ, nghiện ngập mất kiểm soát, nỗi sợ hãi vô hình trói buộc, bị tư duy hạn hẹp giam cầm.",
+        meaningReversed: "Giải thoát khỏi ràng buộc, nhận thức được xiềng xích vô hình, vượt qua cám dỗ, lấy lại tự do ý chí thực sự.",
+        keywords: ["ràng buộc", "cám dỗ", "nghiện ngập", "ảo tưởng", "xiềng xích"]
+    },
 
-    { id: "16", name: "Tòa Tháp", englishName: "The Tower", element: "Lửa/Hỏa Tinh",
-      meaningUpright: "Sụp đổ đột ngột không thể tránh, thảm họa phá vỡ nền tảng sai lầm, biến động lớn lao, vỡ mộng toàn diện, sự thật trần trụi phơi bày.",
-      meaningReversed: "Tránh được tai họa lớn nhờ thay đổi kịp thời, trì hoãn thảm họa, sợ hãi sự đổ vỡ cần thiết, chặn đứng được thảm kịch.",
-      keywords: ["sụp đổ", "thảm họa", "biến động", "vỡ mộng", "phá hủy"] },
+    {
+        id: "16", name: "Tòa Tháp", englishName: "The Tower", element: "Lửa/Hỏa Tinh",
+        meaningUpright: "Sụp đổ đột ngột không thể tránh, thảm họa phá vỡ nền tảng sai lầm, biến động lớn lao, vỡ mộng toàn diện, sự thật trần trụi phơi bày.",
+        meaningReversed: "Tránh được tai họa lớn nhờ thay đổi kịp thời, trì hoãn thảm họa, sợ hãi sự đổ vỡ cần thiết, chặn đứng được thảm kịch.",
+        keywords: ["sụp đổ", "thảm họa", "biến động", "vỡ mộng", "phá hủy"]
+    },
 
-    { id: "17", name: "Ngôi Sao", englishName: "The Star", element: "Khí/Bảo Bình",
-      meaningUpright: "Hy vọng rực rỡ sau bóng tối, niềm tin vào tương lai, chữa lành tâm hồn, nguồn cảm hứng bất tận, sự thanh thản và bình yên.",
-      meaningReversed: "Mất hy vọng sâu sắc, tuyệt vọng kéo dài, tự ti không xứng đáng, thiếu cảm hứng sáng tạo, thất vọng về tương lai.",
-      keywords: ["hy vọng", "chữa lành", "cảm hứng", "bình yên", "thanh thản"] },
+    {
+        id: "17", name: "Ngôi Sao", englishName: "The Star", element: "Khí/Bảo Bình",
+        meaningUpright: "Hy vọng rực rỡ sau bóng tối, niềm tin vào tương lai, chữa lành tâm hồn, nguồn cảm hứng bất tận, sự thanh thản và bình yên.",
+        meaningReversed: "Mất hy vọng sâu sắc, tuyệt vọng kéo dài, tự ti không xứng đáng, thiếu cảm hứng sáng tạo, thất vọng về tương lai.",
+        keywords: ["hy vọng", "chữa lành", "cảm hứng", "bình yên", "thanh thản"]
+    },
 
-    { id: "18", name: "Mặt Trăng", englishName: "The Moon", element: "Thủy/Song Ngư",
-      meaningUpright: "Ảo giác và hoang mang, nỗi sợ hãi tiềm ẩn, trực giác nhạy bén dẫn đường trong bóng tối, bất an từ tiềm thức, điều chưa được phơi bày.",
-      meaningReversed: "Giải tỏa nỗi sợ và hoang mang, sự thật dối trá được phơi bày, trực giác thức tỉnh rõ ràng, vượt qua ảo tưởng, minh bạch hóa.",
-      keywords: ["ảo giác", "tiềm thức", "nỗi sợ", "bí ẩn", "trực giác bóng tối"] },
+    {
+        id: "18", name: "Mặt Trăng", englishName: "The Moon", element: "Thủy/Song Ngư",
+        meaningUpright: "Ảo giác và hoang mang, nỗi sợ hãi tiềm ẩn, trực giác nhạy bén dẫn đường trong bóng tối, bất an từ tiềm thức, điều chưa được phơi bày.",
+        meaningReversed: "Giải tỏa nỗi sợ và hoang mang, sự thật dối trá được phơi bày, trực giác thức tỉnh rõ ràng, vượt qua ảo tưởng, minh bạch hóa.",
+        keywords: ["ảo giác", "tiềm thức", "nỗi sợ", "bí ẩn", "trực giác bóng tối"]
+    },
 
-    { id: "19", name: "Mặt Trời", englishName: "The Sun", element: "Lửa/Mặt Trời",
-      meaningUpright: "Niềm vui thuần túy, thành công rực rỡ, năng lượng tích cực tràn đầy, sự tự tin chói sáng, sự thật rõ ràng và trong sáng.",
-      meaningReversed: "Thất vọng tạm thời, kiêu ngạo thái quá, thiếu tự tin vô căn cứ, thành công bị trì hoãn, hào quang nhạt dần.",
-      keywords: ["niềm vui", "thành công", "tự tin", "rực rỡ", "trong sáng"] },
+    {
+        id: "19", name: "Mặt Trời", englishName: "The Sun", element: "Lửa/Mặt Trời",
+        meaningUpright: "Niềm vui thuần túy, thành công rực rỡ, năng lượng tích cực tràn đầy, sự tự tin chói sáng, sự thật rõ ràng và trong sáng.",
+        meaningReversed: "Thất vọng tạm thời, kiêu ngạo thái quá, thiếu tự tin vô căn cứ, thành công bị trì hoãn, hào quang nhạt dần.",
+        keywords: ["niềm vui", "thành công", "tự tin", "rực rỡ", "trong sáng"]
+    },
 
-    { id: "20", name: "Phán Xét", englishName: "Judgement", element: "Lửa/Diêm Vương",
-      meaningUpright: "Thức tỉnh tâm linh sâu sắc, tiếng gọi của định mệnh, tha thứ và giải thoát, phán quyết công bằng cuối cùng, tái sinh ở tầng cao hơn.",
-      meaningReversed: "Tự nghi ngờ bản thân, từ chối tiếng gọi định mệnh, phán xét gay gắt không công bằng, thiếu quyết đoán trong bước ngoặt lớn.",
-      keywords: ["thức tỉnh", "tha thứ", "tái sinh", "định mệnh", "phán quyết"] },
+    {
+        id: "20", name: "Phán Xét", englishName: "Judgement", element: "Lửa/Diêm Vương",
+        meaningUpright: "Thức tỉnh tâm linh sâu sắc, tiếng gọi của định mệnh, tha thứ và giải thoát, phán quyết công bằng cuối cùng, tái sinh ở tầng cao hơn.",
+        meaningReversed: "Tự nghi ngờ bản thân, từ chối tiếng gọi định mệnh, phán xét gay gắt không công bằng, thiếu quyết đoán trong bước ngoặt lớn.",
+        keywords: ["thức tỉnh", "tha thứ", "tái sinh", "định mệnh", "phán quyết"]
+    },
 
-    { id: "21", name: "Thế Giới", englishName: "The World", element: "Đất/Thổ Tinh",
-      meaningUpright: "Hoàn thành viên mãn, trọn vẹn không thiếu sót, thành công đỉnh cao, kết thúc một chu kỳ lớn, mở ra khởi đầu mới toàn diện.",
-      meaningReversed: "Thiếu sự hoàn thành, trì hoãn ở vạch đích, nỗ lực chưa đủ để đến đích, chọn đường tắt thất bại, chưa sẵn sàng khép lại.",
-      keywords: ["hoàn thành", "trọn vẹn", "thành công", "kết thúc", "viên mãn"] }
+    {
+        id: "21", name: "Thế Giới", englishName: "The World", element: "Đất/Thổ Tinh",
+        meaningUpright: "Hoàn thành viên mãn, trọn vẹn không thiếu sót, thành công đỉnh cao, kết thúc một chu kỳ lớn, mở ra khởi đầu mới toàn diện.",
+        meaningReversed: "Thiếu sự hoàn thành, trì hoãn ở vạch đích, nỗ lực chưa đủ để đến đích, chọn đường tắt thất bại, chưa sẵn sàng khép lại.",
+        keywords: ["hoàn thành", "trọn vẹn", "thành công", "kết thúc", "viên mãn"]
+    }
 ];
 
 // ================ KIỂU TRẢI BÀI ================
@@ -199,7 +243,7 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
     // 1. Kiểm tra profile
     const profile = await getProfile(userId);
     if (!profile) {
-        await message.reply(`❌ **Mày chưa khai báo lý lịch bói toán!**\nGõ lệnh: \`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(() => {});
+        await message.reply(`❌ **Mày chưa khai báo lý lịch bói toán!**\nGõ lệnh: \`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(() => { });
         return;
     }
     profile.birthday = profile.birthday.replace(/\-/g, '/');
@@ -207,7 +251,7 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
     // 2. Kiểm tra ví tiền (kiểm tra trước, nhưng chưa trừ tiền)
     const balance = await getBalance(userId);
     if (balance < cost) {
-        await message.reply(`❌ **Đéo đủ tiền xem bói!** Lệ phí cúng thầy Toàn là **${formatMoney(cost)}**.\nVí mày chỉ có **${formatMoney(balance)}**, cút đi cày cuốc rồi quay lại! 💸`).catch(() => {});
+        await message.reply(`❌ **Đéo đủ tiền xem bói!** Lệ phí cúng thầy Toàn là **${formatMoney(cost)}**.\nVí mày chỉ có **${formatMoney(balance)}**, cút đi cày cuốc rồi quay lại! 💸`).catch(() => { });
         return;
     }
 
@@ -229,13 +273,13 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
             .setColor(0xFF0000)
             .setFooter({ text: "BotToan Tarot - Thầy bói giang hồ", iconURL: message.client.user?.displayAvatarURL() });
 
-        await message.reply({ embeds: [embed] }).catch(()=>{});
+        await message.reply({ embeds: [embed] }).catch(() => { });
         return;
     }
 
     // 4. Kiểm tra active players
     if (activeGamePlayers.has(userId)) {
-        await message.reply("❌ **Mày đang bận chơi trò khác hoặc đang xem bói rồi con giời!** Đợi tí đi cưng!").catch(() => {});
+        await message.reply("❌ **Mày đang bận chơi trò khác hoặc đang xem bói rồi con giời!** Đợi tí đi cưng!").catch(() => { });
         return;
     }
     activeGamePlayers.add(userId);
@@ -273,7 +317,7 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
 
     collector.on('collect', async (i: any) => {
         if (i.user.id !== userId) {
-            await i.reply({ content: "❌ Đéo phải lượt bói của mày! Tự gõ `@BotToan boi tarot` để xem đi cưng!", ephemeral: true }).catch(() => {});
+            await i.reply({ content: "❌ Đéo phải lượt bói của mày! Tự gõ `@BotToan boi tarot` để xem đi cưng!", ephemeral: true }).catch(() => { });
             return;
         }
 
@@ -303,7 +347,7 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
                     content: `❌ **Đột nhiên nghèo đi à?** Lệ phí bói bài là **${formatMoney(cost)}** nhưng ví mày hiện tại chỉ có **${formatMoney(curBal)}**!`,
                     embeds: [],
                     components: []
-                }).catch(() => {});
+                }).catch(() => { });
                 return;
             }
 
@@ -319,10 +363,10 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
                 content: `🔮 **Mày đã chọn chủ đề: ${topicName}**\n*Thầy Toàn đang xào bài, gieo quẻ và gửi tin nhắn riêng cho mày...*`,
                 embeds: [],
                 components: []
-            }).catch(() => {});
+            }).catch(() => { });
 
             if ('sendTyping' in message.channel) {
-                await (message.channel as any).sendTyping().catch(() => {});
+                await (message.channel as any).sendTyping().catch(() => { });
             }
 
             // Rút 3 lá ngẫu nhiên không trùng
@@ -341,9 +385,9 @@ export async function handleTarot(message: Message, rawInput: string): Promise<v
             const dominantElements = [...new Set(cards.map(c => c.element))].join(' + ');
             const reversedCount = orients.filter(o => o.includes('Ngược')).length;
             const energyLevel = reversedCount === 0 ? 'Thuận chiều — năng lượng chảy mạnh' :
-                                reversedCount === 1 ? 'Nhẹ cản — có một trở ngại cần vượt' :
-                                reversedCount === 2 ? 'Cản trở rõ — cần xem xét lại kỹ' :
-                                'Nghịch toàn bộ — đang đi ngược dòng chảy của vũ trụ';
+                reversedCount === 1 ? 'Nhẹ cản — có một trở ngại cần vượt' :
+                    reversedCount === 2 ? 'Cản trở rõ — cần xem xét lại kỹ' :
+                        'Nghịch toàn bộ — đang đi ngược dòng chảy của vũ trụ';
 
             // Prompt Gemini siêu chuẩn Tarot chuyên nghiệp và sâu sắc theo yêu cầu nâng cấp của user
             const geminiPrompt = `
@@ -522,7 +566,7 @@ Giới hạn: tổng độ dài cả 4 phần khoảng 1500 - 3000 ký tự.
                     content: `🔮 **Thầy Toàn đã rút bài ${spread.name} và gửi lời giải nghĩa chi tiết vào DM rồi!** Mau kiểm tra tin nhắn riêng của bạn nhé! 😉${sarcasticRemark}`,
                     embeds: [],
                     components: []
-                }).catch(() => {});
+                }).catch(() => { });
             } catch (err: any) {
                 // Hoàn tiền nếu DM bị chặn
                 curBal += cost;
@@ -533,7 +577,7 @@ Giới hạn: tổng độ dài cả 4 phần khoảng 1500 - 3000 ký tự.
                     content: `❌ **Không thể gửi tin nhắn riêng!** Vui lòng mở DM (Direct Messages) từ thành viên server rồi thực hiện lại lệnh bói bài nhé.\nTao đã **hoàn lại ${formatMoney(cost)}** vào ví của bạn. 💸`,
                     embeds: [],
                     components: []
-                }).catch(() => {});
+                }).catch(() => { });
             }
         } finally {
             activeGamePlayers.delete(userId);
@@ -547,7 +591,7 @@ Giới hạn: tổng độ dài cả 4 phần khoảng 1500 - 3000 ký tự.
                 content: `❌ **Hết thời gian chọn chủ đề!** Mày lề mề quá cút đi cho thầy bói người khác! ⏳`,
                 embeds: [],
                 components: []
-            }).catch(() => {});
+            }).catch(() => { });
         }
     });
 }
