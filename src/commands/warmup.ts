@@ -25,6 +25,7 @@ export interface ICachedWarmupVideo {
     videoType: string;  // 'discord' | 'youtube' | 'external'
     addedBy: string;
     fileName?: string;
+    messageId?: string; // Lưu messageId để lazy load khi phát
 }
 
 // RAM Cache lưu trữ tạm thời các video để truy cập cực nhanh
@@ -68,15 +69,20 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
         const textChannel = channel as TextChannel;
         let allMessages: any[] = [];
         let lastId: string | undefined = undefined;
-        while (true) {
+        let fetchCount = 0;
+        const maxFetches = 3; // Chỉ quét 300 tin nhắn gần nhất lúc khởi động để tránh rate limit và khởi động siêu tốc
+
+        while (fetchCount < maxFetches) {
             const options: any = { limit: 100 };
             if (lastId) options.before = lastId;
             const fetched: any = await textChannel.messages.fetch(options).catch(() => null);
             if (!fetched || fetched.size === 0) break;
             allMessages = allMessages.concat(Array.from(fetched.values()));
             lastId = fetched.last()?.id;
+            fetchCount++;
             if (fetched.size < 100) break;
         }
+
         const messageMap = new Map<string, { url: string; fileName: string }>();
         for (const msg of allMessages) {
             const attachment = msg.attachments.first();
@@ -84,6 +90,7 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
                 messageMap.set(msg.id, { url: attachment.url, fileName: attachment.name || 'video.mp4' });
             }
         }
+
         const newCache: ICachedWarmupVideo[] = [];
         for (const video of dbVideos) {
             // Video YouTube/external: lấy URL thẳng từ DB, không cần scan Discord message
@@ -102,32 +109,22 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
                 }
                 continue;
             }
-            // Video Discord: tìm URL file từ Discord CDN qua messageId
-            let data = messageMap.get(video.messageId);
-            if (!data && video.messageId) {
-                // Thử fetch trực tiếp tin nhắn bằng messageId (fallback phòng hờ các tin nhắn cũ ngoài batch)
-                const msg = await textChannel.messages.fetch(video.messageId).catch(() => null);
-                const attachment = msg?.attachments.first();
-                if (attachment && attachment.url) {
-                    data = { url: attachment.url, fileName: attachment.name || 'video.mp4' };
-                    messageMap.set(video.messageId, data);
-                }
-            }
 
-            if (data) {
-                newCache.push({
-                    id: video.id || "",
-                    title: video.title,
-                    description: video.description || "",
-                    category: video.category,
-                    videoUrl: data.url,
-                    videoType: 'discord',
-                    addedBy: video.addedBy || "",
-                    fileName: data.fileName || video.fileName || "video.mp4"
-                });
-            } else {
-                console.warn(`[WARMUP CACHE] Không tìm thấy file cho video ID: ${video.id}, messageId: ${video.messageId}`);
-            }
+            // Video Discord: tìm URL từ messageMap (nếu có trong 300 tin nhắn gần nhất)
+            const data = messageMap.get(video.messageId);
+
+            // Nạp video vào cache. Nếu chưa quét thấy URL ở đợt tải nhanh, ta sẽ lazy-load khi phát.
+            newCache.push({
+                id: video.id || "",
+                title: video.title,
+                description: video.description || "",
+                category: video.category,
+                videoUrl: data?.url || "", // Để trống nếu không tìm thấy trong đợt quét nhanh
+                videoType: 'discord',
+                addedBy: video.addedBy || "",
+                fileName: data?.fileName || video.fileName || "video.mp4",
+                messageId: video.messageId
+            });
         }
         globalWarmupCache = newCache;
         console.log(`[WARMUP] Đã nạp thành công ${globalWarmupCache.length}/${dbVideos.length} video warmup vào RAM Cache.`);
@@ -176,6 +173,39 @@ async function sendVideoToUser(
         files: []
     }).catch(() => {});
 
+    // Lazy load URL của video Discord nếu chưa có URL hoặc link cũ bị hết hạn CDN
+    let videoUrl = video.videoUrl;
+    let fileName = video.fileName || 'video.mp4';
+
+    if (video.videoType === 'discord' && !videoUrl && video.messageId) {
+        try {
+            const channel = await client.channels.fetch(WARMUP_CHANNEL_ID).catch(() => null) as TextChannel;
+            if (channel) {
+                const msg = await channel.messages.fetch(video.messageId).catch(() => null);
+                const attachment = msg?.attachments.first();
+                if (attachment && attachment.url) {
+                    videoUrl = attachment.url;
+                    fileName = attachment.name || fileName;
+                    // Cập nhật ngược lại vào RAM cache để các lần sau không cần fetch nữa
+                    video.videoUrl = attachment.url;
+                    video.fileName = attachment.name || video.fileName;
+                }
+            }
+        } catch (e) {
+            console.error("[WARMUP LAZY LOAD LỖI] Lỗi lazy load video URL:", e);
+        }
+    }
+
+    // Nếu vẫn không tìm thấy videoUrl (file đã bị xóa hẳn khỏi Discord)
+    if (video.videoType === 'discord' && !videoUrl) {
+        await interaction.editReply({
+            content: `❌ **Không thể phát video này!** File đính kèm trên Discord của video này đã bị xóa hoặc không thể truy cập.`,
+            embeds: [],
+            components: []
+        }).catch(() => {});
+        return;
+    }
+
     // Bước 2: Quản lý tin nhắn phát video để tránh spam (xóa tin cũ trong kênh)
     const channelId = interaction.channelId;
     const oldMsgId = activeVideoMessages.get(channelId);
@@ -194,11 +224,11 @@ async function sendVideoToUser(
         let newMsg;
         if (video.videoType === 'youtube' || video.videoType === 'external') {
             newMsg = await interaction.channel.send({
-                content: video.videoUrl
+                content: videoUrl
             });
         } else {
             const MAX_SIZE = 24 * 1024 * 1024;
-            const response = await fetch(video.videoUrl, {
+            const response = await fetch(videoUrl, {
                 headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0)' }
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -207,8 +237,7 @@ async function sendVideoToUser(
             const buffer = Buffer.from(arrayBuffer);
             if (buffer.length > MAX_SIZE) throw new Error(`FILE_TOO_LARGE`);
 
-            const safeFileName = video.fileName || 'video.mp4';
-            const attachment = new AttachmentBuilder(buffer, { name: safeFileName });
+            const attachment = new AttachmentBuilder(buffer, { name: fileName });
 
             newMsg = await interaction.channel.send({
                 files: [attachment]
@@ -229,7 +258,7 @@ async function sendVideoToUser(
         console.warn(`[WARMUP] Gặp lỗi đính kèm file, fallback gửi link CDN: ${err.message}`);
         // Fallback gửi link CDN thô
         const fallbackMsg = await interaction.channel.send({
-            content: video.videoUrl
+            content: videoUrl
         }).catch(() => null);
 
         if (fallbackMsg) {
@@ -397,7 +426,8 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                 videoUrl: freshUrl,
                 videoType: 'discord',
                 addedBy: dbVideo.addedBy || "",
-                fileName: freshFileName
+                fileName: freshFileName,
+                messageId: dbVideo.messageId
             });
             const catEmoji = getCategoryEmoji(category);
             await processingMsg?.edit(
