@@ -1,4 +1,4 @@
-﻿import { 
+import { 
     Message, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, 
     StringSelectMenuOptionBuilder, TextChannel, Client, PermissionFlagsBits,
     AttachmentBuilder
@@ -74,7 +74,7 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
             const fetched: any = await textChannel.messages.fetch(options).catch(() => null);
             if (!fetched || fetched.size === 0) break;
             allMessages = allMessages.concat(Array.from(fetched.values()));
-            lastId = fetched.lastKey();
+            lastId = fetched.last()?.id;
             if (fetched.size < 100) break;
         }
         const messageMap = new Map<string, { url: string; fileName: string }>();
@@ -103,7 +103,17 @@ export async function loadWarmupVideosCache(client: Client): Promise<void> {
                 continue;
             }
             // Video Discord: tìm URL file từ Discord CDN qua messageId
-            const data = messageMap.get(video.messageId);
+            let data = messageMap.get(video.messageId);
+            if (!data && video.messageId) {
+                // Thử fetch trực tiếp tin nhắn bằng messageId (fallback phòng hờ các tin nhắn cũ ngoài batch)
+                const msg = await textChannel.messages.fetch(video.messageId).catch(() => null);
+                const attachment = msg?.attachments.first();
+                if (attachment && attachment.url) {
+                    data = { url: attachment.url, fileName: attachment.name || 'video.mp4' };
+                    messageMap.set(video.messageId, data);
+                }
+            }
+
             if (data) {
                 newCache.push({
                     id: video.id || "",
