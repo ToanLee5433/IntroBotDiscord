@@ -1906,8 +1906,12 @@ client.once('clientReady', (readyClient) => {
 
         // Kết nối DB song song (không chặn đăng nhập Discord)
         connectDB()
-            .then(() => {
+            .then(async () => {
                 console.log("[HỆ THỐNG] Tiến trình kết nối DB hoàn tất.");
+                // Nạp cache video warmup sau khi kết nối DB thành công
+                await loadWarmupVideosCache(client).catch(err => {
+                    console.error("[WARMUP LỖI] Không thể nạp cache video warmup:", err);
+                });
             })
             .catch(err => {
                 console.error("[HỆ THỐNG LỖI] Gặp lỗi khi kết nối DB:", err);
@@ -1940,11 +1944,6 @@ client.once('clientReady', (readyClient) => {
         // Khởi tạo Tarot
         await initTarot().catch(err => {
             console.error("[TAROT LỖI] Không thể khởi tạo Tarot:", err);
-        });
-
-        // Nạp cache video warmup
-        await loadWarmupVideosCache(client).catch(err => {
-            console.error("[WARMUP LỖI] Không thể nạp cache video warmup:", err);
         });
 
         // Tự động cập nhật cache video warmup mỗi 15 phút
