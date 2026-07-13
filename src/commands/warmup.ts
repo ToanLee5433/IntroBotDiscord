@@ -1,4 +1,4 @@
-import { 
+﻿import { 
     Message, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, 
     StringSelectMenuOptionBuilder, TextChannel, Client, PermissionFlagsBits,
     AttachmentBuilder
@@ -29,6 +29,9 @@ export interface ICachedWarmupVideo {
 
 // RAM Cache lưu trữ tạm thời các video để truy cập cực nhanh
 export let globalWarmupCache: ICachedWarmupVideo[] = [];
+
+// Quản lý tin nhắn video đang phát trên từng kênh chat để tự động xóa tin nhắn cũ
+export const activeVideoMessages = new Map<string, string>(); // channelId -> messageId
 
 function getCategoryEmoji(category: string): string {
     return (CATEGORY_EMOJIS as any)[category] || '🎬';
@@ -127,7 +130,7 @@ async function sendVideoToUser(
     interaction: any,
     video: ICachedWarmupVideo,
     client: Client,
-    row: ActionRowBuilder<StringSelectMenuBuilder>
+    rows: ActionRowBuilder<StringSelectMenuBuilder>[]
 ): Promise<void> {
     const emoji = getCategoryEmoji(video.category);
     const updatedEmbed = new EmbedBuilder()
@@ -137,90 +140,97 @@ async function sendVideoToUser(
             { name: "📂 Thể loại", value: `${emoji} \`${video.category}\``, inline: true },
             { name: "👤 Đóng góp bởi", value: video.addedBy ? `<@${video.addedBy}>` : "Ẩn danh", inline: true }
         )
-        .setColor(0x9B59B6)
+        .setColor(video.videoType === 'youtube' ? 0xFF0000 : 0x9B59B6)
         .setFooter({ text: "Bạn có thể tiếp tục chọn video khác từ menu bên dưới", iconURL: client.user?.displayAvatarURL() })
         .setTimestamp();
 
-    // Bước 1: Dùng deferUpdate() để Discord biết bot đang xử lý.
+    if (video.videoType === 'youtube') {
+        const ytId = getYouTubeId(video.videoUrl);
+        if (ytId) {
+            updatedEmbed.setThumbnail(`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`);
+        }
+    }
+
+    // Bước 1: Dùng deferUpdate() để báo đang xử lý và tránh lỗi hết hạn interaction
     try {
         await interaction.deferUpdate();
     } catch {
         return;
     }
 
-    // Video YouTube/external: chỉ cần gửi URL → Discord tự embed player
-    if (video.videoType === 'youtube' || video.videoType === 'external') {
-        const ytId = isYouTubeUrl(video.videoUrl) ? getYouTubeId(video.videoUrl) : null;
-        const ytEmbed = new EmbedBuilder()
-            .setTitle(`🎬 ĐANG XEM: ${video.title.toUpperCase()}`)
-            .setDescription(video.description || "Khởi động giải trí cùng BotToan!")
-            .addFields(
-                { name: "📂 Thể loại", value: `${emoji} \`${video.category}\``, inline: true },
-                { name: "👤 Đóng góp bởi", value: video.addedBy ? `<@${video.addedBy}>` : "Ẩn danh", inline: true },
-                { name: "🌐 Nguồn", value: video.videoType === 'youtube' ? '📹 YouTube' : '🔗 Link ngoài', inline: true }
-            )
-            .setColor(0xFF0000) // Đỏ YouTube
-            .setFooter({ text: "Bạn có thể tiếp tục chọn video khác từ menu bên dưới", iconURL: client.user?.displayAvatarURL() })
-            .setTimestamp();
-
-        if (ytId) {
-            ytEmbed.setThumbnail(`https://img.youtube.com/vi/${ytId}/hqdefault.jpg`);
-        }
-
-        await interaction.editReply({
-            content: video.videoUrl, // Discord tự render YouTube player inline
-            embeds: [ytEmbed],
-            components: [row],
-            files: []
-        }).catch((e: any) => console.error("[WARMUP] Lỗi gửi YouTube:", e));
-        return;
-    }
-
-    // Video Discord file: tải về và đính kèm trực tiếp
-    const MAX_SIZE = 24 * 1024 * 1024;
-
-    // Bước 2: Cập nhật ngay embed + thông báo đang tải (không có file)
+    // Cập nhật embed hiển thị thông tin bài đang phát lên tin nhắn gốc chứa menu
     await interaction.editReply({
-        content: `⏳ Đang tải video **${video.title}** về...`,
+        content: `⏳ Đang phát video **${video.title}** ở tin nhắn mới phía dưới...`,
         embeds: [updatedEmbed],
-        components: [row],
+        components: rows,
         files: []
     }).catch(() => {});
 
-    try {
-        const response = await fetch(video.videoUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0)' }
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    // Bước 2: Quản lý tin nhắn phát video để tránh spam (xóa tin cũ trong kênh)
+    const channelId = interaction.channelId;
+    const oldMsgId = activeVideoMessages.get(channelId);
+    if (oldMsgId) {
+        try {
+            const channel = await client.channels.fetch(channelId).catch(() => null) as TextChannel;
+            if (channel) {
+                const oldMsg = await channel.messages.fetch(oldMsgId).catch(() => null);
+                if (oldMsg) await oldMsg.delete().catch(() => {});
+            }
+        } catch {}
+    }
 
-        const contentLength = parseInt(response.headers.get('content-length') || '0');
-        if (contentLength > 0 && contentLength > MAX_SIZE) {
-            throw new Error(`FILE_TOO_LARGE:${contentLength}`);
+    // Bước 3: Gửi tin nhắn mới chứa video/YouTube URL để Discord tự render video player tuyệt đối chính xác
+    try {
+        let newMsg;
+        if (video.videoType === 'youtube' || video.videoType === 'external') {
+            newMsg = await interaction.channel.send({
+                content: video.videoUrl
+            });
+        } else {
+            const MAX_SIZE = 24 * 1024 * 1024;
+            const response = await fetch(video.videoUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0)' }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            if (buffer.length > MAX_SIZE) throw new Error(`FILE_TOO_LARGE`);
+
+            const safeFileName = video.fileName || 'video.mp4';
+            const attachment = new AttachmentBuilder(buffer, { name: safeFileName });
+
+            newMsg = await interaction.channel.send({
+                files: [attachment]
+            });
         }
 
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        if (buffer.length > MAX_SIZE) throw new Error(`FILE_TOO_LARGE:${buffer.length}`);
+        if (newMsg) {
+            activeVideoMessages.set(channelId, newMsg.id);
+        }
 
-        const safeFileName = video.fileName || 'video.mp4';
-        const attachment = new AttachmentBuilder(buffer, { name: safeFileName });
-
-        // Bước 3: Gắn file video trực tiếp vào tin nhắn → Discord render inline player to và đẹp
+        // Xóa thông báo "đang phát" khỏi tin nhắn menu để giữ giao diện sạch đẹp
         await interaction.editReply({
             content: '',
             embeds: [updatedEmbed],
-            components: [row],
-            files: [attachment]
-        });
+            components: rows
+        }).catch(() => {});
     } catch (err: any) {
-        // Fallback: Gửi link CDN để Discord tự embed (trường hợp file quá lớn hoặc mạng lỗi)
-        console.warn(`[WARMUP] Fallback sang link CDN cho "${video.title}": ${err.message}`);
+        console.warn(`[WARMUP] Gặp lỗi đính kèm file, fallback gửi link CDN: ${err.message}`);
+        // Fallback gửi link CDN thô
+        const fallbackMsg = await interaction.channel.send({
+            content: video.videoUrl
+        }).catch(() => null);
+
+        if (fallbackMsg) {
+            activeVideoMessages.set(channelId, fallbackMsg.id);
+        }
+
         await interaction.editReply({
-            content: video.videoUrl,
+            content: '',
             embeds: [updatedEmbed],
-            components: [row],
-            files: []
-        }).catch((e: any) => console.error("[WARMUP] Lỗi fallback CDN:", e));
+            components: rows
+        }).catch(() => {});
     }
 }
 
@@ -478,25 +488,31 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         return;
     }
 
-    // 5. HIỂN THỊ SELECT MENU ĐỂ XEM VIDEO
+    // 5. HIỂN THỊ SELECT MENU ĐỂ XEM VIDEO (2 THANH CHỌN + TÌM KIẾM)
+    const categoriesInCache = Array.from(new Set(globalWarmupCache.map(v => v.category)));
+    const defaultCategories = ['Gaming', 'Meme', 'Music', 'Tiktok', 'Dance', 'General'];
+    const allCategories = Array.from(new Set([...defaultCategories, ...categoriesInCache]));
+
     let filteredCache = globalWarmupCache;
     let filterLabel = '';
-    if (subCommand) {
-        const foundCat = Object.keys(CATEGORY_EMOJIS).find(c => c.toLowerCase() === subCommand);
-        if (foundCat) {
-            filteredCache = globalWarmupCache.filter(v => v.category.toLowerCase() === foundCat.toLowerCase());
-            filterLabel = ` — ${getCategoryEmoji(foundCat)} ${foundCat}`;
+    let selectedCategoryValue = 'all';
+
+    const searchQuery = args.slice(1).join(' ').trim().toLowerCase();
+    if (searchQuery) {
+        // Kiểm tra xem từ khóa gõ vào có trùng khớp với thể loại nào không (lọc theo thể loại nhanh)
+        const matchedCat = allCategories.find(c => c.toLowerCase() === searchQuery);
+        if (matchedCat) {
+            filteredCache = globalWarmupCache.filter(v => v.category.toLowerCase() === matchedCat.toLowerCase());
+            filterLabel = ` — Thể loại: ${getCategoryEmoji(matchedCat)} ${matchedCat}`;
+            selectedCategoryValue = matchedCat.toLowerCase();
         } else {
-            await message.reply(
-                `❓ Lệnh \`${subCommand}\` không hợp lệ!\n\n` +
-                `**Các lệnh warmup có sẵn:**\n` +
-                `• \`@BotToan warmup\` — Xem video\n` +
-                `• \`@BotToan warmup gaming\` — Lọc theo thể loại\n` +
-                `• \`@BotToan warmup list\` — Xem danh sách\n` +
-                `• \`@BotToan warmup add ...\` *(Admin)* — Thêm video\n` +
-                `• \`@BotToan warmup delete <ID>\` *(Admin)* — Xóa video`
-            ).catch(() => {});
-            return;
+            // Tìm kiếm tự do theo từ khóa
+            filteredCache = globalWarmupCache.filter(v => 
+                v.title.toLowerCase().includes(searchQuery) || 
+                v.description.toLowerCase().includes(searchQuery) ||
+                v.category.toLowerCase().includes(searchQuery)
+            );
+            filterLabel = ` — Tìm kiếm: "${searchQuery}"`;
         }
     }
 
@@ -505,67 +521,165 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         return;
     }
     if (filteredCache.length === 0) {
-        await message.reply("📂 **Không có video nào thuộc thể loại này!** Dùng `@BotToan warmup` để xem tất cả video.").catch(() => {});
+        await message.reply(`📂 **Không tìm thấy video nào khớp với từ khóa/thể loại: "${searchQuery}"**\n👉 Thử gõ \`@BotToan warmup\` để xem tất cả.`).catch(() => {});
         return;
     }
 
-    const options = filteredCache.slice(0, 25).map(video => {
-        const emoji = getCategoryEmoji(video.category);
-        const safeTitle = `${emoji} ${video.title}`.slice(0, 95);
-        const safeDesc = `${video.description || 'Khởi động giải trí trước trận cùng BotToan!'}`.slice(0, 95);
-        return new StringSelectMenuOptionBuilder()
-            .setLabel(safeTitle)
-            .setDescription(safeDesc)
-            .setValue(video.id);
-    });
+    // --- Xây dựng Thanh 1: Danh sách Thể loại ---
+    const categoryOptions = [
+        new StringSelectMenuOptionBuilder()
+            .setLabel('🌟 Tất cả thể loại')
+            .setDescription('Hiển thị tất cả video hiện có')
+            .setValue('all')
+            .setDefault(selectedCategoryValue === 'all')
+    ];
 
-    const menuCustomId = 'warmup_select_' + message.id;
-    const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(menuCustomId)
-        .setPlaceholder('👉 Bấm vào đây để chọn video muốn xem...')
-        .addOptions(options);
+    for (const cat of allCategories) {
+        // Chỉ hiện thể loại nếu có video thuộc thể loại đó trong cache
+        const hasVideo = globalWarmupCache.some(v => v.category.toLowerCase() === cat.toLowerCase());
+        if (hasVideo) {
+            const emoji = getCategoryEmoji(cat);
+            categoryOptions.push(
+                new StringSelectMenuOptionBuilder()
+                    .setLabel(`${emoji} ${cat}`)
+                    .setDescription(`Xem các video thuộc thể loại ${cat}`)
+                    .setValue(cat.toLowerCase())
+                    .setDefault(selectedCategoryValue === cat.toLowerCase())
+            );
+        }
+    }
 
-    const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+    const categoryMenuCustomId = 'warmup_category_' + message.id;
+    const categorySelect = new StringSelectMenuBuilder()
+        .setCustomId(categoryMenuCustomId)
+        .setPlaceholder('📁 Bước 1: Chọn thể loại video muốn xem...')
+        .addOptions(categoryOptions);
+
+    // --- Xây dựng Thanh 2: Danh sách Video tương ứng ---
+    const buildVideoOptions = (videos: ICachedWarmupVideo[]) => {
+        return videos.slice(0, 25).map(video => {
+            const emoji = getCategoryEmoji(video.category);
+            const safeTitle = `${emoji} ${video.title}`.slice(0, 95);
+            const safeDesc = `${video.description || 'Khởi động giải trí trước trận cùng BotToan!'}`.slice(0, 95);
+            return new StringSelectMenuOptionBuilder()
+                .setLabel(safeTitle)
+                .setDescription(safeDesc)
+                .setValue(video.id);
+        });
+    };
+
+    const videoOptions = buildVideoOptions(filteredCache);
+    const videoMenuCustomId = 'warmup_video_' + message.id;
+    const videoSelect = new StringSelectMenuBuilder()
+        .setCustomId(videoMenuCustomId)
+        .setPlaceholder(videoOptions.length > 0 ? '🎬 Bước 2: Chọn video muốn xem...' : '❌ Không có video trong thể loại này')
+        .addOptions(videoOptions.length > 0 ? videoOptions : [
+            new StringSelectMenuOptionBuilder().setLabel('Không có video').setValue('none')
+        ])
+        .setDisabled(videoOptions.length === 0);
+
+    const rowCategory = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(categorySelect);
+    const rowVideo = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(videoSelect);
 
     const embed = new EmbedBuilder()
         .setTitle(`🎬 KHO VIDEO GIẢI TRÍ BOTTOAN${filterLabel}`)
         .setDescription(
             `Chào mừng bạn đến với rạp chiếu phim mini của **BotToan**! 🍿\n\n` +
-            `📊 Hiển thị **${Math.min(filteredCache.length, 25)}/${filteredCache.length}** video${filterLabel ? ` (đã lọc)` : ''}.\n\n` +
-            `👇 **Hãy chọn một video từ menu thả xuống bên dưới** để bắt đầu thưởng thức. Bot sẽ tải video về và phát ngay tại đây!`
+            `🔍 **Tìm nhanh:** Bạn có thể gõ \`@BotToan warmup [từ khóa]\` để lọc video siêu tốc.\n\n` +
+            `👇 **Lựa chọn theo 2 bước bên dưới:** Chọn Thể loại trước rồi chọn Video muốn xem nhé!`
         )
         .setColor(0x8E44AD)
-        .setFooter({ text: "Hệ thống tải file trực tiếp • BotToan Warmup", iconURL: client.user?.displayAvatarURL() })
+        .setFooter({ text: "Hệ thống phát video độc lập • BotToan Warmup", iconURL: client.user?.displayAvatarURL() })
         .setTimestamp();
 
     const menuMsg = await message.reply({
         embeds: [embed],
-        components: [row]
+        components: [rowCategory, rowVideo]
     }).catch(() => null);
 
     if (!menuMsg) return;
 
-    // Mọi người đều có thể chọn video (không chỉ người gọi lệnh)
     const collector = menuMsg.createMessageComponentCollector({
-        filter: (i: any) => i.customId === menuCustomId,
-        time: 300000
+        filter: (i: any) => i.customId === categoryMenuCustomId || i.customId === videoMenuCustomId,
+        time: 300000 // 5 phút
     });
 
+    let currentCategoryId = selectedCategoryValue;
+    let currentRows = [rowCategory, rowVideo];
+
     collector.on('collect', async (interaction: any) => {
-        const selectedId = interaction.values[0];
-        const video = globalWarmupCache.find(v => v.id === selectedId);
-        if (!video) {
-            await interaction.reply({ content: "❌ Không tìm thấy video! Thử `@BotToan warmup reload` để làm mới.", ephemeral: true }).catch(() => {});
-            return;
+        if (interaction.customId === categoryMenuCustomId) {
+            currentCategoryId = interaction.values[0];
+
+            // Lọc lại danh sách video theo category đã chọn
+            let categoryVideos = globalWarmupCache;
+            if (currentCategoryId !== 'all') {
+                categoryVideos = globalWarmupCache.filter(v => v.category.toLowerCase() === currentCategoryId.toLowerCase());
+            }
+
+            const newVideoOptions = buildVideoOptions(categoryVideos);
+            const newVideoSelect = new StringSelectMenuBuilder()
+                .setCustomId(videoMenuCustomId)
+                .setPlaceholder(newVideoOptions.length > 0 ? '🎬 Bước 2: Chọn video muốn xem...' : '❌ Không có video trong thể loại này')
+                .addOptions(newVideoOptions.length > 0 ? newVideoOptions : [
+                    new StringSelectMenuOptionBuilder().setLabel('Không có video').setValue('none')
+                ])
+                .setDisabled(newVideoOptions.length === 0);
+
+            // Cập nhật lại trạng thái default được chọn trong menu thể loại
+            const newCategoryOptions = categoryOptions.map(opt => {
+                const isSelected = opt.data.value === currentCategoryId;
+                return StringSelectMenuOptionBuilder.from(opt).setDefault(isSelected);
+            });
+            const newCategorySelect = new StringSelectMenuBuilder()
+                .setCustomId(categoryMenuCustomId)
+                .setPlaceholder('📁 Bước 1: Chọn thể loại video muốn xem...')
+                .addOptions(newCategoryOptions);
+
+            const newRowCategory = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(newCategorySelect);
+            const newRowVideo = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(newVideoSelect);
+            currentRows = [newRowCategory, newRowVideo];
+
+            const embedTitle = currentCategoryId === 'all' ? 'TẤT CẢ THỂ LOẠI' : currentCategoryId.toUpperCase();
+            const updatedSearchEmbed = EmbedBuilder.from(embed)
+                .setTitle(`🎬 KHO VIDEO GIẢI TRÍ BOTTOAN — ${embedTitle}`)
+                .setDescription(
+                    `Chào mừng bạn đến với rạp chiếu phim mini của **BotToan**! 🍿\n\n` +
+                    `📊 Đang hiển thị các video của thể loại: **${embedTitle}**\n\n` +
+                    `👇 **Hãy chọn video từ menu bên dưới** để bắt đầu thưởng thức!`
+                );
+
+            await interaction.update({
+                embeds: [updatedSearchEmbed],
+                components: currentRows
+            }).catch(() => {});
+
+        } else if (interaction.customId === videoMenuCustomId) {
+            const selectedId = interaction.values[0];
+            if (selectedId === 'none') {
+                await interaction.reply({ content: "❌ Không có video nào để phát!", ephemeral: true }).catch(() => {});
+                return;
+            }
+
+            const video = globalWarmupCache.find(v => v.id === selectedId);
+            if (!video) {
+                await interaction.reply({ content: "❌ Không tìm thấy video! Thử `@BotToan warmup reload` để làm mới.", ephemeral: true }).catch(() => {});
+                return;
+            }
+
+            await sendVideoToUser(interaction, video, client, currentRows);
         }
-        await sendVideoToUser(interaction, video, client, row);
     });
 
     collector.on('end', async () => {
         try {
-            const disabledMenu = StringSelectMenuBuilder.from(selectMenu).setDisabled(true);
-            const disabledRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledMenu);
-            await menuMsg.edit({ components: [disabledRow] }).catch(() => {});
+            const disabledCategory = StringSelectMenuBuilder.from(categorySelect).setDisabled(true);
+            const disabledVideo = StringSelectMenuBuilder.from(videoSelect).setDisabled(true);
+            const disabledRowCategory = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledCategory);
+            const disabledRowVideo = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledVideo);
+            await menuMsg.edit({
+                components: [disabledRowCategory, disabledRowVideo]
+            }).catch(() => {});
         } catch {}
     });
 }
