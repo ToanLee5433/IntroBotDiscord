@@ -1,0 +1,107 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import mongoose from 'mongoose';
+
+// Tự động load file .env thủ công trước tiên để đảm bảo các biến môi trường được thiết lập trước khi import các file config khác!
+const envPath = path.join(__dirname, '../../.env');
+if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    envContent.split('\n').forEach(line => {
+        const match = line.match(/^\s*([^#=]+)\s*=\s*(.*)$/);
+        if (match) {
+            const key = match[1].trim();
+            let val = match[2].trim();
+            // Loại bỏ dấu ngoặc kép nếu có
+            if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+            if (val.startsWith("'") && val.endsWith("'")) val = val.slice(1, -1);
+            process.env[key] = val;
+        }
+    });
+}
+
+async function run() {
+    // Import động để đảm bảo các biến môi trường đã được tải vào process.env trước khi config.ts được evaluate
+    const { connectDB, addWarmupVideo } = await import('../database');
+    const { isTikTokUrl, convertToTnktok } = await import('../commands/warmup');
+
+    // 1. Kết nối database
+    console.log("🔄 Đang kết nối tới MongoDB...");
+    await connectDB();
+
+    const linksFilePath = path.join(__dirname, '../../tiktok_links.txt');
+    if (!fs.existsSync(linksFilePath)) {
+        console.error(`❌ Không tìm thấy file dữ liệu tại: ${linksFilePath}`);
+        console.log("👉 Vui lòng tạo file tiktok_links.txt ở thư mục gốc của bot và dán danh sách link TikTok vào.");
+        process.exit(1);
+    }
+
+    const content = fs.readFileSync(linksFilePath, 'utf-8');
+    const lines = content.split('\n').map(line => line.trim()).filter(line => line.length > 0 && !line.startsWith('#'));
+
+    if (lines.length === 0) {
+        console.log("⚠️ File tiktok_links.txt đang trống rỗng.");
+        process.exit(0);
+    }
+
+    console.log(`📂 Tìm thấy ${lines.length} dòng dữ liệu cần xử lý. Bắt đầu import...`);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        let title = '';
+        let url = '';
+
+        if (line.includes('|')) {
+            const parts = line.split('|');
+            title = parts[0].trim();
+            url = parts[1].trim();
+        } else {
+            url = line;
+            // Tự tạo tiêu đề theo số thứ tự (ví dụ: Video TikTok #1)
+            title = `Video TikTok #${lines.length - i}`;
+        }
+
+        if (!url.startsWith('http')) {
+            console.warn(`⚠️ Dòng ${i + 1} không chứa link hợp lệ, bỏ qua: "${line}"`);
+            failCount++;
+            continue;
+        }
+
+        // Tự động tối ưu link TikTok sang tnktok
+        if (isTikTokUrl(url)) {
+            url = convertToTnktok(url);
+        }
+
+        try {
+            await addWarmupVideo({
+                title,
+                description: "Import tự động từ tài khoản TikTok cá nhân",
+                category: "TikTok của Trang Anh",
+                videoUrl: url,
+                videoType: "external",
+                addedBy: "System"
+            });
+            console.log(`✅ [${i + 1}/${lines.length}] Đã thêm thành công: "${title}" -> ${url}`);
+            successCount++;
+        } catch (err: any) {
+            console.error(`❌ [${i + 1}/${lines.length}] Thêm thất bại cho "${title}":`, err.message || err);
+            failCount++;
+        }
+    }
+
+    console.log(`\n🎉 HOÀN THÀNH QUÁ TRÌNH IMPORT!`);
+    console.log(`- Thêm thành công: ${successCount} video`);
+    console.log(`- Thất bại/Bỏ qua: ${failCount} video`);
+    console.log(`👉 Vui lòng khởi động lại Bot hoặc chạy lệnh \`@BotToan warmup reload\` trên Discord để nạp lại cache!`);
+
+    // Đóng kết nối MongoDB
+    await mongoose.connection.close();
+    process.exit(0);
+}
+
+run().catch(err => {
+    console.error("❌ Lỗi nghiêm trọng khi chạy import script:", err);
+    process.exit(1);
+});

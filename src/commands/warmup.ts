@@ -1,7 +1,7 @@
 import { 
     Message, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, 
     StringSelectMenuOptionBuilder, TextChannel, Client, PermissionFlagsBits,
-    AttachmentBuilder
+    AttachmentBuilder, ButtonBuilder, ButtonStyle
 } from 'discord.js';
 import { addWarmupVideo, getWarmupVideos, deleteWarmupVideo, updateWarmupVideo } from '../database';
 import { WARMUP_CHANNEL_ID } from '../config';
@@ -70,6 +70,18 @@ function isYouTubeUrl(url: string): boolean {
 function getYouTubeId(url: string): string | null {
     const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]{11})/);
     return m ? m[1] : null;
+}
+
+/** Kiểm tra URL có phải TikTok không */
+export function isTikTokUrl(url: string): boolean {
+    return /^(https?:\/\/)?(www\.|vm\.|vt\.)?tiktok\.com/i.test(url);
+}
+
+/** Chuyển đổi URL TikTok sang tnktok.com để Discord tự động hiển thị trình phát video */
+export function convertToTnktok(url: string): string {
+    return url.replace(/(www\.)?(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)/i, (match, p1, p2) => {
+        return p2.replace('tiktok.com', 'tnktok.com');
+    });
 }
 
 export async function loadWarmupVideosCache(client: Client): Promise<void> {
@@ -344,6 +356,13 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                 videoType = 'youtube';
             } else {
                 videoType = 'external';
+                // Tự động tối ưu hóa link TikTok sang tnktok
+                if (isTikTokUrl(inputUrl)) {
+                    inputUrl = convertToTnktok(inputUrl);
+                    if (category === 'General') {
+                        category = 'TikTok của Trang Anh';
+                    }
+                }
             }
         }
 
@@ -747,14 +766,38 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
     }
 
     const categoryMenuCustomId = 'warmup_category_' + message.id;
-    const categorySelect = new StringSelectMenuBuilder()
-        .setCustomId(categoryMenuCustomId)
-        .setPlaceholder('📁 Bước 1: Chọn thể loại video muốn xem...')
-        .addOptions(categoryOptions);
+    const videoMenuCustomId = 'warmup_video_' + message.id;
+    const prevBtnId = 'warmup_prev_' + message.id;
+    const nextBtnId = 'warmup_next_' + message.id;
 
-    // --- Xây dựng Thanh 2: Danh sách Video tương ứng ---
-    const buildVideoOptions = (videos: ICachedWarmupVideo[]) => {
-        return videos.slice(0, 25).map(video => {
+    let currentCategoryId = selectedCategoryValue;
+    let currentPage = 0;
+
+    // Helper build components dynamically supporting pagination
+    const getComponents = (categoryId: string, page: number) => {
+        // 1. Category Select Menu
+        const newCategoryOptions = categoryOptions.map(opt => {
+            const isSelected = opt.data.value === categoryId;
+            return StringSelectMenuOptionBuilder.from(opt).setDefault(isSelected);
+        });
+        const categorySelectMenu = new StringSelectMenuBuilder()
+            .setCustomId(categoryMenuCustomId)
+            .setPlaceholder('📁 Bước 1: Chọn thể loại video muốn xem...')
+            .addOptions(newCategoryOptions);
+        const rowCat = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(categorySelectMenu);
+
+        // 2. Video Select Menu (sliced to page)
+        let categoryVideos = globalWarmupCache;
+        if (categoryId !== 'all') {
+            categoryVideos = globalWarmupCache.filter(v => v.category.toLowerCase() === categoryId.toLowerCase());
+        }
+
+        const totalVideos = categoryVideos.length;
+        const totalPages = Math.ceil(totalVideos / 25);
+        const startIdx = page * 25;
+        const pageVideos = categoryVideos.slice(startIdx, startIdx + 25);
+
+        const newVideoOptions = pageVideos.map(video => {
             const emoji = getCategoryEmoji(video.category);
             const safeTitle = `${emoji} ${video.title}`.slice(0, 95);
             const safeDesc = `${video.description || 'Khởi động giải trí trước trận cùng BotToan!'}`.slice(0, 95);
@@ -763,27 +806,63 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                 .setDescription(safeDesc)
                 .setValue(video.id);
         });
+
+        const placeholderText = newVideoOptions.length > 0 
+            ? `🎬 Bước 2: Chọn video${totalPages > 1 ? ` (Trang ${page + 1}/${totalPages})` : ''}...`
+            : '❌ Không có video trong thể loại này';
+
+        const videoSelectMenu = new StringSelectMenuBuilder()
+            .setCustomId(videoMenuCustomId)
+            .setPlaceholder(placeholderText)
+            .addOptions(newVideoOptions.length > 0 ? newVideoOptions : [
+                new StringSelectMenuOptionBuilder().setLabel('Không có video').setValue('none')
+            ])
+            .setDisabled(newVideoOptions.length === 0);
+        const rowVid = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(videoSelectMenu);
+
+        const rows: any[] = [rowCat, rowVid];
+
+        // 3. Pagination row
+        if (totalPages > 1) {
+            const prevButton = new ButtonBuilder()
+                .setCustomId(prevBtnId)
+                .setLabel('⬅️ Trang trước')
+                .setStyle(ButtonStyle.Primary)
+                .setDisabled(page === 0);
+
+            const pageIndicator = new ButtonBuilder()
+                .setCustomId('warmup_page_indicator')
+                .setLabel(`Trang ${page + 1}/${totalPages}`)
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(true);
+
+            const nextButton = new ButtonBuilder()
+                .setCustomId(nextBtnId)
+                .setLabel('Trang sau ➡️')
+                .setStyle(ButtonStyle.Primary)
+                .setDisabled(page >= totalPages - 1);
+
+            const rowPag = new ActionRowBuilder<ButtonBuilder>().addComponents(prevButton, pageIndicator, nextButton);
+            rows.push(rowPag);
+        }
+
+        return rows;
     };
 
-    const videoOptions = buildVideoOptions(filteredCache);
-    const videoMenuCustomId = 'warmup_video_' + message.id;
-    const videoSelect = new StringSelectMenuBuilder()
-        .setCustomId(videoMenuCustomId)
-        .setPlaceholder(videoOptions.length > 0 ? '🎬 Bước 2: Chọn video muốn xem...' : '❌ Không có video trong thể loại này')
-        .addOptions(videoOptions.length > 0 ? videoOptions : [
-            new StringSelectMenuOptionBuilder().setLabel('Không có video').setValue('none')
-        ])
-        .setDisabled(videoOptions.length === 0);
+    let currentRows = getComponents(currentCategoryId, currentPage);
 
-    const rowCategory = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(categorySelect);
-    const rowVideo = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(videoSelect);
-
+    // Xây dựng embed mô tả ban đầu
+    let initVideos = globalWarmupCache;
+    if (currentCategoryId !== 'all') {
+        initVideos = globalWarmupCache.filter(v => v.category.toLowerCase() === currentCategoryId.toLowerCase());
+    }
     const embed = new EmbedBuilder()
         .setTitle(`🎬 KHO VIDEO GIẢI TRÍ BOTTOAN${filterLabel}`)
         .setDescription(
             `Chào mừng bạn đến với rạp chiếu phim mini của **BotToan**! 🍿\n\n` +
             `🔍 **Tìm nhanh:** Bạn có thể gõ \`@BotToan warmup [từ khóa]\` để lọc video siêu tốc.\n\n` +
-            `👇 **Lựa chọn theo 2 bước bên dưới:** Chọn Thể loại trước rồi chọn Video muốn xem nhé!`
+            `📊 Hiện có: **${initVideos.length} video** thuộc lựa chọn hiện tại.\n\n` +
+            `👇 **Lựa chọn theo các bước bên dưới:** Chọn Thể loại trước rồi chọn Video muốn xem nhé!`
         )
         .setColor(0x8E44AD)
         .setFooter({ text: "Hệ thống phát video độc lập • BotToan Warmup", iconURL: client.user?.displayAvatarURL() })
@@ -791,58 +870,39 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
 
     const menuMsg = await message.reply({
         embeds: [embed],
-        components: [rowCategory, rowVideo]
+        components: currentRows
     }).catch(() => null);
 
     if (!menuMsg) return;
 
     const collector = menuMsg.createMessageComponentCollector({
-        filter: (i: any) => i.customId === categoryMenuCustomId || i.customId === videoMenuCustomId,
+        filter: (i: any) => 
+            i.customId === categoryMenuCustomId || 
+            i.customId === videoMenuCustomId ||
+            i.customId === prevBtnId ||
+            i.customId === nextBtnId,
         time: 300000 // 5 phút
     });
-
-    let currentCategoryId = selectedCategoryValue;
-    let currentRows = [rowCategory, rowVideo];
 
     collector.on('collect', async (interaction: any) => {
         if (interaction.customId === categoryMenuCustomId) {
             currentCategoryId = interaction.values[0];
+            currentPage = 0; // Reset trang khi đổi thể loại
 
-            // Lọc lại danh sách video theo category đã chọn
+            const updatedRows = getComponents(currentCategoryId, currentPage);
+            currentRows = updatedRows;
+            
+            const embedTitle = currentCategoryId === 'all' ? 'TẤT CẢ THỂ LOẠI' : currentCategoryId.toUpperCase();
             let categoryVideos = globalWarmupCache;
             if (currentCategoryId !== 'all') {
                 categoryVideos = globalWarmupCache.filter(v => v.category.toLowerCase() === currentCategoryId.toLowerCase());
             }
 
-            const newVideoOptions = buildVideoOptions(categoryVideos);
-            const newVideoSelect = new StringSelectMenuBuilder()
-                .setCustomId(videoMenuCustomId)
-                .setPlaceholder(newVideoOptions.length > 0 ? '🎬 Bước 2: Chọn video muốn xem...' : '❌ Không có video trong thể loại này')
-                .addOptions(newVideoOptions.length > 0 ? newVideoOptions : [
-                    new StringSelectMenuOptionBuilder().setLabel('Không có video').setValue('none')
-                ])
-                .setDisabled(newVideoOptions.length === 0);
-
-            // Cập nhật lại trạng thái default được chọn trong menu thể loại
-            const newCategoryOptions = categoryOptions.map(opt => {
-                const isSelected = opt.data.value === currentCategoryId;
-                return StringSelectMenuOptionBuilder.from(opt).setDefault(isSelected);
-            });
-            const newCategorySelect = new StringSelectMenuBuilder()
-                .setCustomId(categoryMenuCustomId)
-                .setPlaceholder('📁 Bước 1: Chọn thể loại video muốn xem...')
-                .addOptions(newCategoryOptions);
-
-            const newRowCategory = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(newCategorySelect);
-            const newRowVideo = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(newVideoSelect);
-            currentRows = [newRowCategory, newRowVideo];
-
-            const embedTitle = currentCategoryId === 'all' ? 'TẤT CẢ THỂ LOẠI' : currentCategoryId.toUpperCase();
             const updatedSearchEmbed = EmbedBuilder.from(embed)
                 .setTitle(`🎬 KHO VIDEO GIẢI TRÍ BOTTOAN — ${embedTitle}`)
                 .setDescription(
                     `Chào mừng bạn đến với rạp chiếu phim mini của **BotToan**! 🍿\n\n` +
-                    `📊 Đang hiển thị các video của thể loại: **${embedTitle}**\n\n` +
+                    `📊 Đang hiển thị các video của thể loại: **${embedTitle}** (${categoryVideos.length} video)\n\n` +
                     `👇 **Hãy chọn video từ menu bên dưới** để bắt đầu thưởng thức!`
                 );
 
@@ -851,6 +911,27 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                 components: currentRows
             }).catch(() => {});
 
+        } else if (interaction.customId === prevBtnId) {
+            if (currentPage > 0) {
+                currentPage--;
+                currentRows = getComponents(currentCategoryId, currentPage);
+                await interaction.update({
+                    components: currentRows
+                }).catch(() => {});
+            }
+        } else if (interaction.customId === nextBtnId) {
+            let categoryVideos = globalWarmupCache;
+            if (currentCategoryId !== 'all') {
+                categoryVideos = globalWarmupCache.filter(v => v.category.toLowerCase() === currentCategoryId.toLowerCase());
+            }
+            const totalPages = Math.ceil(categoryVideos.length / 25);
+            if (currentPage < totalPages - 1) {
+                currentPage++;
+                currentRows = getComponents(currentCategoryId, currentPage);
+                await interaction.update({
+                    components: currentRows
+                }).catch(() => {});
+            }
         } else if (interaction.customId === videoMenuCustomId) {
             const selectedId = interaction.values[0];
             if (selectedId === 'none') {
@@ -870,12 +951,19 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
 
     collector.on('end', async () => {
         try {
-            const disabledCategory = StringSelectMenuBuilder.from(categorySelect).setDisabled(true);
-            const disabledVideo = StringSelectMenuBuilder.from(videoSelect).setDisabled(true);
-            const disabledRowCategory = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledCategory);
-            const disabledRowVideo = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(disabledVideo);
+            const disabledRows = getComponents(currentCategoryId, currentPage).map((row: any) => {
+                const newRow = new ActionRowBuilder<any>();
+                row.components.forEach((comp: any) => {
+                    if (comp instanceof StringSelectMenuBuilder) {
+                        newRow.addComponents(StringSelectMenuBuilder.from(comp).setDisabled(true));
+                    } else if (comp instanceof ButtonBuilder) {
+                        newRow.addComponents(ButtonBuilder.from(comp).setDisabled(true));
+                    }
+                });
+                return newRow;
+            });
             await menuMsg.edit({
-                components: [disabledRowCategory, disabledRowVideo]
+                components: disabledRows
             }).catch(() => {});
         } catch {}
     });
