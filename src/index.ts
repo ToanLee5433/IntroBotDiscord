@@ -30,7 +30,7 @@ import { handleGamingCourt } from './games/gamingcourt';
 import { handleWCPrediction, playWCPenalty, handleWCCommand, registerWorldCupCollector } from './games/worldcup';
 import { handleAvatarCommand, registerAvatarCollector } from './commands/avatar';
 import { registerWelcomeEvent } from './events/welcome';
-import { handleWarmupCommand, loadWarmupVideosCache } from './commands/warmup';
+import { handleWarmupCommand, loadWarmupVideosCache, registerWarmupCollector } from './commands/warmup';
 
 
 import cron from 'node-cron';
@@ -1848,8 +1848,16 @@ client.on('debug', (info) => {
     }
 });
 
-client.once('clientReady', (readyClient) => {
+let dbConnectionPromise: Promise<void>;
+
+client.once('ready', async (readyClient) => {
     console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
+    if (dbConnectionPromise) {
+        await dbConnectionPromise.catch(() => {});
+    }
+    await loadWarmupVideosCache(readyClient).catch(err => {
+        console.error("[WARMUP LỖI] Không thể nạp cache video warmup lúc khởi chạy:", err);
+    });
 });
 
 (async () => {
@@ -1905,13 +1913,9 @@ client.once('clientReady', (readyClient) => {
         });
 
         // Kết nối DB song song (không chặn đăng nhập Discord)
-        connectDB()
+        dbConnectionPromise = connectDB()
             .then(async () => {
                 console.log("[HỆ THỐNG] Tiến trình kết nối DB hoàn tất.");
-                // Nạp cache video warmup sau khi kết nối DB thành công
-                await loadWarmupVideosCache(client).catch(err => {
-                    console.error("[WARMUP LỖI] Không thể nạp cache video warmup:", err);
-                });
             })
             .catch(err => {
                 console.error("[HỆ THỐNG LỖI] Gặp lỗi khi kết nối DB:", err);
@@ -1937,6 +1941,9 @@ client.once('clientReady', (readyClient) => {
 
         // Đăng ký MyGu Collector
         registerMyGuCollector(client);
+
+        // Đăng ký Warmup Video Navigation Collector
+        registerWarmupCollector(client);
 
         // Đăng ký Welcome Event (Chào mừng thành viên mới & Nhận lì xì)
         registerWelcomeEvent(client);

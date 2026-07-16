@@ -84,6 +84,23 @@ export function convertToTnktok(url: string): string {
     });
 }
 
+/** Kiểm tra xem link CDN đính kèm của Discord đã hết hạn (hoặc sắp hết hạn) chưa */
+export function isDiscordCdnUrlExpired(url: string): boolean {
+    if (!url) return true;
+    try {
+        const parsedUrl = new URL(url);
+        const exHex = parsedUrl.searchParams.get('ex');
+        if (!exHex) return false;
+        const exSec = parseInt(exHex, 16);
+        if (isNaN(exSec)) return false;
+        // Nếu còn ít hơn 5 phút (300 giây) thì coi như hết hạn để refresh sớm
+        return exSec < (Date.now() / 1000) + 300;
+    } catch {
+        return false;
+    }
+}
+
+
 export async function loadWarmupVideosCache(client: Client): Promise<void> {
     try {
         if (!WARMUP_CHANNEL_ID) {
@@ -212,7 +229,7 @@ async function sendVideoToUser(
     let videoUrl = video.videoUrl;
     let fileName = video.fileName || 'video.mp4';
 
-    if (video.videoType === 'discord' && !videoUrl && video.messageId) {
+    if (video.videoType === 'discord' && (!videoUrl || isDiscordCdnUrlExpired(videoUrl)) && video.messageId) {
         try {
             const channel = await client.channels.fetch(WARMUP_CHANNEL_ID).catch(() => null) as TextChannel;
             if (channel) {
@@ -263,12 +280,31 @@ async function sendVideoToUser(
         } catch {}
     }
 
+    // Tạo các nút điều hướng
+    const prevButton = new ButtonBuilder()
+        .setCustomId(`warmup:nav:prev:${video.id}:${video.category.toLowerCase()}`)
+        .setLabel('◀️ Video trước')
+        .setStyle(ButtonStyle.Primary);
+
+    const randomButton = new ButtonBuilder()
+        .setCustomId(`warmup:nav:random:${video.id}:${video.category.toLowerCase()}`)
+        .setLabel('🎲 Ngẫu nhiên')
+        .setStyle(ButtonStyle.Secondary);
+
+    const nextButton = new ButtonBuilder()
+        .setCustomId(`warmup:nav:next:${video.id}:${video.category.toLowerCase()}`)
+        .setLabel('Video sau ▶️')
+        .setStyle(ButtonStyle.Primary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(prevButton, randomButton, nextButton);
+
     // Bước 3: Gửi tin nhắn mới chứa video/YouTube URL để Discord tự render video player tuyệt đối chính xác
     try {
         let newMsg;
         if (video.videoType === 'youtube' || video.videoType === 'external') {
             newMsg = await interaction.channel.send({
-                content: videoUrl
+                content: `🎥 **${video.title.toUpperCase()}** (${getCategoryEmoji(video.category)} \`${video.category}\`)\n${videoUrl}`,
+                components: [row]
             });
         } else {
             const MAX_SIZE = 24 * 1024 * 1024;
@@ -284,7 +320,9 @@ async function sendVideoToUser(
             const attachment = new AttachmentBuilder(buffer, { name: fileName });
 
             newMsg = await interaction.channel.send({
-                files: [attachment]
+                content: `🎥 **${video.title.toUpperCase()}** (${getCategoryEmoji(video.category)} \`${video.category}\`)`,
+                files: [attachment],
+                components: [row]
             });
         }
 
@@ -300,9 +338,10 @@ async function sendVideoToUser(
         }).catch(() => {});
     } catch (err: any) {
         console.warn(`[WARMUP] Gặp lỗi đính kèm file, fallback gửi link CDN: ${err.message}`);
-        // Fallback gửi link CDN thô
+        // Fallback gửi link CDN thô kèm các nút
         const fallbackMsg = await interaction.channel.send({
-            content: videoUrl
+            content: `🎥 **${video.title.toUpperCase()}** (${getCategoryEmoji(video.category)} \`${video.category}\`)\n${videoUrl}`,
+            components: [row]
         }).catch(() => null);
 
         if (fallbackMsg) {
@@ -705,9 +744,35 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
     }
 
     // 5. HIỂN THỊ SELECT MENU ĐỂ XEM VIDEO (2 THANH CHỌN + TÌM KIẾM)
-    const categoriesInCache = Array.from(new Set(globalWarmupCache.map(v => v.category)));
     const defaultCategories = ['Gaming', 'Meme', 'Music', 'Tiktok', 'Dance', 'General'];
-    const allCategories = Array.from(new Set([...defaultCategories, ...categoriesInCache]));
+    
+    // Hàm chuẩn hóa thể loại
+    const normalizeCategoryName = (cat: string): string => {
+        const trimmed = cat.trim();
+        const matched = defaultCategories.find(c => c.toLowerCase() === trimmed.toLowerCase());
+        if (matched) return matched;
+        
+        // Viết hoa chữ cái đầu mỗi từ
+        return trimmed.split(/\s+/).map(word => {
+            if (!word) return '';
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }).join(' ');
+    };
+
+    // Tạo danh sách độc nhất (case-insensitive) của tất cả các thể loại trong cache
+    const uniqueCacheCategoriesMap = new Map<string, string>(); // lowercase -> normalized
+    for (const v of globalWarmupCache) {
+        if (v.category) {
+            const norm = normalizeCategoryName(v.category);
+            uniqueCacheCategoriesMap.set(norm.toLowerCase(), norm);
+        }
+    }
+    
+    const categoriesInCache = Array.from(uniqueCacheCategoriesMap.values());
+    const allCategories = Array.from(new Set([
+        ...defaultCategories,
+        ...categoriesInCache
+    ]));
 
     let filteredCache = globalWarmupCache;
     let filterLabel = '';
@@ -741,7 +806,26 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
         return;
     }
 
-    // --- Xây dựng Thanh 1: Danh sách Thể loại ---
+    // Lọc danh sách thể loại có chứa video thực tế trong cache
+    const activeCategories = allCategories.filter(cat => 
+        globalWarmupCache.some(v => v.category.toLowerCase() === cat.toLowerCase())
+    );
+
+    // --- Xây dựng Thanh 1: Danh sách Thể loại (Giới hạn tối đa 25 options của Discord Select Menu) ---
+    // Tìm thể loại hiện tại đang được chọn (nếu có) để ưu tiên giữ lại trong menu hiển thị
+    const targetCategory = activeCategories.find(c => c.toLowerCase() === selectedCategoryValue);
+    
+    // Tạo danh sách tối đa 24 thể loại để chừa 1 slot cho "Tất cả thể loại" (25 tổng cộng)
+    const displayedCategories: string[] = [];
+    if (targetCategory) {
+        displayedCategories.push(targetCategory);
+    }
+    for (const cat of activeCategories) {
+        if (displayedCategories.length >= 24) break;
+        if (targetCategory && cat.toLowerCase() === targetCategory.toLowerCase()) continue;
+        displayedCategories.push(cat);
+    }
+
     const categoryOptions = [
         new StringSelectMenuOptionBuilder()
             .setLabel('🌟 Tất cả thể loại')
@@ -750,19 +834,15 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
             .setDefault(selectedCategoryValue === 'all')
     ];
 
-    for (const cat of allCategories) {
-        // Chỉ hiện thể loại nếu có video thuộc thể loại đó trong cache
-        const hasVideo = globalWarmupCache.some(v => v.category.toLowerCase() === cat.toLowerCase());
-        if (hasVideo) {
-            const emoji = getCategoryEmoji(cat);
-            categoryOptions.push(
-                new StringSelectMenuOptionBuilder()
-                    .setLabel(`${emoji} ${cat}`)
-                    .setDescription(`Xem các video thuộc thể loại ${cat}`)
-                    .setValue(cat.toLowerCase())
-                    .setDefault(selectedCategoryValue === cat.toLowerCase())
-            );
-        }
+    for (const cat of displayedCategories) {
+        const emoji = getCategoryEmoji(cat);
+        categoryOptions.push(
+            new StringSelectMenuOptionBuilder()
+                .setLabel(`${emoji} ${cat}`)
+                .setDescription(`Xem các video thuộc thể loại ${cat}`)
+                .setValue(cat.toLowerCase())
+                .setDefault(selectedCategoryValue === cat.toLowerCase())
+        );
     }
 
     const categoryMenuCustomId = 'warmup_category_' + message.id;
@@ -966,5 +1046,179 @@ export async function handleWarmupCommand(message: Message, rawInput: string, cl
                 components: disabledRows
             }).catch(() => {});
         } catch {}
+    });
+}
+
+/**
+ * Phát video tiếp theo/trước đó/ngẫu nhiên từ các nút điều hướng trên tin nhắn video
+ */
+async function playVideoFromNavigation(
+    interaction: any,
+    video: ICachedWarmupVideo,
+    client: Client
+): Promise<void> {
+    const channelId = interaction.channelId;
+
+    // Phản hồi ngay lập tức để tránh quá hạn Discord interaction
+    try {
+        await interaction.deferUpdate().catch(() => {});
+    } catch {}
+
+    // Xóa tin nhắn video cũ ngay lập tức để tránh rác kênh chat
+    try {
+        await interaction.message.delete().catch(() => {});
+    } catch {}
+
+    // Lazy load URL của video Discord nếu cần thiết (hết hạn hoặc chưa có)
+    let videoUrl = video.videoUrl;
+    let fileName = video.fileName || 'video.mp4';
+
+    if (video.videoType === 'discord' && (!videoUrl || isDiscordCdnUrlExpired(videoUrl)) && video.messageId) {
+        try {
+            const channel = await client.channels.fetch(WARMUP_CHANNEL_ID).catch(() => null) as TextChannel;
+            if (channel) {
+                const msg = await channel.messages.fetch(video.messageId).catch(() => null);
+                const attachment = msg?.attachments.first();
+                if (attachment && attachment.url) {
+                    videoUrl = attachment.url;
+                    fileName = attachment.name || fileName;
+                    video.videoUrl = attachment.url;
+                    video.fileName = attachment.name || video.fileName;
+                }
+            }
+        } catch (e) {
+            console.error("[WARMUP NAV LAZY LOAD LỖI] Lỗi lazy load video URL:", e);
+        }
+    }
+
+    if (video.videoType === 'discord' && !videoUrl) {
+        try {
+            await deleteWarmupVideo(video.id);
+            globalWarmupCache = globalWarmupCache.filter(v => v.id !== video.id);
+        } catch {}
+
+        await interaction.channel.send({
+            content: `❌ **Không thể phát video này!** File đính kèm trên Discord của video này đã bị xóa hoặc không thể truy cập.\n*Bot đã tự động dọn dẹp và xóa video này khỏi danh sách.*`,
+        }).then((m: any) => setTimeout(() => m.delete().catch(() => {}), 5000)).catch(() => {});
+        return;
+    }
+
+    // Tạo các nút điều hướng mới cho video tiếp theo
+    const prevButton = new ButtonBuilder()
+        .setCustomId(`warmup:nav:prev:${video.id}:${video.category.toLowerCase()}`)
+        .setLabel('◀️ Video trước')
+        .setStyle(ButtonStyle.Primary);
+
+    const randomButton = new ButtonBuilder()
+        .setCustomId(`warmup:nav:random:${video.id}:${video.category.toLowerCase()}`)
+        .setLabel('🎲 Ngẫu nhiên')
+        .setStyle(ButtonStyle.Secondary);
+
+    const nextButton = new ButtonBuilder()
+        .setCustomId(`warmup:nav:next:${video.id}:${video.category.toLowerCase()}`)
+        .setLabel('Video sau ▶️')
+        .setStyle(ButtonStyle.Primary);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(prevButton, randomButton, nextButton);
+
+    try {
+        let newMsg;
+        if (video.videoType === 'youtube' || video.videoType === 'external') {
+            newMsg = await interaction.channel.send({
+                content: `🎥 **${video.title.toUpperCase()}** (${getCategoryEmoji(video.category)} \`${video.category}\`)\n${videoUrl}`,
+                components: [row]
+            });
+        } else {
+            const MAX_SIZE = 24 * 1024 * 1024;
+            const response = await fetch(videoUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BotToan-Discord/1.0)' }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            if (buffer.length > MAX_SIZE) throw new Error(`FILE_TOO_LARGE`);
+
+            const attachment = new AttachmentBuilder(buffer, { name: fileName });
+
+            newMsg = await interaction.channel.send({
+                content: `🎥 **${video.title.toUpperCase()}** (${getCategoryEmoji(video.category)} \`${video.category}\`)`,
+                files: [attachment],
+                components: [row]
+            });
+        }
+
+        if (newMsg) {
+            activeVideoMessages.set(channelId, newMsg.id);
+        }
+    } catch (err: any) {
+        console.warn(`[WARMUP NAV] Gặp lỗi đính kèm file, fallback gửi link CDN: ${err.message}`);
+        
+        const fallbackMsg = await interaction.channel.send({
+            content: `🎥 **${video.title.toUpperCase()}** (${getCategoryEmoji(video.category)} \`${video.category}\`)\n${videoUrl}`,
+            components: [row]
+        }).catch(() => null);
+
+        if (fallbackMsg) {
+            activeVideoMessages.set(channelId, fallbackMsg.id);
+        }
+    }
+}
+
+/**
+ * Đăng ký bộ lắng nghe sự kiện tương tác nút bấm chuyển video (Trước/Sau/Ngẫu nhiên)
+ */
+export function registerWarmupCollector(client: Client) {
+    client.on('interactionCreate', async (interaction: any) => {
+        const id = interaction.customId;
+        if (!id || !id.startsWith('warmup:nav:')) return;
+
+        if (interaction.isButton()) {
+            const parts = id.split(':');
+            const action = parts[2];
+            const currentVideoId = parts[3];
+            const categoryId = parts.slice(4).join(':');
+
+            let categoryVideos = globalWarmupCache;
+            if (categoryId !== 'all') {
+                categoryVideos = globalWarmupCache.filter(v => v.category.toLowerCase() === categoryId.toLowerCase());
+            }
+
+            if (categoryVideos.length === 0) {
+                await interaction.reply({ content: "❌ Không có video nào trong danh sách!", ephemeral: true }).catch(() => {});
+                return;
+            }
+
+            let targetVideoIdx = categoryVideos.findIndex(v => v.id === currentVideoId);
+            let nextVideo: ICachedWarmupVideo | undefined;
+
+            if (action === 'next') {
+                if (targetVideoIdx === -1 || targetVideoIdx === categoryVideos.length - 1) {
+                    nextVideo = categoryVideos[0];
+                } else {
+                    nextVideo = categoryVideos[targetVideoIdx + 1];
+                }
+            } else if (action === 'prev') {
+                if (targetVideoIdx === -1 || targetVideoIdx === 0) {
+                    nextVideo = categoryVideos[categoryVideos.length - 1];
+                } else {
+                    nextVideo = categoryVideos[targetVideoIdx - 1];
+                }
+            } else if (action === 'random') {
+                if (categoryVideos.length <= 1) {
+                    nextVideo = categoryVideos[0];
+                } else {
+                    let randIdx;
+                    do {
+                        randIdx = Math.floor(Math.random() * categoryVideos.length);
+                    } while (categoryVideos[randIdx].id === currentVideoId);
+                    nextVideo = categoryVideos[randIdx];
+                }
+            }
+
+            if (nextVideo) {
+                await playVideoFromNavigation(interaction, nextVideo, client);
+            }
+        }
     });
 }
