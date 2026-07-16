@@ -238,7 +238,18 @@ client.on('messageCreate', async (message: Message) => {
         console.error("Lỗi giải trừ Nickname Simp Lỏ:", err);
     }
 
-    if (!message.mentions.has(client.user)) return;
+    // In log tin nhắn nhận được để chẩn đoán
+    console.log(`[TIN NHẮN] Nhận từ ${message.author.tag} (${message.author.id}) trong kênh ${message.channelId}: "${message.content}"`);
+
+    if (!message.mentions.has(client.user)) {
+        return;
+    }
+
+    const botId = client.user.id;
+    const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
+    const cleanInput = removeAccents(rawInput).toLowerCase();
+
+    console.log(`[TIN NHẮN] Mentioned Bot. rawInput: "${rawInput}", cleanInput: "${cleanInput}"`);
 
     // ----------------- KIỂM TRA CẤM CHAT (BOT LEVEL) -----------------
     const banExpires = await getChatBanExpires(message.author.id);
@@ -259,14 +270,16 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
-    const botId = client.user.id;
-    const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
-    const cleanInput = removeAccents(rawInput).toLowerCase();
-    
     // ----------------- TÍNH NĂNG WARMUP VIDEO -----------------
     const warmupTriggers = ['warmup', 'khoi dong', 'video'];
     if (warmupTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
-        await handleWarmupCommand(message, rawInput, client);
+        console.log(`[WARMUP] Đang gọi handleWarmupCommand cho rawInput: "${rawInput}"`);
+        try {
+            await handleWarmupCommand(message, rawInput, client);
+            console.log(`[WARMUP] handleWarmupCommand đã hoàn tất.`);
+        } catch (err: any) {
+            console.error(`[WARMUP LỖI] Lỗi khi xử lý lệnh handleWarmupCommand:`, err);
+        }
         return;
     }
 
