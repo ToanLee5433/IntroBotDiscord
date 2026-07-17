@@ -755,7 +755,12 @@ client.on('messageCreate', async (message: Message) => {
         const userMentionMatch = cleanInput.match(/<@!?(\d+)>/);
         if (userMentionMatch) {
             const cleanInputWithoutMention = cleanInput.replace(/<@!?\d+>/g, '');
-            const amount = parseMoneyInput(cleanInputWithoutMention);
+            // Loại bỏ từ khóa 'cho', 'to', 'for' và lệnh 'chuyen', 'pay' ở đầu để parse số tiền chính xác
+            const amountText = cleanInputWithoutMention
+                .replace(/\b(cho|to|for)\b/g, '')
+                .replace(/^(chuyen|pay)\s*/i, '')
+                .trim();
+            const amount = parseMoneyInput(amountText);
             const receiverId = userMentionMatch[1];
             const senderId = message.author.id;
 

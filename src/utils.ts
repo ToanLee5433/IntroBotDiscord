@@ -58,8 +58,8 @@ export const parseMoneyInput = (input: string): number | null => {
     // Chuẩn hóa xóa khoảng trắng
     let normalized = removeAccents(input).toLowerCase().replace(/\s+/g, '');
     
-    // Tìm đơn vị ở cuối
-    const unitMatch = normalized.match(/(k|tr|trieu|ty|b)$/);
+    // Tìm đơn vị ở cuối (hỗ trợ thêm m cho triệu)
+    const unitMatch = normalized.match(/(k|tr|trieu|ty|b|m)$/);
     const unit = unitMatch ? unitMatch[1] : undefined;
     
     // Lấy phần số trước đơn vị
@@ -98,7 +98,7 @@ export const parseMoneyInput = (input: string): number | null => {
     if (unit === 'k') {
         return Math.floor(value);
     }
-    if (unit === 'tr' || unit === 'trieu') {
+    if (unit === 'tr' || unit === 'trieu' || unit === 'm') {
         return Math.floor(value * 1000);
     }
     if (unit === 'ty' || unit === 'b') {
