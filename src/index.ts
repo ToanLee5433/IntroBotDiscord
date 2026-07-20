@@ -1493,9 +1493,14 @@ async function executePurge(
     return result;
 }
 
+const PRINCESS_ROLE_ID = "1528640097325547580";
+const princessCooldowns = new Map<string, number>();
+
 // ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
-    if (newState.member?.user.bot || oldState.channelId === newState.channelId) return;
+    // 1. Lọc bớt sự kiện mute/unmute/deaf/stream: chỉ xử lý khi THỰC SỰ vào hoặc chuyển kênh voice
+    const isJoiningOrSwitching = Boolean(newState.channelId && oldState.channelId !== newState.channelId);
+    if (!isJoiningOrSwitching || newState.member?.user.bot) return;
 
     const oldChannel = oldState.channel;
     const newChannel = newState.channel;
@@ -1512,6 +1517,63 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     const userId = newState.member?.id;
     if (!userId) return;
 
+    // --- Xử lý thông báo Text bựa & hài hước cho Role Công chúa (1528640097325547580) ---
+    try {
+        const hasPrincessRole = newState.member?.roles.cache.has(PRINCESS_ROLE_ID);
+        if (hasPrincessRole) {
+            const now = Date.now();
+            const lastAnnounced = princessCooldowns.get(userId) || 0;
+            // Cooldown 60s mỗi người dùng để tránh spam khi đổi kênh liên tục
+            if (now - lastAnnounced > 60000) {
+                princessCooldowns.set(userId, now);
+
+                // Kiểm tra permissions của Bot trong Voice Channel
+                const me = newChannel.guild.members.me;
+                const permissions = me ? newChannel.permissionsFor(me) : null;
+                const canSend = !permissions || permissions.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]);
+
+                if (canSend) {
+                    const displayName = newState.member?.displayName || newState.member?.user.username || "Công chúa";
+
+                    const princessGreetings = [
+                        `👑 **CẢ LÒ QUỲ XUỐNG: CÔNG CHÚA GIÁ LÂM!** 👑\nTrật tự ngay! Nữ Vương tối cao **${displayName}** (<@${userId}>) vừa hạ cố bước chân vào voice! Nhan sắc đỉnh cao, tay aim Valorant gạt giò cả server, mỏ quở trách ai là người đó có phúc. Anh em mau dâng súng, dâng nước, chuẩn bị nghe Công chúa truyền dạy đạo lý! 💖✨🙇‍♂️`,
+
+                        `✨ **THẦN THÁI HOÀNG GIA - TỐI CAO VÔ THƯỢNG!** ✨\nChào mừng Công chúa xinh đẹp nhất quả đất **${displayName}** (<@${userId}>) ghé thăm! Tay to gánh team là chuyện nhỏ, thần thái mỏ hỗn kiêu kỳ mới là đẳng cấp! Ai lỡ làm Công chúa bực mình trong game thì tự giác ra quỳ sám hối đi nhé! 💅🌸👑`,
+
+                        `🌹 **THÔNG BÁO TỪ HOÀNG CUNG:** 🌹\nCông chúa **${displayName}** (<@${userId}>) đã mở cửa bước vào! Đề nghị tất cả các nô tỳ và đồng đội chuẩn bị tinh thần: Vừa được ngắm Công chúa tỏa hào quang, vừa được nghe giọng hát rap chửi siêu mượt khi bắn Valorant. Đúng là vinh hạnh cả đời! 🎧💎🔥`,
+
+                        `🐉 **HOÀNG THỜI RỰC RỠ: CÔNG CHÚA ĐÃ TỚI!** 🐉\nKhông gian bừng sáng vì Công chúa mỏ hỗn tâm lành **${displayName}** (<@${userId}>) đã có mặt! Bắn Valorant hay số 1, phán câu nào chuẩn câu đó. Anh em chỉ việc ngoan ngoãn nghe lời, Công chúa phán "sống" là sống, phán "chết" là chết! 🌸🔫👑`
+                    ];
+                    const randomGreeting = princessGreetings[Math.floor(Math.random() * princessGreetings.length)];
+
+                    const gifPath = path.join(__dirname, '../assets/congchua.gif');
+                    const files: AttachmentBuilder[] = [];
+
+                    const embed = new EmbedBuilder()
+                        .setTitle("👑 CÔNG CHÚA KHẨU XÀ TÂM PHẬT GIÁNG TRẦN 👑")
+                        .setDescription(randomGreeting)
+                        .setColor(0xFF69B4)
+                        .setThumbnail(newState.member?.user.displayAvatarURL() || "")
+                        .setFooter({ text: "BotToan - Thông Báo Hoàng Gia Voice", iconURL: client.user?.displayAvatarURL() })
+                        .setTimestamp();
+
+                    if (fs.existsSync(gifPath)) {
+                        const attachment = new AttachmentBuilder(gifPath, { name: 'congchua.gif' });
+                        embed.setImage('attachment://congchua.gif');
+                        files.push(attachment);
+                    }
+
+                    await (newChannel as any).send({ embeds: [embed], files }).catch((err: any) => {
+                        console.error("[VOICE LOG] Lỗi gửi tin nhắn chào công chúa vào voice channel:", err);
+                    });
+                }
+            }
+        }
+    } catch (err) {
+        console.error("[VOICE LOG] Lỗi xử lý chào mừng công chúa:", err);
+    }
+
+    // --- Xử lý phát Intro MP3 cá nhân / Jail audio cũ ---
     const PRISON_CHANNEL_ID = "1517590846927667230";
     const isJailEntry = newChannel.id === PRISON_CHANNEL_ID;
     
