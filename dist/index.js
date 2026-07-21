@@ -1435,19 +1435,27 @@ const PRINCESS_ROLE_ID = "1528640097325547580";
 const princessCooldowns = new Map();
 // ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
 client.on('voiceStateUpdate', async (oldState, newState) => {
-    // 1. Xử lý TỰ ĐỘNG OUT PHÒNG: Kiểm tra kênh cũ (oldChannel) nếu có người rời đi hoặc chuyển kênh
-    const oldChannel = oldState.channel;
-    if (oldChannel) {
-        const connection = (0, voice_1.getVoiceConnection)(oldChannel.guild.id);
-        if (connection && connection.joinConfig.channelId === oldChannel.id) {
-            const humanMembers = oldChannel.members.filter(m => !m.user.bot);
-            if (humanMembers.size === 0) {
-                try {
-                    connection.destroy();
-                    console.log(`[VOICE LOG] BotToan tự động out phòng "${oldChannel.name}" vì không còn ai ở lại.`);
-                }
-                catch (err) {
-                    console.error("[VOICE LOG] Lỗi khi ngắt kết nối voice phòng cũ:", err);
+    // 1. Xử lý TỰ ĐỘNG OUT PHÒNG CHỐNG KẸT (Tương thích với AlwaysData & Render):
+    // Truy vấn trực tiếp kênh thoại mà bot đang kết nối tại Guild này
+    const guild = oldState.guild || newState.guild;
+    if (guild) {
+        const connection = (0, voice_1.getVoiceConnection)(guild.id);
+        if (connection && connection.joinConfig.channelId) {
+            const botChannelId = connection.joinConfig.channelId;
+            let botChannel = guild.channels.cache.get(botChannelId);
+            if (!botChannel) {
+                botChannel = await guild.channels.fetch(botChannelId).catch(() => null);
+            }
+            if (botChannel && botChannel.isVoiceBased()) {
+                const humanMembers = botChannel.members.filter((m) => !m.user.bot);
+                if (humanMembers.size === 0) {
+                    try {
+                        connection.destroy();
+                        console.log(`[VOICE LOG] BotToan tự động out phòng "${botChannel.name}" (${botChannelId}) vì không còn ai ở lại.`);
+                    }
+                    catch (err) {
+                        console.error("[VOICE LOG] Lỗi khi ngắt kết nối voice phòng trống:", err);
+                    }
                 }
             }
         }
@@ -1577,6 +1585,12 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     }
     catch (error) {
         console.error('Lỗi voice:', error);
+        try {
+            const conn = (0, voice_1.getVoiceConnection)(newChannel.guild.id);
+            if (conn)
+                conn.destroy();
+        }
+        catch (e) { }
     }
 });
 // ================= HÀM QUAY XỔ SỐ KIẾN THIẾT CHI TIẾT VÀ HIỆU ỨNG TRỰC TIẾP =================
@@ -1953,6 +1967,34 @@ client.once('ready', async (readyClient) => {
             console.log("[WARMUP] Đang tự động làm mới RAM Cache video...");
             await (0, warmup_1.loadWarmupVideosCache)(client).catch(err => console.error("Lỗi tự động cập nhật cache video:", err));
         }, 15 * 60 * 1000);
+        // Tự động quét vệ sinh kênh voice định kỳ mỗi 20 giây (Chống kẹt phòng voice trên AlwaysData / VPS)
+        setInterval(async () => {
+            try {
+                client.guilds.cache.forEach(async (guild) => {
+                    const connection = (0, voice_1.getVoiceConnection)(guild.id);
+                    if (connection && connection.joinConfig.channelId) {
+                        const botChannelId = connection.joinConfig.channelId;
+                        let botChannel = guild.channels.cache.get(botChannelId);
+                        if (!botChannel) {
+                            botChannel = await guild.channels.fetch(botChannelId).catch(() => null);
+                        }
+                        if (botChannel && botChannel.isVoiceBased()) {
+                            const humanMembers = botChannel.members.filter((m) => !m.user.bot);
+                            if (humanMembers.size === 0) {
+                                try {
+                                    connection.destroy();
+                                    console.log(`[VOICE SWEEP] Đã tự động out phòng voice trống "${botChannel.name}" tại server ${guild.name}.`);
+                                }
+                                catch (e) { }
+                            }
+                        }
+                    }
+                });
+            }
+            catch (err) {
+                console.error("[VOICE SWEEP LỖI]:", err);
+            }
+        }, 20000);
     }
     catch (startupError) {
         console.error("[HỆ THỐNG LỖI] Lỗi nghiêm trọng trong quá trình khởi chạy:", startupError);

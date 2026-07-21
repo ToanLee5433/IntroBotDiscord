@@ -1733,6 +1733,10 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         
     } catch (error) {
         console.error('Lỗi voice:', error);
+        try {
+            const conn = getVoiceConnection(newChannel.guild.id);
+            if (conn) conn.destroy();
+        } catch (e) {}
     }
 });
 
