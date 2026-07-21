@@ -9,6 +9,15 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
+import ffmpegPath from 'ffmpeg-static';
+
+if (ffmpegPath) {
+    process.env.FFMPEG_PATH = ffmpegPath;
+    try {
+        fs.chmodSync(ffmpegPath, 0o755);
+    } catch (e) {}
+    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpegPath}`);
+}
 
 import { PORT, TOKEN, loadAgentIcons } from './config';
 import { playBauCua } from './games/baucua';
@@ -225,14 +234,25 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         const member = newState.member;
         if (!member || member.user.bot) return; // Bỏ qua bot
 
-        const oldChannelId = oldState.channelId;
-        const newChannelId = newState.channelId;
+        const oldChannel = oldState.channel;
+        const newChannel = newState.channel;
 
-        // Nếu vừa gia nhập phòng thoại mới (hoặc chuyển sang phòng thoại khác)
-        if (newChannelId && oldChannelId !== newChannelId) {
+        // Nếu thành viên rời phòng thoại và phòng thoại cũ không còn ai (trừ bot) -> Bot tự thoát
+        if (oldChannel) {
+            const connection = getVoiceConnection(oldChannel.guild.id);
+            if (connection && connection.joinConfig.channelId === oldChannel.id) {
+                const nonBotMembers = oldChannel.members.filter(m => !m.user.bot);
+                if (nonBotMembers.size === 0) {
+                    try { connection.destroy(); } catch (e) {}
+                }
+            }
+        }
+
+        // Nếu mới gia nhập phòng thoại mới (hoặc chuyển từ kênh khác sang)
+        if (newChannel && oldState.channelId !== newState.channelId) {
             const guild = newState.guild;
 
-            // Đèn kiểm tra tệp mp3 riêng theo ID của member: audio/<userID>.mp3, hoặc audio/default.mp3
+            // Kiểm tra tệp mp3 riêng theo ID của member: audio/<userID>.mp3, hoặc audio/default.mp3
             const userIdMp3 = path.join(__dirname, `../audio/${member.id}.mp3`);
             const defaultMp3 = path.join(__dirname, '../audio/default.mp3');
 
@@ -245,14 +265,14 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
             if (!audioToPlay) return;
 
-            // Ngắt kết nối voice cũ nếu đang bận
+            // Ngắt kết nối voice cũ nếu đang dở
             const existingConnection = getVoiceConnection(guild.id);
             if (existingConnection) {
                 try { existingConnection.destroy(); } catch (e) {}
             }
 
             const connection = joinVoiceChannel({
-                channelId: newChannelId,
+                channelId: newChannel.id,
                 guildId: guild.id,
                 adapterCreator: guild.voiceAdapterCreator,
                 selfDeaf: false,
@@ -265,7 +285,7 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
             player.play(resource);
             connection.subscribe(player);
 
-            console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannelId} phát nhạc Intro cho ${member.user.tag} (${audioToPlay})`);
+            console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);
 
             player.on(AudioPlayerStatus.Idle, () => {
                 try { player.stop(); } catch (e) {}
