@@ -317,17 +317,26 @@ client.on('messageCreate', async (message: Message) => {
                 selfMute: false,
             });
 
-            await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+            await entersState(connection, VoiceConnectionStatus.Ready, 15000);
             const player = createAudioPlayer();
-
-            // Bước A: Đọc giọng TTS trước
-            player.play(createAudioResource(ttsUrl));
             connection.subscribe(player);
 
             await message.reply(`🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` đọc nhắc nhở: "${speakText}"!** 🔊`).catch(() => {});
 
-            // Bước B: Khi đọc TTS xong, phát tiếp nhạc ngudiemoi.mp3 (nếu có)
+            // Bước A: Thử đọc giọng TTS trước
             let isTTSDone = false;
+            try {
+                const resource = createAudioResource(ttsUrl);
+                player.play(resource);
+            } catch (ttsErr) {
+                console.error("[TTS FETCH ERROR]:", ttsErr);
+                isTTSDone = true;
+                if (hasAudioFile) {
+                    player.play(createAudioResource(audioPath));
+                }
+            }
+
+            // Bước B: Khi đọc TTS xong (hoặc lỗi), phát tiếp nhạc ngudiemoi.mp3 (nếu có)
             player.on(AudioPlayerStatus.Idle, () => {
                 if (!isTTSDone && hasAudioFile) {
                     isTTSDone = true;
@@ -343,8 +352,13 @@ client.on('messageCreate', async (message: Message) => {
             });
 
             player.on('error', err => {
-                console.error("[NGUDIEMOI AUDIO ERROR]:", err);
-                try { connection.destroy(); } catch (e) {}
+                console.error("[NGUDIEMOI AUDIO PLAYER ERROR]:", err);
+                if (!isTTSDone && hasAudioFile) {
+                    isTTSDone = true;
+                    try { player.play(createAudioResource(audioPath)); } catch (e) { try { connection.destroy(); } catch (e2) {} }
+                } else {
+                    try { connection.destroy(); } catch (e) {}
+                }
             });
 
         } catch (err) {

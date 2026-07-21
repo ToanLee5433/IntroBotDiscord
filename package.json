@@ -25,7 +25,9 @@
     "mongoose": "^9.7.1",
     "node-cron": "^4.4.1",
     "pokersolver": "^2.1.4",
-    "sodium-native": "^5.1.0"
+    "sodium-native": "^5.1.0",
+    "tweetnacl": "^1.0.3",
+    "opusscript": "^0.0.8"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

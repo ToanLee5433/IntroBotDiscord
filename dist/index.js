@@ -326,14 +326,24 @@ client.on('messageCreate', async (message) => {
                 selfDeaf: false,
                 selfMute: false,
             });
-            await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 5000);
+            await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 15000);
             const player = (0, voice_1.createAudioPlayer)();
-            // Bước A: Đọc giọng TTS trước
-            player.play((0, voice_1.createAudioResource)(ttsUrl));
             connection.subscribe(player);
             await message.reply(`🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` đọc nhắc nhở: "${speakText}"!** 🔊`).catch(() => { });
-            // Bước B: Khi đọc TTS xong, phát tiếp nhạc ngudiemoi.mp3 (nếu có)
+            // Bước A: Thử đọc giọng TTS trước
             let isTTSDone = false;
+            try {
+                const resource = (0, voice_1.createAudioResource)(ttsUrl);
+                player.play(resource);
+            }
+            catch (ttsErr) {
+                console.error("[TTS FETCH ERROR]:", ttsErr);
+                isTTSDone = true;
+                if (hasAudioFile) {
+                    player.play((0, voice_1.createAudioResource)(audioPath));
+                }
+            }
+            // Bước B: Khi đọc TTS xong (hoặc lỗi), phát tiếp nhạc ngudiemoi.mp3 (nếu có)
             player.on(voice_1.AudioPlayerStatus.Idle, () => {
                 if (!isTTSDone && hasAudioFile) {
                     isTTSDone = true;
@@ -359,11 +369,25 @@ client.on('messageCreate', async (message) => {
                 }
             });
             player.on('error', err => {
-                console.error("[NGUDIEMOI AUDIO ERROR]:", err);
-                try {
-                    connection.destroy();
+                console.error("[NGUDIEMOI AUDIO PLAYER ERROR]:", err);
+                if (!isTTSDone && hasAudioFile) {
+                    isTTSDone = true;
+                    try {
+                        player.play((0, voice_1.createAudioResource)(audioPath));
+                    }
+                    catch (e) {
+                        try {
+                            connection.destroy();
+                        }
+                        catch (e2) { }
+                    }
                 }
-                catch (e) { }
+                else {
+                    try {
+                        connection.destroy();
+                    }
+                    catch (e) { }
+                }
             });
         }
         catch (err) {
