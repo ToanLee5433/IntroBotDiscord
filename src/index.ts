@@ -1,4 +1,4 @@
-process.env.TZ = 'Asia/Ho_Chi_Minh';
+import './init_ffmpeg';
 
 import { 
     Client, GatewayIntentBits, VoiceState, Message, EmbedBuilder, PermissionFlagsBits,
@@ -11,16 +11,6 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
-import ffmpegPath from 'ffmpeg-static';
-
-const ffmpegExec = typeof ffmpegPath === 'string' ? ffmpegPath : (ffmpegPath as any)?.default || require('ffmpeg-static');
-if (ffmpegExec && typeof ffmpegExec === 'string') {
-    process.env.FFMPEG_PATH = ffmpegExec;
-    try {
-        fs.chmodSync(ffmpegExec, 0o755);
-    } catch (e) {}
-    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpegExec}`);
-}
 
 import { PORT, TOKEN, loadAgentIcons } from './config';
 import { playBauCua } from './games/baucua';

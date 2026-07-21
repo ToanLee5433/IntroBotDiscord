@@ -37,22 +37,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.systemLogs = void 0;
-process.env.TZ = 'Asia/Ho_Chi_Minh';
+require("./init_ffmpeg");
 const discord_js_1 = require("discord.js");
 const voice_1 = require("@discordjs/voice");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
-const ffmpeg_static_1 = __importDefault(require("ffmpeg-static"));
-const ffmpegExec = typeof ffmpeg_static_1.default === 'string' ? ffmpeg_static_1.default : ffmpeg_static_1.default?.default || require('ffmpeg-static');
-if (ffmpegExec && typeof ffmpegExec === 'string') {
-    process.env.FFMPEG_PATH = ffmpegExec;
-    try {
-        fs.chmodSync(ffmpegExec, 0o755);
-    }
-    catch (e) { }
-    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpegExec}`);
-}
 const config_1 = require("./config");
 const baucua_1 = require("./games/baucua");
 const valorant_1 = require("./games/valorant");
