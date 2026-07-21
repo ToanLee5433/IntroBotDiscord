@@ -20,5 +20,7 @@ jobs:
             git reset --hard HEAD
             git pull origin main
             npm install --omit=dev --no-audit --no-fund --ignore-scripts
+            node -e "require('ffmpeg-static')" 2>/dev/null || npm install ffmpeg-static --no-audit --no-fund
             chmod -R +x node_modules/ffmpeg-static/ 2>/dev/null || true
+            ls -la node_modules/ffmpeg-static/ffmpeg 2>/dev/null && echo "[FFMPEG] Binary OK" || echo "[FFMPEG] WARNING: binary missing!"
             pkill -f "[d]ist/index.js" || true

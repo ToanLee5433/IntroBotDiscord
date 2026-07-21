@@ -276,21 +276,27 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
             await entersState(connection, VoiceConnectionStatus.Ready, 15000);
             const player = createAudioPlayer();
-            const resource = createAudioResource(fs.createReadStream(audioToPlay));
-            player.play(resource);
-            connection.subscribe(player);
 
-            console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);
+            // Handle all player errors to prevent crash
+            player.on('error', err => {
+                console.error("[INTRO VOICE ERROR]:", err.message);
+                try { connection.destroy(); } catch (e) {}
+            });
 
             player.on(AudioPlayerStatus.Idle, () => {
                 try { player.stop(); } catch (e) {}
                 try { connection.destroy(); } catch (e) {}
             });
 
-            player.on('error', err => {
-                console.error("[INTRO VOICE ERROR]:", err);
+            try {
+                const resource = createAudioResource(fs.createReadStream(audioToPlay));
+                player.play(resource);
+                connection.subscribe(player);
+                console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);
+            } catch (playErr) {
+                console.error("[INTRO VOICE] Không thể phát nhạc:", playErr);
                 try { connection.destroy(); } catch (e) {}
-            });
+            }
         }
     } catch (err) {
         console.error("Lỗi phát nhạc intro khi thành viên vào voice:", err);
@@ -316,8 +322,7 @@ client.on('messageCreate', async (message: Message) => {
         console.error("Lỗi giải trừ Nickname Simp Lỏ:", err);
     }
 
-    // In log tin nhắn nhận được để chẩn đoán
-    console.log(`[TIN NHẮN] Nhận từ ${message.author.tag} (${message.author.id}) trong kênh ${message.channelId}: "${message.content}"`);
+
 
     if (!message.mentions.has(client.user)) {
         return;

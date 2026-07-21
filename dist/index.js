@@ -296,10 +296,14 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             });
             await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 15000);
             const player = (0, voice_1.createAudioPlayer)();
-            const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioToPlay));
-            player.play(resource);
-            connection.subscribe(player);
-            console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);
+            // Handle all player errors to prevent crash
+            player.on('error', err => {
+                console.error("[INTRO VOICE ERROR]:", err.message);
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
             player.on(voice_1.AudioPlayerStatus.Idle, () => {
                 try {
                     player.stop();
@@ -310,13 +314,19 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 }
                 catch (e) { }
             });
-            player.on('error', err => {
-                console.error("[INTRO VOICE ERROR]:", err);
+            try {
+                const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioToPlay));
+                player.play(resource);
+                connection.subscribe(player);
+                console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);
+            }
+            catch (playErr) {
+                console.error("[INTRO VOICE] Không thể phát nhạc:", playErr);
                 try {
                     connection.destroy();
                 }
                 catch (e) { }
-            });
+            }
         }
     }
     catch (err) {
@@ -342,8 +352,6 @@ client.on('messageCreate', async (message) => {
     catch (err) {
         console.error("Lỗi giải trừ Nickname Simp Lỏ:", err);
     }
-    // In log tin nhắn nhận được để chẩn đoán
-    console.log(`[TIN NHẮN] Nhận từ ${message.author.tag} (${message.author.id}) trong kênh ${message.channelId}: "${message.content}"`);
     if (!message.mentions.has(client.user)) {
         return;
     }
