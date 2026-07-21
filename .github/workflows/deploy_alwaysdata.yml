@@ -1,0 +1,22 @@
+name: Deploy to AlwaysData
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and Deploy to AlwaysData
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ssh1.alwaysdata.com
+          username: letoan0504
+          password: ${{ secrets.ALWAYSDATA_PASSWORD }}
+          script: |
+            cd ~/IntroBotDiscord
+            git pull
+            npm install --omit=dev --no-audit --no-fund --ignore-scripts
+            pkill -f "dist/index.js" || true
