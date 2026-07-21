@@ -1525,6 +1525,8 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             prevConn.destroy();
         }
         catch (e) { }
+        // Nghỉ 100ms để Discord Voice Gateway dọn dẹp UDP socket cũ nếu vừa chuyển phòng
+        await new Promise(r => setTimeout(r, 100));
     }
     try {
         const t0 = Date.now();
@@ -1542,7 +1544,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             connection.destroy();
         }
         catch (e) { } });
+        player.on(voice_1.AudioPlayerStatus.Playing, () => {
+            console.log(`[INTRO VOICE] Audio Player bắt đầu phát âm thanh thực tế`);
+        });
         player.on(voice_1.AudioPlayerStatus.Idle, () => {
+            console.log(`[INTRO VOICE] Audio Player hoàn tất / Idle`);
             try {
                 player.stop();
             }
@@ -1554,8 +1560,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 catch (e) { }
             }
         });
-        player.play((0, voice_1.createAudioResource)(fs.createReadStream(oldAudioResult.file), { inputType: oldAudioResult.type }));
+        const resource = (0, voice_1.createAudioResource)(fs.createReadStream(oldAudioResult.file), { inputType: oldAudioResult.type });
+        // MANDATORY: Subscribe connection TRƯỚC KHI gọi player.play() để không bị rớt gói âm thanh đầu tiên
         connection.subscribe(player);
+        player.play(resource);
         console.log(`[INTRO VOICE] Đang phát ${path.basename(oldAudioResult.file)} trong ${newChannel.name}`);
     }
     catch (error) {

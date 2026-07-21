@@ -1677,7 +1677,11 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
     // Ngắt kết nối cũ trước để tránh conflict và delay
     const prevConn = getVoiceConnection(newChannel.guild.id);
-    if (prevConn) { try { prevConn.destroy(); } catch (e) {} }
+    if (prevConn) {
+        try { prevConn.destroy(); } catch (e) {}
+        // Nghỉ 100ms để Discord Voice Gateway dọn dẹp UDP socket cũ nếu vừa chuyển phòng
+        await new Promise(r => setTimeout(r, 100));
+    }
 
     try {
         const t0 = Date.now();
@@ -1694,14 +1698,21 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
         
         const player = createAudioPlayer();
         player.on('error', err => { console.error('[INTRO VOICE ERROR]:', err.message); try { connection.destroy(); } catch(e) {} });
+        player.on(AudioPlayerStatus.Playing, () => {
+            console.log(`[INTRO VOICE] Audio Player bắt đầu phát âm thanh thực tế`);
+        });
         player.on(AudioPlayerStatus.Idle, () => {
+            console.log(`[INTRO VOICE] Audio Player hoàn tất / Idle`);
             try { player.stop(); } catch (e) {}
             if (isJailEntry || newChannel.members.filter(m => !m.user.bot).size === 0) {
                 try { connection.destroy(); } catch (e) {}
             }
         });
-        player.play(createAudioResource(fs.createReadStream(oldAudioResult.file), { inputType: oldAudioResult.type }));
+
+        const resource = createAudioResource(fs.createReadStream(oldAudioResult.file), { inputType: oldAudioResult.type });
+        // MANDATORY: Subscribe connection TRƯỚC KHI gọi player.play() để không bị rớt gói âm thanh đầu tiên
         connection.subscribe(player);
+        player.play(resource);
         console.log(`[INTRO VOICE] Đang phát ${path.basename(oldAudioResult.file)} trong ${newChannel.name}`);
         
     } catch (error) {
