@@ -284,6 +284,70 @@ client.on('messageCreate', async (message) => {
         await message.reply(randomTroll).catch(() => { });
         return;
     }
+    // ----------------- TÍNH NĂNG PHÁT ÂM THANH "NGỦ ĐỊ EM / XEM STREAM" -----------------
+    const nguDieuEmTriggers = [
+        'xem stream', 'xem live', 'ngu di em', 'ngu di', 'ngu đi em',
+        'ngủ đi em', 'ngủ đi', 'livestream', 'xem strim', 'stream',
+        'ngudiemoi', 'xem live di', 'xem stream di', 'di ngu em', 'di ngu'
+    ];
+    if (nguDieuEmTriggers.some(t => cleanInput.includes(t))) {
+        const userVoiceChannel = message.member?.voice.channel;
+        const audioPath = path.join(__dirname, '../audio/ngudiemoi.mp3');
+        const hasAudioFile = fs.existsSync(audioPath);
+        let voicePlayed = false;
+        if (userVoiceChannel && message.guild && hasAudioFile) {
+            try {
+                const existingConnection = (0, voice_1.getVoiceConnection)(message.guild.id);
+                if (existingConnection) {
+                    try {
+                        existingConnection.destroy();
+                    }
+                    catch (e) { }
+                }
+                const connection = (0, voice_1.joinVoiceChannel)({
+                    channelId: userVoiceChannel.id,
+                    guildId: message.guild.id,
+                    adapterCreator: message.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: false,
+                });
+                await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 5000);
+                const player = (0, voice_1.createAudioPlayer)();
+                player.play((0, voice_1.createAudioResource)(audioPath));
+                connection.subscribe(player);
+                player.on(voice_1.AudioPlayerStatus.Idle, () => {
+                    try {
+                        player.stop();
+                    }
+                    catch (e) { }
+                    try {
+                        connection.destroy();
+                    }
+                    catch (e) { }
+                });
+                player.on('error', err => {
+                    console.error("[NGUDIEMOI AUDIO ERROR]:", err);
+                    try {
+                        connection.destroy();
+                    }
+                    catch (e) { }
+                });
+                voicePlayed = true;
+            }
+            catch (err) {
+                console.error("Lỗi kết nối voice phát ngudiemoi.mp3:", err);
+            }
+        }
+        const replyMessage = voicePlayed
+            ? `😴 **Đang phát âm thanh "Ngủ đi em" tại phòng thoại \`${userVoiceChannel?.name}\`!** 🌙 Tắt stream đi ngủ sớm đi cưng ơi!`
+            : `😴 **Ngủ đi em! Thức xem stream làm cái gì nữa!** 🌙`;
+        const replyOptions = { content: replyMessage };
+        if (hasAudioFile && !voicePlayed) {
+            replyOptions.files = [{ attachment: audioPath, name: 'ngudiemoi.mp3' }];
+        }
+        await message.reply(replyOptions).catch(() => { });
+        return;
+    }
     // ----------------- TÍNH NĂNG WARMUP VIDEO -----------------
     const warmupTriggers = ['warmup', 'khoi dong', 'video'];
     if (warmupTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
