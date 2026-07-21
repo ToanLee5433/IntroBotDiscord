@@ -37,6 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.systemLogs = void 0;
+process.env.TZ = 'Asia/Ho_Chi_Minh';
 const discord_js_1 = require("discord.js");
 const voice_1 = require("@discordjs/voice");
 const path = __importStar(require("path"));
@@ -230,6 +231,8 @@ http.createServer((req, res) => {
         `);
         res.end();
     }
+}).on('error', (err) => {
+    console.warn(`[WEB] Không thể lắng nghe trên port ${config_1.PORT} (${err.message}). Bỏ qua server web, bot vẫn chạy bình thường!`);
 }).listen(config_1.PORT, () => {
     console.log(`[WEB] Máy chủ ảo đang chạy trên port ${config_1.PORT}`);
 });

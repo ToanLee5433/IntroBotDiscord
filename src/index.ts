@@ -1,3 +1,5 @@
+process.env.TZ = 'Asia/Ho_Chi_Minh';
+
 import { 
     Client, GatewayIntentBits, VoiceState, Message, EmbedBuilder, PermissionFlagsBits,
     ActionRowBuilder, ButtonBuilder, ButtonStyle
@@ -205,6 +207,8 @@ http.createServer((req, res) => {
         `);
         res.end();
     }
+}).on('error', (err: any) => {
+    console.warn(`[WEB] Không thể lắng nghe trên port ${PORT} (${err.message}). Bỏ qua server web, bot vẫn chạy bình thường!`);
 }).listen(PORT, () => {
     console.log(`[WEB] Máy chủ ảo đang chạy trên port ${PORT}`);
 });
