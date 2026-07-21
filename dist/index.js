@@ -240,6 +240,73 @@ const client = new discord_js_1.Client({
         discord_js_1.GatewayIntentBits.GuildMembers,
     ]
 });
+// ================= LẮNG NGHE KHI CÓ THÀNH VIÊN VÀO VOICE (PHÁT NHẠC INTRO) =================
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    try {
+        const member = newState.member;
+        if (!member || member.user.bot)
+            return; // Bỏ qua bot
+        const oldChannelId = oldState.channelId;
+        const newChannelId = newState.channelId;
+        // Nếu vừa gia nhập phòng thoại mới (hoặc chuyển sang phòng thoại khác)
+        if (newChannelId && oldChannelId !== newChannelId) {
+            const guild = newState.guild;
+            // Đèn kiểm tra tệp mp3 riêng theo ID của member: audio/<userID>.mp3, hoặc audio/default.mp3
+            const userIdMp3 = path.join(__dirname, `../audio/${member.id}.mp3`);
+            const defaultMp3 = path.join(__dirname, '../audio/default.mp3');
+            let audioToPlay = "";
+            if (fs.existsSync(userIdMp3)) {
+                audioToPlay = userIdMp3;
+            }
+            else if (fs.existsSync(defaultMp3)) {
+                audioToPlay = defaultMp3;
+            }
+            if (!audioToPlay)
+                return;
+            // Ngắt kết nối voice cũ nếu đang bận
+            const existingConnection = (0, voice_1.getVoiceConnection)(guild.id);
+            if (existingConnection) {
+                try {
+                    existingConnection.destroy();
+                }
+                catch (e) { }
+            }
+            const connection = (0, voice_1.joinVoiceChannel)({
+                channelId: newChannelId,
+                guildId: guild.id,
+                adapterCreator: guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
+            await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 15000);
+            const player = (0, voice_1.createAudioPlayer)();
+            const resource = (0, voice_1.createAudioResource)(audioToPlay);
+            player.play(resource);
+            connection.subscribe(player);
+            console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannelId} phát nhạc Intro cho ${member.user.tag} (${audioToPlay})`);
+            player.on(voice_1.AudioPlayerStatus.Idle, () => {
+                try {
+                    player.stop();
+                }
+                catch (e) { }
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
+            player.on('error', err => {
+                console.error("[INTRO VOICE ERROR]:", err);
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
+        }
+    }
+    catch (err) {
+        console.error("Lỗi phát nhạc intro khi thành viên vào voice:", err);
+    }
+});
 // ================= LẮNG NGHE LỆNH & CHAT =================
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !client.user)
