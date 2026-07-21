@@ -212,5 +212,10 @@ export async function playXocDia(message: Message) {
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 
-    await updateBoard();
+    try {
+        await updateBoard();
+    } catch (err) {
+        console.error("[XÓC ĐĨA LỖI] Lỗi cập nhật bảng cược ban đầu:", err);
+        collector.stop();
+    }
 }

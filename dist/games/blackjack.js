@@ -208,7 +208,14 @@ async function playBlackjack(message) {
         currentBal += 40; // Trả cược + thắng 20k
         await (0, database_1.updateBalance)(userId, currentBal);
         await updateBoard(null, `🎉 **BLACKJACK 21 ĐIỂM!** Mày trúng độc đắc ăn luôn **${(0, utils_1.formatMoney)(20)}**!`, true, 0x2ECC71);
+        collector.stop();
         return;
     }
-    await updateBoard();
+    try {
+        await updateBoard();
+    }
+    catch (err) {
+        console.error("[BLACKJACK LỖI] Lỗi cập nhật bảng cược ban đầu:", err);
+        collector.stop();
+    }
 }

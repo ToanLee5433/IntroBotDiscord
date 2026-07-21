@@ -188,5 +188,11 @@ async function playTaiXiu(message) {
         utils_1.activeGamePlayers.delete(userId);
         draftMsg.edit({ components: [] }).catch(() => { });
     });
-    await updateBoard();
+    try {
+        await updateBoard();
+    }
+    catch (err) {
+        console.error("[TÀI XỈU LỖI] Lỗi cập nhật bảng cược ban đầu:", err);
+        collector.stop();
+    }
 }

@@ -333,5 +333,10 @@ export async function playBauCua(message: Message) {
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 
-    await updateBoard();
+    try {
+        await updateBoard();
+    } catch (err) {
+        console.error("[BẦU CUA LỖI] Lỗi cập nhật bảng cược ban đầu:", err);
+        collector.stop();
+    }
 }

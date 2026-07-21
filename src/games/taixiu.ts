@@ -225,5 +225,10 @@ export async function playTaiXiu(message: Message) {
         draftMsg.edit({ components: [] }).catch(()=>{});
     });
 
-    await updateBoard();
+    try {
+        await updateBoard();
+    } catch (err) {
+        console.error("[TÀI XỈU LỖI] Lỗi cập nhật bảng cược ban đầu:", err);
+        collector.stop();
+    }
 }

@@ -1582,20 +1582,28 @@ const princessCooldowns = new Map<string, number>();
 
 // ================= TÍNH NĂNG CHÀO MỪNG VOICE =================
 client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState) => {
-    // 1. Lọc bớt sự kiện mute/unmute/deaf/stream: chỉ xử lý khi THỰC SỰ vào hoặc chuyển kênh voice
-    const isJoiningOrSwitching = Boolean(newState.channelId && oldState.channelId !== newState.channelId);
-    if (!isJoiningOrSwitching || newState.member?.user.bot) return;
-
+    // 1. Xử lý TỰ ĐỘNG OUT PHÒNG: Kiểm tra kênh cũ (oldChannel) nếu có người rời đi hoặc chuyển kênh
     const oldChannel = oldState.channel;
-    const newChannel = newState.channel;
-
     if (oldChannel) {
         const connection = getVoiceConnection(oldChannel.guild.id);
-        if (connection && connection.joinConfig.channelId === oldChannel.id && oldChannel.members.filter(m => !m.user.bot).size === 0) {
-            if (!newChannel) connection.destroy();
+        if (connection && connection.joinConfig.channelId === oldChannel.id) {
+            const humanMembers = oldChannel.members.filter(m => !m.user.bot);
+            if (humanMembers.size === 0) {
+                try {
+                    connection.destroy();
+                    console.log(`[VOICE LOG] BotToan tự động out phòng "${oldChannel.name}" vì không còn ai ở lại.`);
+                } catch (err) {
+                    console.error("[VOICE LOG] Lỗi khi ngắt kết nối voice phòng cũ:", err);
+                }
+            }
         }
     }
 
+    // 2. Lọc sự kiện: chỉ xử lý phát intro/thông báo khi THỰC SỰ có thành viên (không phải bot) VÀO hoặc CHUYỂN kênh voice
+    const isJoiningOrSwitching = Boolean(newState.channelId && oldState.channelId !== newState.channelId);
+    if (!isJoiningOrSwitching || newState.member?.user.bot) return;
+
+    const newChannel = newState.channel;
     if (!newChannel) return;
 
     const userId = newState.member?.id;
