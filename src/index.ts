@@ -13,12 +13,13 @@ import * as fs from 'fs';
 import * as http from 'http';
 import ffmpegPath from 'ffmpeg-static';
 
-if (ffmpegPath) {
-    process.env.FFMPEG_PATH = ffmpegPath;
+const ffmpegExec = typeof ffmpegPath === 'string' ? ffmpegPath : (ffmpegPath as any)?.default || require('ffmpeg-static');
+if (ffmpegExec && typeof ffmpegExec === 'string') {
+    process.env.FFMPEG_PATH = ffmpegExec;
     try {
-        fs.chmodSync(ffmpegPath, 0o755);
+        fs.chmodSync(ffmpegExec, 0o755);
     } catch (e) {}
-    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpegPath}`);
+    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpegExec}`);
 }
 
 import { PORT, TOKEN, loadAgentIcons } from './config';
@@ -285,7 +286,7 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
 
             await entersState(connection, VoiceConnectionStatus.Ready, 15000);
             const player = createAudioPlayer();
-            const resource = createAudioResource(audioToPlay);
+            const resource = createAudioResource(fs.createReadStream(audioToPlay));
             player.play(resource);
             connection.subscribe(player);
 

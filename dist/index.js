@@ -44,13 +44,14 @@ const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
 const ffmpeg_static_1 = __importDefault(require("ffmpeg-static"));
-if (ffmpeg_static_1.default) {
-    process.env.FFMPEG_PATH = ffmpeg_static_1.default;
+const ffmpegExec = typeof ffmpeg_static_1.default === 'string' ? ffmpeg_static_1.default : ffmpeg_static_1.default?.default || require('ffmpeg-static');
+if (ffmpegExec && typeof ffmpegExec === 'string') {
+    process.env.FFMPEG_PATH = ffmpegExec;
     try {
-        fs.chmodSync(ffmpeg_static_1.default, 0o755);
+        fs.chmodSync(ffmpegExec, 0o755);
     }
     catch (e) { }
-    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpeg_static_1.default}`);
+    console.log(`[FFMPEG] Đã nạp đường dẫn FFmpeg thành công: ${ffmpegExec}`);
 }
 const config_1 = require("./config");
 const baucua_1 = require("./games/baucua");
@@ -305,7 +306,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             });
             await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 15000);
             const player = (0, voice_1.createAudioPlayer)();
-            const resource = (0, voice_1.createAudioResource)(audioToPlay);
+            const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioToPlay));
             player.play(resource);
             connection.subscribe(player);
             console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);

@@ -20,4 +20,5 @@ jobs:
             git reset --hard HEAD
             git pull origin main
             npm install --omit=dev --no-audit --no-fund --ignore-scripts
+            chmod -R +x node_modules/ffmpeg-static/ 2>/dev/null || true
             pkill -f "[d]ist/index.js" || true
