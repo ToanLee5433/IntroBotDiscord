@@ -12,7 +12,7 @@ jobs:
       - name: SSH and Deploy to AlwaysData
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ssh1.alwaysdata.com
+          host: ssh.alwaysdata.com
           username: letoan0504
           password: ${{ secrets.ALWAYSDATA_PASSWORD }}
           script: |
