@@ -270,14 +270,17 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             // Kiểm tra tệp mp3 riêng theo ID của member: audio/<userID>.mp3, hoặc audio/default.mp3
             const userIdMp3 = path.join(__dirname, `../audio/${member.id}.mp3`);
             const defaultMp3 = path.join(__dirname, '../audio/default.mp3');
-            let audioToPlay = "";
-            if (fs.existsSync(userIdMp3)) {
-                audioToPlay = userIdMp3;
-            }
-            else if (fs.existsSync(defaultMp3)) {
-                audioToPlay = defaultMp3;
-            }
-            if (!audioToPlay)
+            // Ưu tiên file .ogg (Opus) vì không cần FFmpeg, fallback sang .mp3
+            const resolveAudio = (base) => {
+                const ogg = base.replace(/\.mp3$/, '.ogg');
+                if (fs.existsSync(ogg))
+                    return { file: ogg, type: voice_1.StreamType.OggOpus };
+                if (fs.existsSync(base))
+                    return { file: base, type: voice_1.StreamType.Arbitrary };
+                return null;
+            };
+            const audioResult = resolveAudio(userIdMp3) || resolveAudio(defaultMp3);
+            if (!audioResult)
                 return;
             // Ngắt kết nối voice cũ nếu đang dở
             const existingConnection = (0, voice_1.getVoiceConnection)(guild.id);
@@ -315,10 +318,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
                 catch (e) { }
             });
             try {
-                const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioToPlay));
+                const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioResult.file), { inputType: audioResult.type });
                 player.play(resource);
                 connection.subscribe(player);
-                console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioToPlay)})`);
+                console.log(`[INTRO VOICE] Đã vào phòng thoại ${newChannel.name} phát nhạc Intro cho ${member.user.tag} (${path.basename(audioResult.file)})`);
             }
             catch (playErr) {
                 console.error("[INTRO VOICE] Không thể phát nhạc:", playErr);
@@ -395,8 +398,11 @@ client.on('messageCreate', async (message) => {
             await message.reply("❌ **Bạn (hoặc người được tag) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào đọc được chứ!**").catch(() => { });
             return;
         }
-        const audioPath = path.join(__dirname, '../audio/ngudiemoi.mp3');
-        const hasAudioFile = fs.existsSync(audioPath);
+        const audioPathMp3 = path.join(__dirname, '../audio/ngudiemoi.mp3');
+        const audioPathOgg = path.join(__dirname, '../audio/ngudiemoi.ogg');
+        const audioPath = fs.existsSync(audioPathOgg) ? audioPathOgg : (fs.existsSync(audioPathMp3) ? audioPathMp3 : null);
+        const audioType = audioPath?.endsWith('.ogg') ? voice_1.StreamType.OggOpus : voice_1.StreamType.Arbitrary;
+        const hasAudioFile = !!audioPath;
         // 3. Chuẩn bị nội dung đọc TTS
         const speakText = targetUser
             ? `Ngủ đi ${targetName}! Thức xem stream làm cái gì nữa!`
@@ -424,61 +430,35 @@ client.on('messageCreate', async (message) => {
             // Bước A: Thử đọc giọng TTS trước
             let isTTSDone = false;
             try {
-                const resource = (0, voice_1.createAudioResource)(ttsUrl);
-                player.play(resource);
+                // TTS cần FFmpeg nên skip thẳng sang nhạc OGG
+                throw new Error('Skip TTS, use OGG directly');
             }
             catch (ttsErr) {
-                console.error("[TTS FETCH ERROR]:", ttsErr);
                 isTTSDone = true;
-                if (hasAudioFile) {
-                    player.play((0, voice_1.createAudioResource)(audioPath));
+                if (hasAudioFile && audioPath) {
+                    try {
+                        player.play((0, voice_1.createAudioResource)(fs.createReadStream(audioPath), { inputType: audioType }));
+                    }
+                    catch (e) { }
                 }
             }
-            // Bước B: Khi đọc TTS xong (hoặc lỗi), phát tiếp nhạc ngudiemoi.mp3 (nếu có)
+            // Bước B: Khi phát xong OGG
             player.on(voice_1.AudioPlayerStatus.Idle, () => {
-                if (!isTTSDone && hasAudioFile) {
-                    isTTSDone = true;
-                    try {
-                        player.play((0, voice_1.createAudioResource)(audioPath));
-                    }
-                    catch (e) {
-                        try {
-                            connection.destroy();
-                        }
-                        catch (err) { }
-                    }
+                try {
+                    player.stop();
                 }
-                else {
-                    try {
-                        player.stop();
-                    }
-                    catch (e) { }
-                    try {
-                        connection.destroy();
-                    }
-                    catch (e) { }
+                catch (e) { }
+                try {
+                    connection.destroy();
                 }
+                catch (e) { }
             });
             player.on('error', err => {
-                console.error("[NGUDIEMOI AUDIO PLAYER ERROR]:", err);
-                if (!isTTSDone && hasAudioFile) {
-                    isTTSDone = true;
-                    try {
-                        player.play((0, voice_1.createAudioResource)(audioPath));
-                    }
-                    catch (e) {
-                        try {
-                            connection.destroy();
-                        }
-                        catch (e2) { }
-                    }
+                console.error("[NGUDIEMOI AUDIO PLAYER ERROR]:", err.message);
+                try {
+                    connection.destroy();
                 }
-                else {
-                    try {
-                        connection.destroy();
-                    }
-                    catch (e) { }
-                }
+                catch (e) { }
             });
         }
         catch (err) {
@@ -1622,10 +1602,18 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     // --- Xử lý phát Intro MP3 cá nhân / Jail audio cũ ---
     const PRISON_CHANNEL_ID = "1517590846927667230";
     const isJailEntry = newChannel.id === PRISON_CHANNEL_ID;
-    const audioPath = isJailEntry
-        ? path.join(__dirname, '../audio', 'jail.mp3')
-        : path.join(__dirname, '../audio', `${userId}.mp3`);
-    if (!fs.existsSync(audioPath)) {
+    // Ưu tiên .ogg (không cần FFmpeg), fallback .mp3
+    const resolveOldAudio = (name) => {
+        const ogg = path.join(__dirname, '../audio', name + '.ogg');
+        if (fs.existsSync(ogg))
+            return { file: ogg, type: voice_1.StreamType.OggOpus };
+        const mp3 = path.join(__dirname, '../audio', name + '.mp3');
+        if (fs.existsSync(mp3))
+            return { file: mp3, type: voice_1.StreamType.Arbitrary };
+        return null;
+    };
+    const oldAudioResult = resolveOldAudio(isJailEntry ? 'jail' : userId);
+    if (!oldAudioResult) {
         return;
     }
     try {
@@ -1636,7 +1624,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         });
         await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 5000);
         const player = (0, voice_1.createAudioPlayer)();
-        player.play((0, voice_1.createAudioResource)(audioPath));
+        player.on('error', err => { console.error('[OLD VOICE ERROR]:', err.message); try {
+            connection.destroy();
+        }
+        catch (e) { } });
+        player.play((0, voice_1.createAudioResource)(fs.createReadStream(oldAudioResult.file), { inputType: oldAudioResult.type }));
         connection.subscribe(player);
         player.on(voice_1.AudioPlayerStatus.Idle, () => {
             player.stop();

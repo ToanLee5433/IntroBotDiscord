@@ -138,7 +138,10 @@ async function playWCPenalty(message, rawInput) {
                 }
                 catch (err) { }
             }
-            const audioPath = path.join(__dirname, '../../audio', 'nhacWC.mp3');
+            const audioMp3 = path.join(__dirname, '../../audio', 'nhacWC.mp3');
+            const audioOgg = path.join(__dirname, '../../audio', 'nhacWC.ogg');
+            const audioPath = fs.existsSync(audioOgg) ? audioOgg : audioMp3;
+            const audioType = audioPath.endsWith('.ogg') ? voice_1.StreamType.OggOpus : voice_1.StreamType.Arbitrary;
             if (fs.existsSync(audioPath)) {
                 audioConnection = (0, voice_1.joinVoiceChannel)({
                     channelId: userVoiceChannel.id,
@@ -149,10 +152,10 @@ async function playWCPenalty(message, rawInput) {
                 });
                 await (0, voice_1.entersState)(audioConnection, voice_1.VoiceConnectionStatus.Ready, 5000);
                 const player = (0, voice_1.createAudioPlayer)();
-                player.play((0, voice_1.createAudioResource)(audioPath));
+                player.play((0, voice_1.createAudioResource)(fs.createReadStream(audioPath), { inputType: audioType }));
                 audioConnection.subscribe(player);
                 player.on('error', err => {
-                    console.error("[PENALTY WC AUDIO ERROR]:", err);
+                    console.error("[PENALTY WC AUDIO ERROR]:", err.message);
                 });
             }
         }
@@ -290,11 +293,6 @@ async function handleWCCommand(message, rawInput) {
             await message.reply("❌ **Lệnh này chỉ dùng được trong server!**").catch(() => { });
             return;
         }
-        const audioPath = path.join(__dirname, '../../audio', 'nhacWC.mp3');
-        if (!fs.existsSync(audioPath)) {
-            await message.reply("❌ **Không tìm thấy tệp âm thanh `nhacWC.mp3` trong thư mục audio!**").catch(() => { });
-            return;
-        }
         try {
             // Ngắt kết nối cũ nếu có
             const existingConnection = (0, voice_1.getVoiceConnection)(message.guild.id);
@@ -308,9 +306,13 @@ async function handleWCCommand(message, rawInput) {
                 selfDeaf: false,
                 selfMute: false,
             });
+            const audioMp3b = path.join(__dirname, '../../audio', 'nhacWC.mp3');
+            const audioOggb = path.join(__dirname, '../../audio', 'nhacWC.ogg');
+            const audioPathB = fs.existsSync(audioOggb) ? audioOggb : audioMp3b;
+            const audioTypeB = audioPathB.endsWith('.ogg') ? voice_1.StreamType.OggOpus : voice_1.StreamType.Arbitrary;
             await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 5000);
             const player = (0, voice_1.createAudioPlayer)();
-            player.play((0, voice_1.createAudioResource)(audioPath));
+            player.play((0, voice_1.createAudioResource)(fs.createReadStream(audioPathB), { inputType: audioTypeB }));
             connection.subscribe(player);
             await message.reply(`🎙️ **Đang phát nhạc World Cup bốc lửa tại kênh thoại \`${userVoiceChannel.name}\`!** ⚽🔥`).catch(() => { });
             player.on(voice_1.AudioPlayerStatus.Idle, () => {
@@ -318,7 +320,7 @@ async function handleWCCommand(message, rawInput) {
                 connection.destroy();
             });
             player.on('error', err => {
-                console.error("[INTRO WC AUDIO ERROR]:", err);
+                console.error("[INTRO WC AUDIO ERROR]:", err.message);
             });
             connection.on('error', err => {
                 console.error("[INTRO WC CONNECTION ERROR]:", err);
