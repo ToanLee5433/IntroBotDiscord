@@ -1929,12 +1929,7 @@ client.on('error', (error) => {
 client.on('warn', (warning) => {
     console.warn('[DISCORD CẢNH BÁO]', warning);
 });
-client.on('debug', (info) => {
-    // Chỉ in những log debug quan trọng liên quan đến kết nối/WebSocket/Rate limit để tránh ngập log
-    if (info.includes('Gateway') || info.includes('Heartbeat') || info.includes('connect') || info.includes('Session') || info.includes('rate') || info.includes('identif') || info.includes('ready')) {
-        console.log(`[DISCORD DEBUG] ${info}`);
-    }
-});
+// client.on('debug', ...) disabled to keep log file clean
 let dbConnectionPromise;
 client.once('ready', async (readyClient) => {
     console.log(`[DISCORD] ✅ Đăng nhập thành công! Bot đã online với tên: ${readyClient.user.tag}`);
