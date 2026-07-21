@@ -272,8 +272,7 @@ client.on('messageCreate', async (message: Message) => {
 
     // ----------------- TÍNH NĂNG PHÁT ÂM THANH "NGỦ ĐỊ EM / XEM STREAM" -----------------
     const nguDieuEmTriggers = [
-        'stream', 'live', 'strim', 'ngu di', 'ngudiemoi', 
-        'di ngu', 'truc tiep', 'livestream'
+        'xem stream', 'xem live', 'ngu di'
     ];
     if (nguDieuEmTriggers.some(t => cleanInput.includes(t))) {
         const userVoiceChannel = message.member?.voice.channel;
