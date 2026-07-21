@@ -362,7 +362,7 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     const introTriggers = ['intro', 'nhac intro', 'bat intro', 'play intro'];
-    if (introTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+    if (!isWCIntro && introTriggers.some(t => cleanInput === t || cleanInput.startsWith(t))) {
         let targetUserId = message.author.id;
         let targetUser = message.author;
 
@@ -383,12 +383,23 @@ client.on('messageCreate', async (message: Message) => {
             }
         }
 
-        // 3. Xác định tên hiển thị và phòng thoại của người gọi lệnh hoặc đối tượng
+        // 3. Xác định tên hiển thị và phòng thoại của người gọi lệnh hoặc đối tượng (Fetch chủ động từ API nếu chưa có trong Cache)
         const senderMember = message.member;
         const targetMember = message.guild ? (message.guild.members.cache.get(targetUserId) || await message.guild.members.fetch(targetUserId).catch(() => null)) : null;
-        const displayName = targetMember ? targetMember.displayName : targetUser.username;
+        const displayName = targetMember ? targetMember.displayName : (targetUser ? targetUser.username : targetUserId);
 
-        const userVoiceChannel = senderMember?.voice.channel || targetMember?.voice.channel;
+        const getMemberVoiceChannel = async (mem: any) => {
+            if (!mem || !mem.voice) return null;
+            if (mem.voice.channel) return mem.voice.channel;
+            if (mem.voice.channelId && message.guild) {
+                return await message.guild.channels.fetch(mem.voice.channelId).catch(() => null);
+            }
+            return null;
+        };
+
+        const userVoiceChannel = (await getMemberVoiceChannel(senderMember)) || (await getMemberVoiceChannel(targetMember));
+
+        console.log(`[INTRO COMMAND] Yêu cầu phát intro cho ID: ${targetUserId}, Name: ${displayName}, VoiceChannel: ${userVoiceChannel?.name || 'N/A'}`);
 
         if (!userVoiceChannel || !message.guild) {
             await message.reply(`❌ **${displayName} (hoặc bạn) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào phát Intro được chứ!**`).catch(() => {});
@@ -447,8 +458,8 @@ client.on('messageCreate', async (message: Message) => {
             player.on(AudioPlayerStatus.Idle, () => {
                 try { player.stop(); } catch (e) {}
                 // Không ép out khi phát xong; chỉ ngắt kết nối nếu phòng thoại không còn ai khác
-                const humanMembers = userVoiceChannel.members.filter(m => !m.user.bot);
-                if (humanMembers.size === 0) {
+                const humanMembers = (userVoiceChannel as any).members?.filter((m: any) => !m.user.bot);
+                if (humanMembers && humanMembers.size === 0) {
                     try { connection.destroy(); } catch (e) {}
                 }
             });
