@@ -367,6 +367,115 @@ client.on('messageCreate', async (message) => {
         }
         return;
     }
+    // ----------------- TÍNH NĂNG PHÁT NHẠC INTRO THEO YÊU CẦU (@BotToan intro [@User / ID]) -----------------
+    const introTriggers = ['intro', 'nhac intro', 'bat intro', 'play intro'];
+    if (introTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
+        let targetUserId = message.author.id;
+        let targetUser = message.author;
+        // 1. Kiểm tra nếu có tag người dùng
+        const mentionedUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
+        if (mentionedUser) {
+            targetUser = mentionedUser;
+            targetUserId = mentionedUser.id;
+        }
+        else {
+            // 2. Kiểm tra nếu nhập dạng chuỗi ID 17-21 chữ số
+            const idMatch = rawInput.match(/\d{17,21}/);
+            if (idMatch) {
+                targetUserId = idMatch[0];
+                try {
+                    const fetchedUser = await client.users.fetch(targetUserId).catch(() => null);
+                    if (fetchedUser)
+                        targetUser = fetchedUser;
+                }
+                catch (e) { }
+            }
+        }
+        // 3. Xác định tên hiển thị và phòng thoại của người gọi lệnh hoặc đối tượng
+        const senderMember = message.member;
+        const targetMember = message.guild ? (message.guild.members.cache.get(targetUserId) || await message.guild.members.fetch(targetUserId).catch(() => null)) : null;
+        const displayName = targetMember ? targetMember.displayName : targetUser.username;
+        const userVoiceChannel = senderMember?.voice.channel || targetMember?.voice.channel;
+        if (!userVoiceChannel || !message.guild) {
+            await message.reply(`❌ **${displayName} (hoặc bạn) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào phát Intro được chứ!**`).catch(() => { });
+            return;
+        }
+        // 4. Tìm file audio intro theo ưu tiên: userID.ogg > userID.mp3 > default.ogg > default.mp3
+        const resolveAudioFile = (uId) => {
+            const ogg = path.join(__dirname, '../audio', uId + '.ogg');
+            if (fs.existsSync(ogg))
+                return { file: ogg, type: voice_1.StreamType.OggOpus };
+            const mp3 = path.join(__dirname, '../audio', uId + '.mp3');
+            if (fs.existsSync(mp3))
+                return { file: mp3, type: voice_1.StreamType.Arbitrary };
+            // Fallback default
+            const defaultOgg = path.join(__dirname, '../audio/default.ogg');
+            if (fs.existsSync(defaultOgg))
+                return { file: defaultOgg, type: voice_1.StreamType.OggOpus };
+            const defaultMp3 = path.join(__dirname, '../audio/default.mp3');
+            if (fs.existsSync(defaultMp3))
+                return { file: defaultMp3, type: voice_1.StreamType.Arbitrary };
+            return null;
+        };
+        const audioResult = resolveAudioFile(targetUserId);
+        if (!audioResult) {
+            await message.reply("❌ **Không tìm thấy file âm thanh intro thích hợp nào trong hệ thống!**").catch(() => { });
+            return;
+        }
+        try {
+            const existingConnection = (0, voice_1.getVoiceConnection)(message.guild.id);
+            if (existingConnection) {
+                try {
+                    existingConnection.destroy();
+                }
+                catch (e) { }
+                await new Promise(r => setTimeout(r, 100));
+            }
+            const connection = (0, voice_1.joinVoiceChannel)({
+                channelId: userVoiceChannel.id,
+                guildId: message.guild.id,
+                adapterCreator: message.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
+            await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 5000);
+            const player = (0, voice_1.createAudioPlayer)();
+            const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioResult.file), { inputType: audioResult.type });
+            connection.subscribe(player);
+            player.play(resource);
+            const isCustomIntro = path.basename(audioResult.file).startsWith(targetUserId);
+            const introTypeStr = isCustomIntro ? "Intro cá nhân" : "Intro mặc định";
+            await message.reply(`🎙️ **Đang phát ${introTypeStr} cho ${displayName} (<@${targetUserId}>) tại phòng thoại \`${userVoiceChannel.name}\`!** 🔊`).catch(() => { });
+            player.on(voice_1.AudioPlayerStatus.Idle, () => {
+                try {
+                    player.stop();
+                }
+                catch (e) { }
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
+            player.on('error', err => {
+                console.error("[INTRO COMMAND PLAY ERROR]:", err.message);
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
+        }
+        catch (err) {
+            console.error("Lỗi phát intro bằng lệnh:", err);
+            await message.reply("❌ **Gặp lỗi khi kết nối vào phòng thoại để phát Intro!**").catch(() => { });
+            try {
+                const conn = (0, voice_1.getVoiceConnection)(message.guild.id);
+                if (conn)
+                    conn.destroy();
+            }
+            catch (e) { }
+        }
+        return;
+    }
     // ----------------- TÍNH NĂNG WARMUP VIDEO -----------------
     const warmupTriggers = ['warmup', 'khoi dong', 'video'];
     if (warmupTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
@@ -2063,7 +2172,8 @@ async function handleHelpCommand(message, client) {
             "• `ban dung`: Bán đứng thông tin xem ai đang crush một người\n" +
             "• `bua yeu`: Mua bùa yêu ép duyên cưỡng bức (tăng tỉ lệ ghép đôi)",
         inline: false
-    }, { name: "🗣️ CHAT AI & VOICE HORN-BOT", value: "• `@BotToan [nội dung]`: Chat trực tiếp với Gemini AI thông minh mỏ hỗn\n" +
+    }, { name: "🗣️ CHAT AI & VOICE INTRO", value: "• `intro` | `intro @User` | `intro [ID]`: Bật nhạc Intro cá nhân/mặc định trong phòng voice\n" +
+            "• `@BotToan [nội dung]`: Chat trực tiếp với Gemini AI thông minh mỏ hỗn\n" +
             "• `cam mom` | `im di` | `nin`: Tắt tiếng / di chuyển Horn-Bot welcome ra khỏi voice",
         inline: false
     }, { name: "🎨 AI NHÌN ẢNH & TẠO ẢNH (Imagen 4 Ultra)", value: "• `@BotToan` + ảnh đính kèm: Bot tự động nhận xét ảnh bựa bựa (không tốn lượt)\n" +
