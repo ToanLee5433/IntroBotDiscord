@@ -17,6 +17,7 @@ jobs:
           password: ${{ secrets.ALWAYSDATA_PASSWORD }}
           script: |
             cd ~/IntroBotDiscord
-            git pull
+            git reset --hard HEAD
+            git pull origin main
             npm install --omit=dev --no-audit --no-fund --ignore-scripts
             pkill -f "dist/index.js" || true
