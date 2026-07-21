@@ -93,10 +93,11 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 
 ---
 
-## 🗣️ 8. CHAT AI & VOICE HORN-BOT (Tiện ích)
+## 🗣️ 8. CHAT AI & VOICE INTRO (Tiện ích & Nhạc Intro)
 
 | Lệnh tiện ích | Cú pháp cách gọi | Quy tắc & Kết quả |
 | :--- | :--- | :--- |
+| **Phát nhạc Intro** | `@BotToan intro`<br>`@BotToan intro @User`<br>`@BotToan intro [ID]`<br>`@BotToan nhac intro`<br>`@BotToan bat intro` | Bay vào kênh voice của bạn hoặc người được tag/ID và phát bài nhạc Intro cá nhân (`audio/<userID>.ogg` / `.mp3`) hoặc nhạc mặc định `default`. Phát xong bot tiếp tục ở lại kênh thoại theo dõi các thành viên chứ không ép out. |
 | **Chat với BotToan** | `@BotToan [nội dung tự do]` | Trò chuyện tự do với Gemini AI mỏ hỗn. Có bộ nhớ lưu trữ lịch sử 10 câu chat gần nhất. |
 | **Xem ảnh đại diện** | `@BotToan avatar [@User / ID / Tên]`<br>`@BotToan avt`<br>`@BotToan anhdaidien`<br>`@BotToan anh dai dien` | Hiển thị avatar độ phân giải lớn 1024px (hỗ trợ cả ảnh động GIF). Tự động hiển thị nút bấm chuyển đổi giữa **Avatar Server** và **Avatar Toàn Cầu** (nếu có cài avatar server riêng) kèm nút mở link ảnh gốc. Hỗ trợ bấm nút công khai cho mọi người cùng xem và fallback an toàn nếu thành viên đã rời server. |
 | **Cấm nói Horn-Bot** | `@BotToan cam mom`<br>`@BotToan im di`<br>`@BotToan cam`<br>`@BotToan im mom`<br>`@BotToan nin`<br>`@BotToan ngung sua` | Kích hoạt cấm khẩu: Ngay lập tức ngắt kết nối hoặc cách ly bot phát nhạc chào mừng Horn-Bot ra khỏi phòng voice hiện tại (chỉ hoạt động khi Horn-Bot và người ra lệnh ở chung phòng voice). |

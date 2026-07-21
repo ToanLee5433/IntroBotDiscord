@@ -355,6 +355,12 @@ client.on('messageCreate', async (message: Message) => {
     }
 
     // ----------------- TÍNH NĂNG PHÁT NHẠC INTRO THEO YÊU CẦU (@BotToan intro [@User / ID]) -----------------
+    const isWCIntro = cleanInput === 'intro wc' || cleanInput === 'wc intro' || cleanInput === 'intro worldcup' || cleanInput === 'worldcup intro';
+    if (isWCIntro) {
+        await handleWCCommand(message, rawInput);
+        return;
+    }
+
     const introTriggers = ['intro', 'nhac intro', 'bat intro', 'play intro'];
     if (introTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
         let targetUserId = message.author.id;
@@ -440,7 +446,11 @@ client.on('messageCreate', async (message: Message) => {
 
             player.on(AudioPlayerStatus.Idle, () => {
                 try { player.stop(); } catch (e) {}
-                try { connection.destroy(); } catch (e) {}
+                // Không ép out khi phát xong; chỉ ngắt kết nối nếu phòng thoại không còn ai khác
+                const humanMembers = userVoiceChannel.members.filter(m => !m.user.bot);
+                if (humanMembers.size === 0) {
+                    try { connection.destroy(); } catch (e) {}
+                }
             });
 
             player.on('error', err => {
