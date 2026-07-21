@@ -275,58 +275,82 @@ client.on('messageCreate', async (message: Message) => {
         'xem stream', 'xem live', 'ngu di'
     ];
     if (nguDieuEmTriggers.some(t => cleanInput.includes(t))) {
-        const userVoiceChannel = message.member?.voice.channel;
+        // 1. Xác định target user được tag (nếu có)
+        const targetUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
+        let targetName = "em";
+        if (targetUser && message.guild) {
+            const member = message.guild.members.cache.get(targetUser.id);
+            targetName = member ? member.displayName : targetUser.username;
+        }
+
+        // 2. Tìm kênh voice của người gọi hoặc người được tag
+        const senderMember = message.member;
+        const targetMember = targetUser && message.guild ? message.guild.members.cache.get(targetUser.id) : null;
+        const userVoiceChannel = senderMember?.voice.channel || targetMember?.voice.channel;
+
+        if (!userVoiceChannel || !message.guild) {
+            await message.reply("❌ **Bạn (hoặc người được tag) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào đọc được chứ!**").catch(() => {});
+            return;
+        }
+
         const audioPath = path.join(__dirname, '../audio/ngudiemoi.mp3');
         const hasAudioFile = fs.existsSync(audioPath);
 
-        let voicePlayed = false;
+        // 3. Chuẩn bị nội dung đọc TTS
+        const speakText = targetUser 
+            ? `Ngủ đi ${targetName}! Thức xem stream làm cái gì nữa!` 
+            : `Ngủ đi em! Thức xem stream làm cái gì nữa!`;
+            
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(speakText)}&tl=vi&client=tw-ob`;
 
-        if (userVoiceChannel && message.guild && hasAudioFile) {
-            try {
-                const existingConnection = getVoiceConnection(message.guild.id);
-                if (existingConnection) {
-                    try { existingConnection.destroy(); } catch (e) {}
-                }
+        try {
+            const existingConnection = getVoiceConnection(message.guild.id);
+            if (existingConnection) {
+                try { existingConnection.destroy(); } catch (e) {}
+            }
 
-                const connection = joinVoiceChannel({
-                    channelId: userVoiceChannel.id,
-                    guildId: message.guild.id,
-                    adapterCreator: message.guild.voiceAdapterCreator,
-                    selfDeaf: false,
-                    selfMute: false,
-                });
+            const connection = joinVoiceChannel({
+                channelId: userVoiceChannel.id,
+                guildId: message.guild.id,
+                adapterCreator: message.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
 
-                await entersState(connection, VoiceConnectionStatus.Ready, 5000);
-                const player = createAudioPlayer();
-                player.play(createAudioResource(audioPath));
-                connection.subscribe(player);
+            await entersState(connection, VoiceConnectionStatus.Ready, 5000);
+            const player = createAudioPlayer();
 
-                player.on(AudioPlayerStatus.Idle, () => {
+            // Bước A: Đọc giọng TTS trước
+            player.play(createAudioResource(ttsUrl));
+            connection.subscribe(player);
+
+            await message.reply(`🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` đọc nhắc nhở: "${speakText}"!** 🔊`).catch(() => {});
+
+            // Bước B: Khi đọc TTS xong, phát tiếp nhạc ngudiemoi.mp3 (nếu có)
+            let isTTSDone = false;
+            player.on(AudioPlayerStatus.Idle, () => {
+                if (!isTTSDone && hasAudioFile) {
+                    isTTSDone = true;
+                    try {
+                        player.play(createAudioResource(audioPath));
+                    } catch (e) {
+                        try { connection.destroy(); } catch (err) {}
+                    }
+                } else {
                     try { player.stop(); } catch (e) {}
                     try { connection.destroy(); } catch (e) {}
-                });
+                }
+            });
 
-                player.on('error', err => {
-                    console.error("[NGUDIEMOI AUDIO ERROR]:", err);
-                    try { connection.destroy(); } catch (e) {}
-                });
+            player.on('error', err => {
+                console.error("[NGUDIEMOI AUDIO ERROR]:", err);
+                try { connection.destroy(); } catch (e) {}
+            });
 
-                voicePlayed = true;
-            } catch (err) {
-                console.error("Lỗi kết nối voice phát ngudiemoi.mp3:", err);
-            }
+        } catch (err) {
+            console.error("Lỗi kết nối voice phát ngudiemoi.mp3:", err);
+            await message.reply("❌ **Gặp lỗi khi kết nối vào phòng thoại!**").catch(() => {});
         }
-
-        const replyMessage = voicePlayed
-            ? `😴 **Đang phát âm thanh "Ngủ đi em" tại phòng thoại \`${userVoiceChannel?.name}\`!** 🌙 Tắt stream đi ngủ sớm đi cưng ơi!`
-            : `😴 **Ngủ đi em! Thức xem stream làm cái gì nữa!** 🌙`;
-
-        const replyOptions: any = { content: replyMessage };
-        if (hasAudioFile && !voicePlayed) {
-            replyOptions.files = [{ attachment: audioPath, name: 'ngudiemoi.mp3' }];
-        }
-
-        await message.reply(replyOptions).catch(() => {});
         return;
     }
 
