@@ -267,7 +267,9 @@ client.on('messageCreate', async (message) => {
         return;
     }
     const botId = client.user.id;
-    const rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
+    let rawInput = message.content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim();
+    // Loại bỏ các ký tự dấu câu/ký hiệu đứng ở đầu chuỗi (ví dụ: ": profile", "- profile", ", profile")
+    rawInput = rawInput.replace(/^[:,\-\/!\?\s]+/, '').trim();
     const cleanInput = (0, utils_1.removeAccents)(rawInput).toLowerCase();
     console.log(`[TIN NHẮN] Mentioned Bot. rawInput: "${rawInput}", cleanInput: "${cleanInput}"`);
     // ----------------- KIỂM TRA CẤM CHAT (BOT LEVEL) -----------------
@@ -521,13 +523,18 @@ client.on('messageCreate', async (message) => {
         await handleHelpCommand(message, client);
         return;
     }
-    // ----------------- TÍNH NĂNG ĐĂNG KÝ HỒ SƠ -----------------
+    // ----------------- TÍNH NĂNG ĐĂNG KÝ / XEM HỒ SƠ -----------------
     const profileTriggers = [
-        'profile', 'thong tin ca nhan', 'ttcn',
-        'dang ky ho so', 'dang ky profile', 'dang ky',
-        'cap nhat ho so', 'cap nhat thong tin', 'cap nhat'
+        'profile', 'thong tin ca nhan', 'thong tin', 'ttcn',
+        'ho so', 'ly lich', 'dang ky ho so', 'dang ky profile',
+        'dang ky', 'cap nhat ho so', 'cap nhat thong tin', 'cap nhat',
+        'khai bao ho so', 'khai bao profile', 'khai bao', 'tao ho so', 'tao profile',
+        'xem profile', 'xem ho so', 'xem ttcn', 'xem thong tin', 'my profile', 'profile me'
     ];
-    if (profileTriggers.some(t => cleanInput.startsWith(t))) {
+    const firstWordOfClean = cleanInput.split(/\s+/)[0];
+    const isProfileCommand = profileTriggers.some(t => cleanInput.startsWith(t)) ||
+        ['profile', 'ttcn', 'hoso', 'lylich', 'khaibao'].includes(firstWordOfClean);
+    if (isProfileCommand) {
         await (0, ghepdoi_1.handleProfileRegistration)(message, rawInput);
         return;
     }

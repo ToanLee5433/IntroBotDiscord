@@ -421,26 +421,79 @@ export async function handleProfileRegistration(message: Message, rawInput: stri
                     const age = new Date().getFullYear() - year;
                     const zodiac = translateShengXiao(lunar.getYearShengXiao());
                     const ganChi = translateGanChi(lunar.getYearInGanZhi());
-                    extraAstrologyInfo = `\n- 🎂 **Tuổi (Dương):** \`${age}\` tuổi\n- 🔮 **Âm lịch / Tử vi:** \`Năm ${ganChi} - Tuổi ${zodiac}\``;
+                    const naYinRaw = lunar.getYearNaYin ? lunar.getYearNaYin() : "";
+                    const menh = naYinRaw ? translateNaYin(naYinRaw) : "";
+
+                    extraAstrologyInfo = `- 🎂 **Tuổi (Dương):** \`${age}\` tuổi\n- 🔮 **Âm lịch:** \`Năm ${ganChi} - Tuổi ${zodiac}\``;
+                    if (menh) {
+                        extraAstrologyInfo += `\n- ☯️ **Mệnh ngũ hành:** \`${menh}\``;
+                    }
                 } catch (e) {}
             }
 
+            // Lấy thông tin tài chính (Ví & Nợ)
+            const balance = await getBalance(targetUser.id);
+            const debt = await getDebt(targetUser.id);
+
+            // Lấy thông tin Member & Roles trong Server Discord
+            let memberInfoText = "";
+            let rolesText = "Không có";
+            let targetMember = message.guild ? message.guild.members.cache.get(targetUser.id) : null;
+            if (!targetMember && message.guild) {
+                targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
+            }
+
+            if (targetMember) {
+                // Danh sách vai trò (bỏ @everyone)
+                const roles = targetMember.roles.cache
+                    .filter(r => r.id !== message.guild?.id)
+                    .sort((a, b) => b.position - a.position)
+                    .map(r => `<@&${r.id}>`);
+
+                if (roles.length > 0) {
+                    if (roles.length > 8) {
+                        rolesText = `${roles.slice(0, 8).join(', ')} *(+${roles.length - 8} vai trò nữa)*`;
+                    } else {
+                        rolesText = roles.join(', ');
+                    }
+                }
+
+                // Ngày tham gia
+                const joinedDate = targetMember.joinedAt ? `${targetMember.joinedAt.getDate().toString().padStart(2, '0')}/${(targetMember.joinedAt.getMonth() + 1).toString().padStart(2, '0')}/${targetMember.joinedAt.getFullYear()}` : "N/A";
+                const createdDate = `${targetUser.createdAt.getDate().toString().padStart(2, '0')}/${(targetUser.createdAt.getMonth() + 1).toString().padStart(2, '0')}/${targetUser.createdAt.getFullYear()}`;
+                
+                memberInfoText = `- 📥 **Tham gia Server:** \`${joinedDate}\`\n- 🐣 **Tạo Discord:** \`${createdDate}\``;
+            } else {
+                const createdDate = `${targetUser.createdAt.getDate().toString().padStart(2, '0')}/${(targetUser.createdAt.getMonth() + 1).toString().padStart(2, '0')}/${targetUser.createdAt.getFullYear()}`;
+                memberInfoText = `- 🐣 **Tạo Discord:** \`${createdDate}\``;
+            }
+
             const genderIcon = profile.gender === 'Nữ' ? '👩' : '👨';
+            const avatarUrl = targetMember 
+                ? targetMember.displayAvatarURL({ forceStatic: false, size: 512 }) 
+                : targetUser.displayAvatarURL({ forceStatic: false, size: 512 });
+
             const embed = new EmbedBuilder()
                 .setTitle(`📋 HỒ SƠ LÝ LỊCH GIANG HỒ`)
-                .setThumbnail(targetUser.displayAvatarURL({ forceStatic: false }))
+                .setThumbnail(avatarUrl)
                 .setDescription(`Thông tin hồ sơ tạm trú tạm vắng của <@${targetUser.id}>:`)
                 .addFields(
-                    { name: "👤 Họ và tên", value: `\`${profile.name}\``, inline: true },
+                    { name: "👤 Họ và tên thật", value: `\`${profile.name}\``, inline: true },
                     { name: "🚻 Giới tính", value: `${genderIcon} \`${profile.gender}\``, inline: true },
-                    { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true }
+                    { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true },
+                    { name: "💰 Tài chính Ngân hàng", value: `- 💵 **Ví tiền:** \`${formatMoney(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${formatMoney(debt)}\`đ`, inline: false }
                 )
-                .setColor(0x3498DB)
+                .setColor(0x00A8FF)
                 .setFooter({ text: isSelf ? "Gõ @BotToan profile [Tên] [Nam/Nữ] [DD/MM/YYYY] để cập nhật hồ sơ!" : "BotToan - Hồ sơ lý lịch giang hồ" });
 
             if (extraAstrologyInfo) {
-                embed.addFields({ name: "🔮 Chi tiết tử vi & phong thủy", value: extraAstrologyInfo.trim(), inline: false });
+                embed.addFields({ name: "🔮 Tử vi & Phong thủy", value: extraAstrologyInfo, inline: false });
             }
+
+            embed.addFields(
+                { name: "🎭 Vai trò (Roles)", value: rolesText, inline: false },
+                { name: "📅 Nhật ký tài khoản", value: memberInfoText, inline: false }
+            );
 
             await message.reply({ embeds: [embed] }).catch(() => {});
             return;
