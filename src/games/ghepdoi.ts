@@ -417,54 +417,79 @@ export function setupProfileInteractions(client: any) {
         } else if (action === 'match') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             try {
-                let matchedMember: any = null;
+                let oppositeMember: any = null;
+                let sameMember: any = null;
+
                 if (interaction.guild) {
+                    // Quét danh sách thành viên thực tế ĐANG Ở TRONG SERVER (Server ID: 1209955080649052160)
                     const members = await interaction.guild.members.fetch().catch(() => interaction.guild.members.cache);
-                    const candidates = members.filter((m: any) => !m.user.bot && m.id !== userId);
-                    
-                    // Ưu tiên chọn người khác giới tính nếu có profile
+                    const activeCandidates = Array.from(members.values()).filter((m: any) => !m.user.bot && m.id !== userId);
+
                     const myGender = profile?.gender;
                     if (myGender) {
-                        const oppositeGenderCandidates: any[] = [];
-                        for (const [, member] of candidates) {
+                        const oppositeCandidates: any[] = [];
+                        const sameCandidates: any[] = [];
+
+                        for (const member of activeCandidates as any[]) {
                             const p = await getProfile(member.id);
-                            if (p && p.gender && p.gender !== myGender) {
-                                oppositeGenderCandidates.push(member);
+                            if (p && p.gender) {
+                                if (p.gender !== myGender) {
+                                    oppositeCandidates.push(member);
+                                } else {
+                                    sameCandidates.push(member);
+                                }
+                            } else {
+                                oppositeCandidates.push(member);
                             }
                         }
-                        if (oppositeGenderCandidates.length > 0) {
-                            matchedMember = oppositeGenderCandidates[Math.floor(Math.random() * oppositeGenderCandidates.length)];
+
+                        if (oppositeCandidates.length > 0) {
+                            oppositeMember = oppositeCandidates[Math.floor(Math.random() * oppositeCandidates.length)];
+                        }
+                        if (sameCandidates.length > 0) {
+                            sameMember = sameCandidates[Math.floor(Math.random() * sameCandidates.length)];
                         }
                     }
-                    
-                    if (!matchedMember && candidates.size > 0) {
-                        matchedMember = candidates.random();
+
+                    if (!oppositeMember && activeCandidates.length > 0) {
+                        oppositeMember = activeCandidates[Math.floor(Math.random() * activeCandidates.length)];
                     }
                 }
 
-                if (matchedMember) {
-                    const targetProfile = await getProfile(matchedMember.id);
-                    let compatibilityScore = Math.floor(Math.random() * 30) + 70; // 70% - 99%
-                    
-                    let targetInfo = `<@${matchedMember.id}> (${matchedMember.displayName})`;
-                    let extraText = "";
-                    if (targetProfile && targetProfile.birthday) {
-                        const parts = targetProfile.birthday.replace(/\-/g, '/').split('/');
+                if (oppositeMember) {
+                    const oppProfile = await getProfile(oppositeMember.id);
+                    let oppScore = Math.floor(Math.random() * 30) + 70; // 70% - 99%
+                    let oppZodiac = "";
+                    if (oppProfile && oppProfile.birthday) {
+                        const parts = oppProfile.birthday.replace(/\-/g, '/').split('/');
                         const day = parseInt(parts[0], 10);
                         const month = parseInt(parts[1], 10);
                         if (!isNaN(day) && !isNaN(month)) {
                             const zInfo = getWesternZodiacInfo(day, month);
-                            extraText = `\n- ♍ **Cung:** \`${zInfo.name} (${zInfo.symbol})\``;
+                            oppZodiac = ` | Cung: ${zInfo.name} ${zInfo.symbol}`;
                         }
                     }
 
-                    await interaction.editReply({
-                        content: 
-                            `💖 **KẾT QUẢ GHÉP ĐÔI NHANH TRONG SERVER** 💖\n\n` +
-                            `👩‍❤️‍👨 **Đối tượng ghép cặp:** ${targetInfo}\n` +
-                            `📊 **Tỉ lệ hợp cạ:** \`${compatibilityScore}%\` ${extraText}\n\n` +
-                            `🔮 *Lời khuyên phong thủy:* Hãy chủ động gõ \`@BotToan ghep doi <@${matchedMember.id}>\` để xem luận giải tử vi chi tiết của hai đứa nhé!`
-                    });
+                    let matchMsg = 
+                        `💖 **KẾT QUẢ GHÉP ĐÔI NHANH TRONG SERVER (ID: 1209955080649052160)** 💖\n\n` +
+                        `👩‍❤️‍👨 **CẶP ĐÔI CHUẨN DUYÊN (Nam x Nữ):**\n` +
+                        `- **Đối tượng:** <@${oppositeMember.id}> (${oppositeMember.displayName})\n` +
+                        `- 📊 **Tỉ lệ hợp cạ:** \`${oppScore}%\`${oppZodiac}\n\n`;
+
+                    if (sameMember && sameMember.id !== oppositeMember.id) {
+                        const sameProfile = await getProfile(sameMember.id);
+                        let sameScore = Math.floor(Math.random() * 20) + 80; // 80% - 99%
+                        const sameGenderLabel = profile?.gender === 'Nữ' ? '👭 CẶP ĐÔI BÁCH HỢP BỰA' : '👬 CẶP ĐÔI ĐAM MỸ BỰA';
+                        
+                        matchMsg += 
+                            `${sameGenderLabel} (Cùng giới tính):\n` +
+                            `- **Đồng chí hợp cạ:** <@${sameMember.id}> (${sameMember.displayName})\n` +
+                            `- 📊 **Tỉ lệ dắt tay nhau trốn nợ:** \`${sameScore}%\` 💸\n\n`;
+                    }
+
+                    matchMsg += `🔮 *Lời khuyên phong thủy:* Hãy chủ động gõ \`@BotToan ghep doi <@${oppositeMember.id}>\` để xem luận giải tử vi chi tiết nhé!`;
+
+                    await interaction.editReply({ content: matchMsg });
                 } else {
                     const fortune = await getMatchmakingFortune(interaction.user.username);
                     await interaction.editReply({
