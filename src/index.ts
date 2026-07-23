@@ -224,8 +224,25 @@ const client = new Client({
     ]
 });
 
-// ================= LẮNG NGHE KHI CÓ THÀNH VIÊN VÀO VOICE (PHÁT NHẠC INTRO) =================
-
+// ================= HÀM HỖ TRỢ TẠM NGẮT TIẾNG / CÁCH LY HORNBOT KHI BOTTOAN PHÁT NHẠC =================
+async function isolateHornBot(guild: any, voiceChannelId: string) {
+    if (!guild || !voiceChannelId) return;
+    try {
+        const hornBotId = '1131890979100700712';
+        const hornBot = await guild.members.fetch(hornBotId).catch(() => null);
+        if (hornBot && hornBot.voice.channelId === voiceChannelId) {
+            const currentChId = hornBot.voice.channelId;
+            const otherChannel = guild.channels.cache.find((c: any) => c.isVoiceBased() && c.id !== currentChId);
+            if (otherChannel) {
+                await hornBot.voice.setChannel(otherChannel.id, "BotToan tạm ngắt tiếng HornBot").catch(() => {});
+            } else {
+                await hornBot.voice.disconnect("BotToan tạm ngắt tiếng HornBot").catch(() => {});
+            }
+        }
+    } catch (e) {
+        console.error("Lỗi khi cách ly HornBot:", e);
+    }
+}
 
 // ================= LẮNG NGHE LỆNH & CHAT =================
 client.on('messageCreate', async (message: Message) => {
@@ -314,6 +331,7 @@ client.on('messageCreate', async (message: Message) => {
             : `Ngủ đi em! Thức xem stream làm cái gì nữa!`;
 
         try {
+            await isolateHornBot(message.guild, userVoiceChannel.id);
             const existingConnection = getVoiceConnection(message.guild.id);
             if (existingConnection) {
                 try { existingConnection.destroy(); } catch (e) {}
@@ -391,6 +409,7 @@ client.on('messageCreate', async (message: Message) => {
         }
 
         try {
+            await isolateHornBot(message.guild, userVoiceChannel.id);
             const existingConnection = getVoiceConnection(message.guild.id);
             if (existingConnection) {
                 try { existingConnection.destroy(); } catch (e) {}
@@ -415,9 +434,7 @@ client.on('messageCreate', async (message: Message) => {
             await message.reply(announceMsg).catch(() => {});
 
             try { 
-                const resource = createAudioResource(fs.createReadStream(audioPath), { inputType: audioType, inlineVolume: true });
-                resource.volume?.setVolume(1.5); // Tăng âm lượng 50%
-                player.play(resource); 
+                player.play(createAudioResource(fs.createReadStream(audioPath), { inputType: audioType })); 
             } catch (e) {
                 console.error('[BONTRE] Lỗi phát audio:', e);
             }
@@ -474,6 +491,7 @@ client.on('messageCreate', async (message: Message) => {
         }
 
         try {
+            await isolateHornBot(message.guild, userVoiceChannel.id);
             const existingConnection = getVoiceConnection(message.guild.id);
             if (existingConnection) {
                 try { existingConnection.destroy(); } catch (e) {}
@@ -498,9 +516,7 @@ client.on('messageCreate', async (message: Message) => {
             await message.reply(announceMsg).catch(() => {});
 
             try { 
-                const resource = createAudioResource(fs.createReadStream(audioPath), { inputType: audioType, inlineVolume: true });
-                resource.volume?.setVolume(0.7); // Giảm âm lượng 30%
-                player.play(resource); 
+                player.play(createAudioResource(fs.createReadStream(audioPath), { inputType: audioType })); 
             } catch (e) {
                 console.error('[ENTRY] Lỗi phát audio:', e);
             }
@@ -744,29 +760,22 @@ client.on('messageCreate', async (message: Message) => {
     // ----------------- TÍNH NĂNG "CÂM" -----------------
     const shutUpTriggers = ['cam', 'im', 'nin', 'ngung sua', 'cam mom', 'im di', 'im mom'];
     if (shutUpTriggers.some(t => cleanInput.includes(t))) {
-        message.reply("Biết rồi, tao câm đây!").catch(()=>{});
+        message.reply("Biết rồi, cả tao và HornBot đều câm đây! 🤫").catch(()=>{});
 
-        // Di chuyển HornBot bất đồng bộ lập tức để ngắt tiếng
+        // 1. Tắt tiếng & ngắt kết nối voice của BotToan
+        if (message.guild) {
+            const botConn = getVoiceConnection(message.guild.id);
+            if (botConn) {
+                try { botConn.destroy(); } catch (e) {}
+            }
+        }
+
+        // 2. Di chuyển / cách ly HornBot khỏi phòng voice
         (async () => {
             try {
-                const hornBotId = '1131890979100700712';
-                const hornBot = await message.guild?.members.fetch(hornBotId).catch(() => null);
-
-                if (hornBot && hornBot.voice.channelId) {
-                    const senderVoiceChannelId = message.member?.voice.channelId;
-                    // Chỉ di chuyển nếu HornBot đang ở cùng phòng với người ra lệnh câm lặng
-                    if (senderVoiceChannelId && hornBot.voice.channelId === senderVoiceChannelId) {
-                        const currentChId = hornBot.voice.channelId;
-                        const otherChannel = message.guild?.channels.cache.find(c => 
-                            c.isVoiceBased() && c.id !== currentChId
-                        );
-
-                        if (otherChannel) {
-                            await hornBot.voice.setChannel(otherChannel.id, "Bị BotToan bắt câm (cách ly)").catch(() => {});
-                        } else {
-                            await hornBot.voice.disconnect("Bị BotToan bắt câm (cách ly)").catch(() => {});
-                        }
-                    }
+                const senderVoiceChannelId = message.member?.voice.channelId;
+                if (message.guild && senderVoiceChannelId) {
+                    await isolateHornBot(message.guild, senderVoiceChannelId);
                 }
             } catch (err) {
                 console.error("Lỗi khi cách ly HornBot:", err);
@@ -2000,6 +2009,7 @@ client.on('voiceStateUpdate', async (oldState: VoiceState, newState: VoiceState)
     }
 
     try {
+        await isolateHornBot(newChannel.guild, newChannel.id);
         const t0 = Date.now();
         const connection = joinVoiceChannel({
             channelId: newChannel.id,

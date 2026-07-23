@@ -5,6 +5,11 @@ import { spawnSync } from 'child_process';
 const ffmpegPath = require('ffmpeg-static');
 const audioDir = path.join(__dirname, '../../audio');
 
+const volumeFilters: Record<string, string> = {
+    'bontre': '1.5',
+    'entry': '0.7'
+};
+
 console.log('[AUDIO CONVERT] Đang quét thư mục audio...');
 
 if (!fs.existsSync(audioDir)) {
@@ -37,18 +42,20 @@ for (const file of files) {
             needsConversion = true;
         }
 
+        const volumeFilter = volumeFilters[base] || '1.0';
         if (needsConversion) {
-            console.log(`[AUDIO CONVERT] Đang chuyển đổi ${file} -> ${base}.ogg (OpusHead)...`);
+            console.log(`[AUDIO CONVERT] Đang chuyển đổi ${file} -> ${base}.ogg (volume=${volumeFilter}, OpusHead)...`);
             const tmpOgg = path.join(audioDir, `${base}_tmp.ogg`);
-            const res = spawnSync(ffmpegPath, [
+            const args = [
                 '-y',
                 '-i', sourceFile,
-                '-c:a', 'libopus',
-                '-b:a', '96k',
-                '-ar', '48000',
-                '-ac', '2',
-                tmpOgg
-            ]);
+            ];
+            if (volumeFilter !== '1.0') {
+                args.push('-filter:a', `volume=${volumeFilter}`);
+            }
+            args.push('-c:a', 'libopus', '-b:a', '96k', '-ar', '48000', '-ac', '2', tmpOgg);
+
+            const res = spawnSync(ffmpegPath, args);
 
             if (res.status === 0 && fs.existsSync(tmpOgg)) {
                 fs.renameSync(tmpOgg, targetOgg);
