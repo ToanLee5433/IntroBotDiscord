@@ -182,11 +182,22 @@ function getGangTitle(balance, debt, isPrincess = false) {
 }
 // ================= CANVAS PROFILE CARD GENERATOR =================
 async function generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess = false) {
-    let createCanvas, loadImage;
+    let createCanvas, loadImage, GlobalFonts;
     try {
         const canvasPkg = require('@napi-rs/canvas');
         createCanvas = canvasPkg.createCanvas;
         loadImage = canvasPkg.loadImage;
+        GlobalFonts = canvasPkg.GlobalFonts;
+        const pathPkg = require('path');
+        const fsPkg = require('fs');
+        const fontBoldPath = pathPkg.resolve(process.cwd(), 'fonts/BeVietnamPro-Bold.ttf');
+        const fontRegPath = pathPkg.resolve(process.cwd(), 'fonts/BeVietnamPro-Regular.ttf');
+        if (GlobalFonts && fsPkg.existsSync(fontBoldPath)) {
+            GlobalFonts.registerFromPath(fontBoldPath, 'BeVietnamProBold');
+        }
+        if (GlobalFonts && fsPkg.existsSync(fontRegPath)) {
+            GlobalFonts.registerFromPath(fontRegPath, 'BeVietnamPro');
+        }
     }
     catch (e) {
         console.error("Lỗi nạp thư viện @napi-rs/canvas:", e);
@@ -196,6 +207,10 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     const height = 480;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
+    const fontBold = 'bold 22px BeVietnamProBold, BeVietnamPro, sans-serif';
+    const fontSubHeader = 'bold 16px BeVietnamProBold, BeVietnamPro, sans-serif';
+    const fontRegular = 'bold 15px BeVietnamProBold, BeVietnamPro, sans-serif';
+    const fontStamp = 'bold 11px BeVietnamProBold, BeVietnamPro, sans-serif';
     // 1. Background Gradient (Dark Mode Hologram Card)
     const bgGradient = ctx.createLinearGradient(0, 0, width, height);
     bgGradient.addColorStop(0, '#0F172A');
@@ -227,11 +242,11 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     ctx.strokeRect(20, 20, width - 40, height - 40);
     // Header Title
     ctx.fillStyle = '#D4AF37';
-    ctx.font = 'bold 22px sans-serif';
+    ctx.font = fontBold;
     ctx.textAlign = 'center';
     ctx.fillText('📋 CỘNG HÒA XÃ HỘI GIANG HỒ BOTTOAN 📋', width / 2, 52);
     ctx.fillStyle = '#00A8FF';
-    ctx.font = 'bold 16px sans-serif';
+    ctx.font = fontSubHeader;
     ctx.fillText('THẺ CĂN CƯỚC GIANG HỒ / GIẤY TẠM TRÚ TẠM VẮNG', width / 2, 80);
     // Separator line
     ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)';
@@ -269,7 +284,7 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     // Gangster Title Badge under avatar
     const gangTitle = getGangTitle(balance, debt, isPrincess);
     ctx.fillStyle = '#FFD700';
-    ctx.font = 'bold 15px sans-serif';
+    ctx.font = fontRegular;
     ctx.textAlign = 'center';
     ctx.fillText(gangTitle, avatarX + avatarSize / 2, avatarY + avatarSize + 30);
     // Parse Birthday & Astrology
@@ -314,10 +329,10 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     ];
     fields.forEach(f => {
         ctx.fillStyle = '#94A3B8';
-        ctx.font = 'bold 15px sans-serif';
+        ctx.font = fontRegular;
         ctx.fillText(f.label, textX, startY);
         ctx.fillStyle = '#F8FAFC';
-        ctx.font = 'bold 15px sans-serif';
+        ctx.font = fontRegular;
         ctx.fillText(f.val, textX + 150, startY);
         startY += lineSpacing;
     });
@@ -331,7 +346,7 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     ctx.arc(0, 0, 45, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = '#EF4444';
-    ctx.font = 'bold 11px sans-serif';
+    ctx.font = fontStamp;
     ctx.textAlign = 'center';
     ctx.fillText('BOTTOAN VERIFIED', 0, -10);
     ctx.fillText('★ ĐÃ KHAI BÁO ★', 0, 5);
