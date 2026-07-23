@@ -4,6 +4,11 @@ exports.translateShengXiao = translateShengXiao;
 exports.translateGanChi = translateGanChi;
 exports.translateNaYin = translateNaYin;
 exports.isValidDate = isValidDate;
+exports.getWesternZodiacInfo = getWesternZodiacInfo;
+exports.getLunarCompatibility = getLunarCompatibility;
+exports.getGangTitle = getGangTitle;
+exports.generateProfileCardCanvas = generateProfileCardCanvas;
+exports.setupProfileInteractions = setupProfileInteractions;
 exports.getCungPhi = getCungPhi;
 exports.getBatTrachRelation = getBatTrachRelation;
 exports.getFengShuiScore = getFengShuiScore;
@@ -14,6 +19,7 @@ exports.handleDetectiveServices = handleDetectiveServices;
 exports.handleBuaYeu = handleBuaYeu;
 exports.handleGieoQue = handleGieoQue;
 const discord_js_1 = require("discord.js");
+const canvas_1 = require("@napi-rs/canvas");
 const lunar_javascript_1 = require("lunar-javascript");
 const database_1 = require("../database");
 const utils_1 = require("../utils");
@@ -88,7 +94,322 @@ function isValidDate(day, month, year) {
     if (month < 1 || month > 12)
         return false;
     const daysInMonth = new Date(year, month, 0).getDate();
-    return day >= 1 && day <= daysInMonth;
+    if (day < 1 || day > daysInMonth)
+        return false;
+    // Không cho phép ngày sinh trong tương lai
+    const birthDate = new Date(year, month - 1, day);
+    if (birthDate.getTime() > Date.now())
+        return false;
+    return true;
+}
+// ================= CUNG HOÀNG ĐẠO & PHONG THỦY NÂNG CẤP =================
+function getWesternZodiacInfo(day, month) {
+    if ((month === 3 && day >= 21) || (month === 4 && day <= 19)) {
+        return { name: "Bạch Dương", nameEn: "Aries", symbol: "♈", compatible: "Sư Tử ♌, Nhân Mã ♐" };
+    }
+    if ((month === 4 && day >= 20) || (month === 5 && day <= 20)) {
+        return { name: "Kim Ngưu", nameEn: "Taurus", symbol: "♉", compatible: "Xử Nữ ♍, Ma Kết ♑" };
+    }
+    if ((month === 5 && day >= 21) || (month === 6 && day <= 20)) {
+        return { name: "Song Tử", nameEn: "Gemini", symbol: "♊", compatible: "Thiên Bình ♎, Bảo Bình ♒" };
+    }
+    if ((month === 6 && day >= 21) || (month === 7 && day <= 22)) {
+        return { name: "Cự Giải", nameEn: "Cancer", symbol: "♋", compatible: "Bọ Cạp ♏, Song Ngư ♓" };
+    }
+    if ((month === 7 && day >= 23) || (month === 8 && day <= 22)) {
+        return { name: "Sư Tử", nameEn: "Leo", symbol: "♌", compatible: "Bạch Dương ♈, Nhân Mã ♐" };
+    }
+    if ((month === 8 && day >= 23) || (month === 9 && day <= 22)) {
+        return { name: "Xử Nữ", nameEn: "Virgo", symbol: "♍", compatible: "Kim Ngưu ♉, Ma Kết ♑" };
+    }
+    if ((month === 9 && day >= 23) || (month === 10 && day <= 22)) {
+        return { name: "Thiên Bình", nameEn: "Libra", symbol: "♎", compatible: "Song Tử ♊, Bảo Bình ♒" };
+    }
+    if ((month === 10 && day >= 23) || (month === 11 && day <= 21)) {
+        return { name: "Bọ Cạp", nameEn: "Scorpio", symbol: "♏", compatible: "Cự Giải ♋, Song Ngư ♓" };
+    }
+    if ((month === 11 && day >= 22) || (month === 12 && day <= 21)) {
+        return { name: "Nhân Mã", nameEn: "Sagittarius", symbol: "♐", compatible: "Bạch Dương ♈, Sư Tử ♌" };
+    }
+    if ((month === 12 && day >= 22) || (month === 1 && day <= 19)) {
+        return { name: "Ma Kết", nameEn: "Capricorn", symbol: "♑", compatible: "Kim Ngưu ♉, Xử Nữ ♍" };
+    }
+    if ((month === 1 && day >= 20) || (month === 2 && day <= 18)) {
+        return { name: "Bảo Bình", nameEn: "Aquarius", symbol: "♒", compatible: "Song Tử ♊, Thiên Bình ♎" };
+    }
+    return { name: "Song Ngư", nameEn: "Pisces", symbol: "♓", compatible: "Cự Giải ♋, Bọ Cạp ♏" };
+}
+function getLunarCompatibility(shengXiao) {
+    const map = {
+        '鼠': { animal: 'Tý', emoji: '🐭', tamHop: 'Thân 🐒, Thìn 🐲', lucHop: 'Sửu 🐮', xungChinhDien: 'Ngọ 🐴 (Xung chính diện - Né gấp!)', xungNhom: 'Mão 🐱, Dậu 🐓 (Xung nhóm)' },
+        'Tý': { animal: 'Tý', emoji: '🐭', tamHop: 'Thân 🐒, Thìn 🐲', lucHop: 'Sửu 🐮', xungChinhDien: 'Ngọ 🐴 (Xung chính diện - Né gấp!)', xungNhom: 'Mão 🐱, Dậu 🐓 (Xung nhóm)' },
+        '牛': { animal: 'Sửu', emoji: '🐮', tamHop: 'Tỵ 🐍, Dậu 🐓', lucHop: 'Tý 🐭', xungChinhDien: 'Mùi 🐐 (Xung chính diện - Né gấp!)', xungNhom: 'Thìn 🐲, Tuất 🐶 (Xung nhóm)' },
+        'Sửu': { animal: 'Sửu', emoji: '🐮', tamHop: 'Tỵ 🐍, Dậu 🐓', lucHop: 'Tý 🐭', xungChinhDien: 'Mùi 🐐 (Xung chính diện - Né gấp!)', xungNhom: 'Thìn 🐲, Tuất 🐶 (Xung nhóm)' },
+        '虎': { animal: 'Dần', emoji: '🐯', tamHop: 'Ngọ 🐴, Tuất 🐶', lucHop: 'Hợi 🐷', xungChinhDien: 'Thân 🐒 (Xung chính diện - Né gấp!)', xungNhom: 'Tỵ 🐍, Hợi 🐷 (Xung nhóm)' },
+        'Dần': { animal: 'Dần', emoji: '🐯', tamHop: 'Ngọ 🐴, Tuất 🐶', lucHop: 'Hợi 🐷', xungChinhDien: 'Thân 🐒 (Xung chính diện - Né gấp!)', xungNhom: 'Tỵ 🐍, Hợi 🐷 (Xung nhóm)' },
+        '兔': { animal: 'Mão', emoji: '🐱', tamHop: 'Hợi 🐷, Mùi 🐐', lucHop: 'Tuất 🐶', xungChinhDien: 'Dậu 🐓 (Xung chính diện - Né gấp!)', xungNhom: 'Tý 🐭, Ngọ 🐴 (Xung nhóm)' },
+        'Mão': { animal: 'Mão', emoji: '🐱', tamHop: 'Hợi 🐷, Mùi 🐐', lucHop: 'Tuất 🐶', xungChinhDien: 'Dậu 🐓 (Xung chính diện - Né gấp!)', xungNhom: 'Tý 🐭, Ngọ 🐴 (Xung nhóm)' },
+        '龙': { animal: 'Thìn', emoji: '🐲', tamHop: 'Thân 🐒, Tý 🐭', lucHop: 'Dậu 🐓', xungChinhDien: 'Tuất 🐶 (Xung chính diện - Né gấp!)', xungNhom: 'Sửu 🐮, Mùi 🐐 (Xung nhóm)' },
+        'Thìn': { animal: 'Thìn', emoji: '🐲', tamHop: 'Thân 🐒, Tý 🐭', lucHop: 'Dậu 🐓', xungChinhDien: 'Tuất 🐶 (Xung chính diện - Né gấp!)', xungNhom: 'Sửu 🐮, Mùi 🐐 (Xung nhóm)' },
+        '蛇': { animal: 'Tỵ', emoji: '🐍', tamHop: 'Dậu 🐓, Sửu 🐮', lucHop: 'Thân 🐒', xungChinhDien: 'Hợi 🐷 (Xung chính diện - Né gấp!)', xungNhom: 'Dần 🐯, Thân 🐒 (Xung nhóm)' },
+        'Tỵ': { animal: 'Tỵ', emoji: '🐍', tamHop: 'Dậu 🐓, Sửu 🐮', lucHop: 'Thân 🐒', xungChinhDien: 'Hợi 🐷 (Xung chính diện - Né gấp!)', xungNhom: 'Dần 🐯, Thân 🐒 (Xung nhóm)' },
+        '午': { animal: 'Ngọ', emoji: '🐴', tamHop: 'Dần 🐯, Tuất 🐶', lucHop: 'Mùi 🐐', xungChinhDien: 'Tý 🐭 (Xung chính diện - Né gấp!)', xungNhom: 'Mão 🐱, Dậu 🐓 (Xung nhóm)' },
+        'Ngọ': { animal: 'Ngọ', emoji: '🐴', tamHop: 'Dần 🐯, Tuất 🐶', lucHop: 'Mùi 🐐', xungChinhDien: 'Tý 🐭 (Xung chính diện - Né gấp!)', xungNhom: 'Mão 🐱, Dậu 🐓 (Xung nhóm)' },
+        '羊': { animal: 'Mùi', emoji: '🐐', tamHop: 'Mão 🐱, Hợi 🐷', lucHop: 'Ngọ 🐴', xungChinhDien: 'Sửu 🐮 (Xung chính diện - Né gấp!)', xungNhom: 'Thìn 🐲, Tuất 🐶 (Xung nhóm)' },
+        'Mùi': { animal: 'Mùi', emoji: '🐐', tamHop: 'Mão 🐱, Hợi 🐷', lucHop: 'Ngọ 🐴', xungChinhDien: 'Sửu 🐮 (Xung chính diện - Né gấp!)', xungNhom: 'Thìn 🐲, Tuất 🐶 (Xung nhóm)' },
+        '申': { animal: 'Thân', emoji: '🐒', tamHop: 'Tý 🐭, Thìn 🐲', lucHop: 'Tỵ 🐍', xungChinhDien: 'Dần 🐯 (Xung chính diện - Né gấp!)', xungNhom: 'Tỵ 🐍, Hợi 🐷 (Xung nhóm)' },
+        'Thân': { animal: 'Thân', emoji: '🐒', tamHop: 'Tý 🐭, Thìn 🐲', lucHop: 'Tỵ 🐍', xungChinhDien: 'Dần 🐯 (Xung chính diện - Né gấp!)', xungNhom: 'Tỵ 🐍, Hợi 🐷 (Xung nhóm)' },
+        '酉': { animal: 'Dậu', emoji: '🐓', tamHop: 'Tỵ 🐍, Sửu 🐮', lucHop: 'Thìn 🐲', xungChinhDien: 'Mão 🐱 (Xung chính diện - Né gấp!)', xungNhom: 'Tý 🐭, Ngọ 🐴 (Xung nhóm)' },
+        'Dậu': { animal: 'Dậu', emoji: '🐓', tamHop: 'Tỵ 🐍, Sửu 🐮', lucHop: 'Thìn 🐲', xungChinhDien: 'Mão 🐱 (Xung chính diện - Né gấp!)', xungNhom: 'Tý 🐭, Ngọ 🐴 (Xung nhóm)' },
+        '戌': { animal: 'Tuất', emoji: '🐶', tamHop: 'Dần 🐯, Ngọ 🐴', lucHop: 'Mão 🐱', xungChinhDien: 'Thìn 🐲 (Xung chính diện - Né gấp!)', xungNhom: 'Sửu 🐮, Mùi 🐐 (Xung nhóm)' },
+        'Tuất': { animal: 'Tuất', emoji: '🐶', tamHop: 'Dần 🐯, Ngọ 🐴', lucHop: 'Mão 🐱', xungChinhDien: 'Thìn 🐲 (Xung chính diện - Né gấp!)', xungNhom: 'Sửu 🐮, Mùi 🐐 (Xung nhóm)' },
+        '猪': { animal: 'Hợi', emoji: '🐷', tamHop: 'Mão 🐱, Mùi 🐐', lucHop: 'Dần 🐯', xungChinhDien: 'Tỵ 🐍 (Xung chính diện - Né gấp!)', xungNhom: 'Dần 🐯, Thân 🐒 (Xung nhóm)' },
+        'Hợi': { animal: 'Hợi', emoji: '🐷', tamHop: 'Mão 🐱, Mùi 🐐', lucHop: 'Dần 🐯', xungChinhDien: 'Tỵ 🐍 (Xung chính diện - Né gấp!)', xungNhom: 'Dần 🐯, Thân 🐒 (Xung nhóm)' }
+    };
+    return map[shengXiao] || { animal: shengXiao, emoji: '✨', tamHop: 'N/A', lucHop: 'N/A', xungChinhDien: 'N/A', xungNhom: 'N/A' };
+}
+function getGangTitle(balance, debt, isPrincess = false) {
+    if (isPrincess)
+        return '👑 CÔNG CHÚA GIANG HỒ';
+    if (debt >= 100000)
+        return '💸 CON NỢ QUỐC DÂN';
+    if (balance >= 500000)
+        return '🏦 ĐẠI GIA SERVER';
+    if (balance >= 200000)
+        return '💎 TRÙM SÒNG BÀI';
+    if (balance < 10000)
+        return '🍚 CÁI BANG TỰ NỢ';
+    return '⚔️ DÂN CHƠI GIANG HỒ';
+}
+// ================= CANVAS PROFILE CARD GENERATOR =================
+async function generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess = false) {
+    const width = 850;
+    const height = 480;
+    const canvas = (0, canvas_1.createCanvas)(width, height);
+    const ctx = canvas.getContext('2d');
+    // 1. Background Gradient (Dark Mode Hologram Card)
+    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+    bgGradient.addColorStop(0, '#0F172A');
+    bgGradient.addColorStop(0.5, '#1E293B');
+    bgGradient.addColorStop(1, '#0F172A');
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(0, 0, width, height);
+    // Accent Grid Lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+    }
+    for (let y = 0; y < height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+    }
+    // Outer Gold & Inner Neon Borders
+    ctx.strokeStyle = '#D4AF37'; // Gold
+    ctx.lineWidth = 4;
+    ctx.strokeRect(15, 15, width - 30, height - 30);
+    ctx.strokeStyle = '#00A8FF'; // Inner Neon Cyan
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(20, 20, width - 40, height - 40);
+    // Header Title
+    ctx.fillStyle = '#D4AF37';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('📋 CỘNG HÒA XÃ HỘI GIANG HỒ BOTTOAN 📋', width / 2, 52);
+    ctx.fillStyle = '#00A8FF';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('THẺ CĂN CƯỚC GIANG HỒ / GIẤY TẠM TRÚ TẠM VẮNG', width / 2, 80);
+    // Separator line
+    ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(40, 95);
+    ctx.lineTo(width - 40, 95);
+    ctx.stroke();
+    // Avatar Drawing
+    const avatarUrl = targetMember
+        ? targetMember.displayAvatarURL({ extension: 'png', size: 256 })
+        : targetUser.displayAvatarURL({ extension: 'png', size: 256 });
+    const avatarX = 50;
+    const avatarY = 125;
+    const avatarSize = 160;
+    try {
+        const avatarImage = await (0, canvas_1.loadImage)(avatarUrl);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.clip();
+        ctx.drawImage(avatarImage, avatarX, avatarY, avatarSize, avatarSize);
+        ctx.restore();
+        // Glowing Avatar Ring
+        ctx.strokeStyle = '#00A8FF';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2 + 2, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    catch (e) {
+        console.error("Lỗi vẽ avatar canvas:", e);
+    }
+    // Gangster Title Badge under avatar
+    const gangTitle = getGangTitle(balance, debt, isPrincess);
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(gangTitle, avatarX + avatarSize / 2, avatarY + avatarSize + 30);
+    // Parse Birthday & Astrology
+    const parts = profile.birthday.replace(/\-/g, '/').split('/');
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10);
+    const year = parseInt(parts[2], 10);
+    let zodiacText = "";
+    let lunarText = "";
+    let menhText = "";
+    if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const wZodiac = getWesternZodiacInfo(day, month);
+        zodiacText = `${wZodiac.name} (${wZodiac.nameEn} ${wZodiac.symbol})`;
+        try {
+            const solar = lunar_javascript_1.Solar.fromYmd(year, month, day);
+            const lunar = solar.getLunar();
+            const ganChi = translateGanChi(lunar.getYearInGanZhi());
+            const shengXiao = lunar.getYearShengXiao();
+            const lComp = getLunarCompatibility(shengXiao);
+            lunarText = `${ganChi} (${lComp.animal} ${lComp.emoji})`;
+            const naYinRaw = lunar.getYearNaYin ? lunar.getYearNaYin() : "";
+            if (naYinRaw)
+                menhText = translateNaYin(naYinRaw);
+        }
+        catch (e) { }
+    }
+    const age = new Date().getFullYear() - year;
+    // Profile Details Grid
+    const textX = 240;
+    let startY = 135;
+    const lineSpacing = 28;
+    ctx.textAlign = 'left';
+    const fields = [
+        { label: "👤 Họ và tên:", val: profile.name },
+        { label: "🆔 ID Giang hồ:", val: targetUser.id },
+        { label: "🚻 Giới tính:", val: profile.gender },
+        { label: "🎂 Ngày sinh:", val: `${profile.birthday} (${age} tuổi)` },
+        { label: "♍ Cung Hoàng Đạo:", val: zodiacText },
+        { label: "🌙 Tuổi Âm Lịch:", val: lunarText },
+        { label: "☯️ Mệnh Ngũ Hành:", val: menhText || "N/A" },
+        { label: "💰 Tài chính:", val: `Ví: ${(0, utils_1.formatMoney)(balance)}đ | Nợ: ${(0, utils_1.formatMoney)(debt)}đ` }
+    ];
+    fields.forEach(f => {
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText(f.label, textX, startY);
+        ctx.fillStyle = '#F8FAFC';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText(f.val, textX + 150, startY);
+        startY += lineSpacing;
+    });
+    // 4. Red Verification Stamp
+    ctx.save();
+    ctx.translate(width - 120, height - 85);
+    ctx.rotate(-15 * Math.PI / 180);
+    ctx.strokeStyle = '#EF4444';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, 45, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#EF4444';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('BOTTOAN VERIFIED', 0, -10);
+    ctx.fillText('★ ĐÃ KHAI BÁO ★', 0, 5);
+    ctx.fillText('THẦY TOÀN KÝ', 0, 20);
+    ctx.restore();
+    return canvas.toBuffer('image/png');
+}
+// ================= COOLDOWN & INTERACTION LISTENER CHO BUTTONS =================
+const profileCooldowns = new Map();
+function setupProfileInteractions(client) {
+    client.on('interactionCreate', async (interaction) => {
+        if (!interaction.isButton())
+            return;
+        const customId = interaction.customId;
+        if (!customId.startsWith('profile_'))
+            return;
+        const userId = interaction.user.id;
+        const now = Date.now();
+        const lastUsed = profileCooldowns.get(userId) || 0;
+        if (now - lastUsed < 10000) {
+            const secondsLeft = Math.ceil((10000 - (now - lastUsed)) / 1000);
+            await interaction.reply({
+                content: `⏱️ **Chờ chút ba!** Đừng spam nút bấm, thử lại sau **${secondsLeft}s** nhé!`,
+                flags: discord_js_1.MessageFlags.Ephemeral
+            }).catch(() => { });
+            return;
+        }
+        profileCooldowns.set(userId, now);
+        const parts = customId.split('_');
+        const action = parts[1];
+        const targetUserId = parts[2] || userId;
+        const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => interaction.user);
+        const profile = await (0, database_1.getProfile)(targetUserId);
+        if (!profile || !profile.name || !profile.gender || !profile.birthday) {
+            await interaction.reply({
+                content: `❌ **<@${targetUserId}> chưa khai báo lý lịch với BotToan!**`,
+                flags: discord_js_1.MessageFlags.Ephemeral
+            }).catch(() => { });
+            return;
+        }
+        const balance = await (0, database_1.getBalance)(targetUserId);
+        const debt = await (0, database_1.getDebt)(targetUserId);
+        const targetMember = interaction.guild ? await interaction.guild.members.fetch(targetUserId).catch(() => null) : null;
+        const isPrincess = targetMember ? targetMember.roles.cache.has("1528640097325547580") : false;
+        if (action === 'card') {
+            await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
+            try {
+                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess);
+                const attachment = new discord_js_1.AttachmentBuilder(cardBuffer, { name: `TheGiangHo_${targetUserId}.png` });
+                await interaction.editReply({
+                    content: `🖼️ **Thẻ Căn Cước Giang Hồ của <@${targetUserId}> đây!** *(Nhấp vào ảnh để xem full & tải về)*`,
+                    files: [attachment]
+                });
+            }
+            catch (err) {
+                console.error("Lỗi tạo thẻ canvas profile:", err);
+                await interaction.editReply({ content: "❌ **Gặp lỗi khi tạo ảnh Thẻ Căn Cước Giang Hồ!**" });
+            }
+        }
+        else if (action === 'tarot') {
+            const dateStr = (0, database_1.getVNDateString)(now);
+            const hasQue = await (0, database_1.hasGieoQueToday)(userId, dateStr);
+            if (hasQue) {
+                await interaction.reply({
+                    content: `🔮 **Hôm nay bạn đã gieo quẻ rồi!** Hãy quay lại vào ngày mai để nhận quẻ mới nhé.`,
+                    flags: discord_js_1.MessageFlags.Ephemeral
+                }).catch(() => { });
+            }
+            else {
+                await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
+                await handleGieoQue(interaction);
+            }
+        }
+        else if (action === 'match') {
+            await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
+            const fortune = await (0, gemini_1.getMatchmakingFortune)(interaction.user.username);
+            await interaction.editReply({
+                content: `💖 **Dự đoán Tình Duyên Nhanh cho ${interaction.user.username}:**\n${fortune}`
+            });
+        }
+        else if (action === 'wallet') {
+            await interaction.reply({
+                content: `🏦 **Tài chính Ngân hàng của <@${targetUserId}>:**\n- 💵 **Ví tiền:** \`${(0, utils_1.formatMoney)(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${(0, utils_1.formatMoney)(debt)}\`đ`,
+                flags: discord_js_1.MessageFlags.Ephemeral
+            }).catch(() => { });
+        }
+    });
 }
 function getCungPhi(birthdayStr, gender) {
     const parts = birthdayStr.replace(/\-/g, '/').split('/');
@@ -383,7 +704,25 @@ async function handleProfileRegistration(message, rawInput) {
         }
         const profile = await (0, database_1.getProfile)(targetUser.id);
         const isSelf = targetUser.id === message.author.id;
+        const isWantImage = remainingText.includes('--image') || remainingText.toLowerCase().includes('card') || remainingText.toLowerCase().includes('the giang ho');
         if (profile && profile.name && profile.gender && profile.birthday) {
+            const balance = await (0, database_1.getBalance)(targetUser.id);
+            const debt = await (0, database_1.getDebt)(targetUser.id);
+            let targetMember = message.guild ? message.guild.members.cache.get(targetUser.id) : null;
+            if (!targetMember && message.guild) {
+                targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
+            }
+            const isPrincess = targetMember ? targetMember.roles.cache.has("1528640097325547580") : false;
+            // Nếu người dùng yêu cầu dạng Ảnh (Visual Card)
+            if (isWantImage) {
+                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess);
+                const attachment = new discord_js_1.AttachmentBuilder(cardBuffer, { name: `TheGiangHo_${targetUser.id}.png` });
+                await message.reply({
+                    content: `🖼️ **Thẻ Căn Cước Giang Hồ / Giấy Tạm Trú của <@${targetUser.id}> đây!**`,
+                    files: [attachment]
+                }).catch(() => { });
+                return;
+            }
             const parts = profile.birthday.replace(/\-/g, '/').split('/');
             const day = parseInt(parts[0], 10);
             const month = parseInt(parts[1], 10);
@@ -394,42 +733,35 @@ async function handleProfileRegistration(message, rawInput) {
                     const solar = lunar_javascript_1.Solar.fromYmd(year, month, day);
                     const lunar = solar.getLunar();
                     const age = new Date().getFullYear() - year;
-                    const zodiac = translateShengXiao(lunar.getYearShengXiao());
+                    const shengXiao = lunar.getYearShengXiao();
                     const ganChi = translateGanChi(lunar.getYearInGanZhi());
                     const naYinRaw = lunar.getYearNaYin ? lunar.getYearNaYin() : "";
                     const menh = naYinRaw ? translateNaYin(naYinRaw) : "";
-                    extraAstrologyInfo = `- 🎂 **Tuổi (Dương):** \`${age}\` tuổi\n- 🔮 **Âm lịch:** \`Năm ${ganChi} - Tuổi ${zodiac}\``;
-                    if (menh) {
-                        extraAstrologyInfo += `\n- ☯️ **Mệnh ngũ hành:** \`${menh}\``;
-                    }
+                    const wZodiac = getWesternZodiacInfo(day, month);
+                    const lComp = getLunarCompatibility(shengXiao);
+                    extraAstrologyInfo =
+                        `- 🎂 **Tuổi Dương:** \`${age}\` tuổi — **Cung:** \`${wZodiac.name} (${wZodiac.nameEn} ${wZodiac.symbol})\`\n` +
+                            `- 🌙 **Tuổi Âm:** \`Năm ${ganChi} (${lComp.animal} ${lComp.emoji})\` — **Mệnh:** \`${menh || 'N/A'}\`\n` +
+                            `- 💖 **Cung hợp:** \`${wZodiac.compatible}\`\n` +
+                            `- 🤝 **Tuổi hợp cạ:** \`${lComp.tamHop} (Tam Hợp), ${lComp.lucHop} (Lục Hợp)\`\n` +
+                            `- ⚡ **Tuổi khắc:** \`${lComp.xungChinhDien}\`, \`${lComp.xungNhom}\``;
                 }
                 catch (e) { }
             }
-            // Lấy thông tin tài chính (Ví & Nợ)
-            const balance = await (0, database_1.getBalance)(targetUser.id);
-            const debt = await (0, database_1.getDebt)(targetUser.id);
-            // Lấy thông tin Member & Roles trong Server Discord
-            let memberInfoText = "";
+            // Lấy danh sách những người đang crush bí mật
+            const whoCrushedMeList = await (0, database_1.getWhoCrushedMe)(targetUser.id);
+            const crushCount = whoCrushedMeList ? whoCrushedMeList.length : 0;
+            const gangTitle = getGangTitle(balance, debt, isPrincess);
             let rolesText = "Không có";
-            let targetMember = message.guild ? message.guild.members.cache.get(targetUser.id) : null;
-            if (!targetMember && message.guild) {
-                targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
-            }
+            let memberInfoText = "";
             if (targetMember) {
-                // Danh sách vai trò (bỏ @everyone)
                 const roles = targetMember.roles.cache
                     .filter(r => r.id !== message.guild?.id)
                     .sort((a, b) => b.position - a.position)
                     .map(r => `<@&${r.id}>`);
                 if (roles.length > 0) {
-                    if (roles.length > 8) {
-                        rolesText = `${roles.slice(0, 8).join(', ')} *(+${roles.length - 8} vai trò nữa)*`;
-                    }
-                    else {
-                        rolesText = roles.join(', ');
-                    }
+                    rolesText = roles.length > 8 ? `${roles.slice(0, 8).join(', ')} *(+${roles.length - 8} vai trò nữa)*` : roles.join(', ');
                 }
-                // Ngày tham gia
                 const joinedDate = targetMember.joinedAt ? `${targetMember.joinedAt.getDate().toString().padStart(2, '0')}/${(targetMember.joinedAt.getMonth() + 1).toString().padStart(2, '0')}/${targetMember.joinedAt.getFullYear()}` : "N/A";
                 const createdDate = `${targetUser.createdAt.getDate().toString().padStart(2, '0')}/${(targetUser.createdAt.getMonth() + 1).toString().padStart(2, '0')}/${targetUser.createdAt.getFullYear()}`;
                 memberInfoText = `- 📥 **Tham gia Server:** \`${joinedDate}\`\n- 🐣 **Tạo Discord:** \`${createdDate}\``;
@@ -443,17 +775,32 @@ async function handleProfileRegistration(message, rawInput) {
                 ? targetMember.displayAvatarURL({ forceStatic: false, size: 512 })
                 : targetUser.displayAvatarURL({ forceStatic: false, size: 512 });
             const embed = new discord_js_1.EmbedBuilder()
-                .setTitle(`📋 HỒ SƠ LÝ LỊCH GIANG HỒ`)
+                .setTitle(`📋 HỒ SƠ LÝ LỊCH GIANG HỒ • ${gangTitle}`)
                 .setThumbnail(avatarUrl)
                 .setDescription(`Thông tin hồ sơ tạm trú tạm vắng của <@${targetUser.id}>:`)
                 .addFields({ name: "👤 Họ và tên thật", value: `\`${profile.name}\``, inline: true }, { name: "🚻 Giới tính", value: `${genderIcon} \`${profile.gender}\``, inline: true }, { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true }, { name: "💰 Tài chính Ngân hàng", value: `- 💵 **Ví tiền:** \`${(0, utils_1.formatMoney)(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${(0, utils_1.formatMoney)(debt)}\`đ`, inline: false })
                 .setColor(0x00A8FF)
                 .setFooter({ text: isSelf ? "Gõ @BotToan profile [Tên] [Nam/Nữ] [DD/MM/YYYY] để cập nhật hồ sơ!" : "BotToan - Hồ sơ lý lịch giang hồ" });
             if (extraAstrologyInfo) {
-                embed.addFields({ name: "🔮 Tử vi & Phong thủy", value: extraAstrologyInfo, inline: false });
+                embed.addFields({ name: "🔮 Tử vi, Cung Mạng & Phong Thủy", value: extraAstrologyInfo, inline: false });
             }
-            embed.addFields({ name: "🎭 Vai trò (Roles)", value: rolesText, inline: false }, { name: "📅 Nhật ký tài khoản", value: memberInfoText, inline: false });
-            await message.reply({ embeds: [embed] }).catch(() => { });
+            embed.addFields({ name: "💘 Chỉ số Đào Hoa", value: `\`${crushCount}\` người đang âm thầm crush bí mật`, inline: true }, { name: "🎭 Vai trò (Roles)", value: rolesText, inline: false }, { name: "📅 Nhật ký tài khoản", value: memberInfoText, inline: false });
+            // Action Row 4 nút bấm tương tác Quick Action
+            const actionRow = new discord_js_1.ActionRowBuilder().addComponents(new discord_js_1.ButtonBuilder()
+                .setCustomId(`profile_card_${targetUser.id}`)
+                .setLabel('🖼️ Xuất Thẻ Giang Hồ')
+                .setStyle(discord_js_1.ButtonStyle.Primary), new discord_js_1.ButtonBuilder()
+                .setCustomId(`profile_tarot_${targetUser.id}`)
+                .setLabel('🔮 Xem Bói Hôm Nay')
+                .setStyle(discord_js_1.ButtonStyle.Success), new discord_js_1.ButtonBuilder()
+                .setCustomId(`profile_match_${targetUser.id}`)
+                .setLabel('💖 Ghép Đôi Nhanh')
+                .setStyle(discord_js_1.ButtonStyle.Danger), new discord_js_1.ButtonBuilder()
+                .setCustomId(`profile_wallet_${targetUser.id}`)
+                .setLabel('🏦 Check Ví Tiền')
+                .setStyle(discord_js_1.ButtonStyle.Secondary));
+            await message.reply({ embeds: [embed], components: [actionRow] }).catch(() => { });
+            return;
             return;
         }
         else {

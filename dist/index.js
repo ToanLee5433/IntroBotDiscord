@@ -243,6 +243,7 @@ const client = new discord_js_1.Client({
         discord_js_1.GatewayIntentBits.GuildMembers,
     ]
 });
+(0, ghepdoi_1.setupProfileInteractions)(client);
 // ================= HÀM HỖ TRỢ TẠM NGẮT TIẾNG / CÁCH LY HORNBOT KHI BOTTOAN PHÁT NHẠC =================
 async function isolateHornBot(guild, voiceChannelId) {
     if (!guild || !voiceChannelId)

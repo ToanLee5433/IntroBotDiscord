@@ -25,7 +25,7 @@ import { playPokerRoulette } from './games/pokerroulette';
 import { chatWithGemini, analyzeImageWithGemini, generateImageWithImagen, editImageWithImagen, checkImageQuota } from './services/gemini';
 import { AttachmentBuilder } from 'discord.js';
 import { fetchValorantRank } from './services/valorant';
-import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue } from './games/ghepdoi';
+import { handleProfileRegistration, handleCrushCommand, playMatchmaking, handleDetectiveServices, handleBuaYeu, handleGieoQue, setupProfileInteractions } from './games/ghepdoi';
 import { initTarot, handleTarot } from './games/tarot';
 import { handleAura, handleAnonymousLetter, handleMoodDiary, handleCheckDM, handleOverthink, handleChotDon, handleDailyAesthetic } from './games/femfeatures';
 import { handleMyGuQuiz, handleDoanMyGu, registerMyGuCollector } from './games/mygu';
@@ -223,6 +223,8 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
     ]
 });
+
+setupProfileInteractions(client);
 
 // ================= HÀM HỖ TRỢ TẠM NGẮT TIẾNG / CÁCH LY HORNBOT KHI BOTTOAN PHÁT NHẠC =================
 async function isolateHornBot(guild: any, voiceChannelId: string) {
