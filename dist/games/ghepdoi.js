@@ -550,7 +550,7 @@ function setupProfileInteractions(client) {
                                 `- 📊 **Tỉ lệ dắt tay nhau trốn nợ:** \`${sameScore}%\` 💸\n` +
                                 `- 🤪 **Lý do bựa:** "Hai đứa hợp nhau ở khoản siêng ăn nhậu, cùng chí hướng đi vay nợ ngân hàng rồi bùng kèo trốn nợ!"\n\n`;
                     }
-                    matchMsg += `💡 *Mẹo phong thủy:* Gõ \`@BotToan ghep doi <@${oppositeMember.id}>\` (hoặc tag tên) để xem luận giải tử vi chi tiết nhé!`;
+                    matchMsg += `💡 *Mẹo phong thủy:* Gõ \`@BotToan ghep doi\` kèm tag <@${oppositeMember.id}> để xem luận giải tử vi chi tiết của hai đứa nhé!`;
                     await interaction.editReply({ content: matchMsg });
                 }
                 else {
