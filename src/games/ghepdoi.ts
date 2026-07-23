@@ -3,7 +3,6 @@ import {
     ActionRowBuilder, ComponentType, ButtonBuilder, ButtonStyle, 
     AttachmentBuilder, User, GuildMember, MessageFlags 
 } from 'discord.js';
-import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { Solar } from 'lunar-javascript';
 import { 
     saveProfile, getProfile, updateCrush, getCrush, 
@@ -184,6 +183,16 @@ export async function generateProfileCardCanvas(
     targetMember: GuildMember | null | undefined,
     isPrincess: boolean = false
 ): Promise<Buffer> {
+    let createCanvas: any, loadImage: any;
+    try {
+        const canvasPkg = require('@napi-rs/canvas');
+        createCanvas = canvasPkg.createCanvas;
+        loadImage = canvasPkg.loadImage;
+    } catch (e) {
+        console.error("Lỗi nạp thư viện @napi-rs/canvas:", e);
+        throw new Error("Thư viện @napi-rs/canvas chưa được cài đặt trên server!");
+    }
+
     const width = 850;
     const height = 480;
     const canvas = createCanvas(width, height);

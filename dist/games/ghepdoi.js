@@ -19,7 +19,6 @@ exports.handleDetectiveServices = handleDetectiveServices;
 exports.handleBuaYeu = handleBuaYeu;
 exports.handleGieoQue = handleGieoQue;
 const discord_js_1 = require("discord.js");
-const canvas_1 = require("@napi-rs/canvas");
 const lunar_javascript_1 = require("lunar-javascript");
 const database_1 = require("../database");
 const utils_1 = require("../utils");
@@ -183,9 +182,19 @@ function getGangTitle(balance, debt, isPrincess = false) {
 }
 // ================= CANVAS PROFILE CARD GENERATOR =================
 async function generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess = false) {
+    let createCanvas, loadImage;
+    try {
+        const canvasPkg = require('@napi-rs/canvas');
+        createCanvas = canvasPkg.createCanvas;
+        loadImage = canvasPkg.loadImage;
+    }
+    catch (e) {
+        console.error("Lỗi nạp thư viện @napi-rs/canvas:", e);
+        throw new Error("Thư viện @napi-rs/canvas chưa được cài đặt trên server!");
+    }
     const width = 850;
     const height = 480;
-    const canvas = (0, canvas_1.createCanvas)(width, height);
+    const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
     // 1. Background Gradient (Dark Mode Hologram Card)
     const bgGradient = ctx.createLinearGradient(0, 0, width, height);
@@ -239,7 +248,7 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     const avatarY = 125;
     const avatarSize = 160;
     try {
-        const avatarImage = await (0, canvas_1.loadImage)(avatarUrl);
+        const avatarImage = await loadImage(avatarUrl);
         ctx.save();
         ctx.beginPath();
         ctx.arc(avatarX + avatarSize / 2, avatarY + avatarSize / 2, avatarSize / 2, 0, Math.PI * 2, true);
