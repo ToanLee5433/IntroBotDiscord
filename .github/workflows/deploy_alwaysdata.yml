@@ -19,12 +19,8 @@ jobs:
             cd ~/IntroBotDiscord || cd ~/intro-bot-discord || exit 1
             git reset --hard HEAD
             git pull origin main
-            npm install --no-audit --no-fund
-            npx tsc
-            node -e "require('ffmpeg-static')" 2>/dev/null || npm install ffmpeg-static --no-audit --no-fund
-            chmod -R +x node_modules/ffmpeg-static/ 2>/dev/null || true
-            pkill -9 -f "index.js" || true
-            pkill -9 -f "node" || true
+            pkill -f "dist/index.js" || true
+            pkill -f "node.*index" || true
             sleep 2
             nohup node dist/index.js > bot.log 2>&1 &
-            echo "[ALWAYS DATA DEPLOY SUCCESS] BotToan code pulled, compiled and restarted successfully!"
+            echo "[ALWAYS DATA DEPLOY SUCCESS] BotToan code pulled and restarted successfully!"
