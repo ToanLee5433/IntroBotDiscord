@@ -372,53 +372,167 @@ function getLoveBar(percent: number): { bar: string, status: string } {
 // ================= XỬ LÝ LỆNH ĐĂNG KÝ HỒ SƠ =================
 
 export async function handleProfileRegistration(message: Message, rawInput: string) {
-    const triggersRegex = /^\s*(?:profile|thong\s*tin\s*ca\s*nhan|thong\s*tin|ttcn|dang\s*ky\s*ho\s*so|dang\s*ky\s*profile|dang\s*ky|cap\s*nhat\s*ho\s*so|cap\s*nhat\s*thong\s*tin|cap\s*nhat|thông\s*tin\s*cá\s*nhân|thông\s*tin|đăng\s*ký\s*hồ\s*sơ|đăng\s*ký\s*profile|đăng\s*ký|cập\s*nhật\s*hồ\s*sơ|cập\s*nhật\s*thông\s*tin|cập\s*nhật)\s+(.+?)\s+(nam|nữ|nu|nư)\s+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})\s*$/i;
-    const match = rawInput.match(triggersRegex);
+    // 1. Loại bỏ tag bot và các dấu câu dư thừa ở đầu
+    const botId = message.client.user?.id;
+    let input = rawInput;
+    if (botId) {
+        input = input.replace(new RegExp(`<@!?${botId}>`, 'g'), '');
+    }
+    input = input.replace(/^[:,\-\/!\?\s]+/, '').trim();
 
-    if (!match) {
-        const embed = new EmbedBuilder()
-            .setTitle("🚫 LỖI CÚ PHÁP ĐĂNG KÝ HỒ SƠ")
-            .setDescription(`⚠️ **Mày gõ sai cú pháp rồi con giời!**\n\nHãy nhập theo mẫu:\n\`@BotToan profile [Tên thật] [Nam/Nữ] [Ngày/Tháng/Năm Sinh]\`\n\n*Ví dụ:* \`@BotToan profile Nguyễn Văn Nam Nam 15/05/2000\``)
-            .setColor(0xFF0000)
-            .setFooter({ text: "BotToan - Hồ sơ lý lịch giang hồ" });
-        await message.reply({ embeds: [embed] }).catch(()=>{});
+    // Loại bỏ tiền tố từ khóa profile/hồ sơ/thông tin ở đầu chuỗi
+    const prefixRegex = /^\s*(?:profile|thong\s*tin\s*ca\s*nhan|thong\s*tin|ttcn|ho\s*so|ly\s*lich|dang\s*ky\s*ho\s*so|dang\s*ky\s*profile|dang\s*ky|cap\s*nhat\s*ho\s*so|cap\s*nhat\s*thong\s*tin|cap\s*nhat|khai\s*bao\s*ho\s*so|khai\s*bao\s*profile|khai\s*bao|tao\s*ho\s*so|tao\s*profile|xem\s*profile|xem\s*ho\s*so|xem\s*ttcn|xem\s*thong\s*tin|my\s*profile|profile\s*me|thông\s*tin\s*cá\s*nhân|thông\s*tin|hồ\s*sơ|lý\s*lịch|đăng\s*ký\s*hồ\s*sơ|đăng\s*ký\s*profile|đăng\s*ký|cập\s*nhật\s*hồ\s*sơ|cập\s*nhật\s*thông\s*tin|cập\s*nhật|khai\s*báo\s*hồ\s*sơ|khai\s*báo\s*profile|khai\s*báo|tạo\s*hồ\s*sơ|tạo\s*profile|xem\s*hồ\s*sơ)\s*/i;
+    const remainingText = input.replace(prefixRegex, '').trim();
+
+    // 2. TÌM KIẾM NGÀY SINH (Định dạng DD/MM/YYYY hoặc DD-MM-YYYY)
+    const dobRegex = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/;
+    const dobMatch = remainingText.match(dobRegex);
+
+    // TRƯỜNG HỢP A: Không có ngày sinh -> XEM PROFILE
+    if (!dobMatch) {
+        let targetUser = message.author;
+        
+        // Kiểm tra xem có đề cập người khác không
+        const mentionedUser = message.mentions.users.filter(u => u.id !== message.client.user?.id).first();
+        if (mentionedUser) {
+            targetUser = mentionedUser;
+        } else {
+            const idMatch = remainingText.match(/\d{17,21}/);
+            if (idMatch) {
+                const fetched = await message.client.users.fetch(idMatch[0]).catch(() => null);
+                if (fetched) targetUser = fetched;
+            }
+        }
+
+        const profile = await getProfile(targetUser.id);
+        const isSelf = targetUser.id === message.author.id;
+
+        if (profile && profile.name && profile.gender && profile.birthday) {
+            const parts = profile.birthday.replace(/\-/g, '/').split('/');
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10);
+            const year = parseInt(parts[2], 10);
+
+            let extraAstrologyInfo = "";
+            if (!isNaN(day) && !isNaN(month) && !isNaN(year) && isValidDate(day, month, year)) {
+                try {
+                    const solar = Solar.fromYmd(year, month, day);
+                    const lunar = solar.getLunar();
+                    const age = new Date().getFullYear() - year;
+                    const zodiac = translateShengXiao(lunar.getYearShengXiao());
+                    const ganChi = translateGanChi(lunar.getYearInGanZhi());
+                    extraAstrologyInfo = `\n- 🎂 **Tuổi (Dương):** \`${age}\` tuổi\n- 🔮 **Âm lịch / Tử vi:** \`Năm ${ganChi} - Tuổi ${zodiac}\``;
+                } catch (e) {}
+            }
+
+            const genderIcon = profile.gender === 'Nữ' ? '👩' : '👨';
+            const embed = new EmbedBuilder()
+                .setTitle(`📋 HỒ SƠ LÝ LỊCH GIANG HỒ`)
+                .setThumbnail(targetUser.displayAvatarURL({ forceStatic: false }))
+                .setDescription(`Thông tin hồ sơ tạm trú tạm vắng của <@${targetUser.id}>:`)
+                .addFields(
+                    { name: "👤 Họ và tên", value: `\`${profile.name}\``, inline: true },
+                    { name: "🚻 Giới tính", value: `${genderIcon} \`${profile.gender}\``, inline: true },
+                    { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true }
+                )
+                .setColor(0x3498DB)
+                .setFooter({ text: isSelf ? "Gõ @BotToan profile [Tên] [Nam/Nữ] [DD/MM/YYYY] để cập nhật hồ sơ!" : "BotToan - Hồ sơ lý lịch giang hồ" });
+
+            if (extraAstrologyInfo) {
+                embed.addFields({ name: "🔮 Chi tiết tử vi & phong thủy", value: extraAstrologyInfo.trim(), inline: false });
+            }
+
+            await message.reply({ embeds: [embed] }).catch(() => {});
+            return;
+        } else {
+            if (isSelf) {
+                const embed = new EmbedBuilder()
+                    .setTitle("📄 BẠN CHƯA KHAI BÁO HỒ SƠ LÝ LỊCH")
+                    .setDescription(`⚠️ **Mày chưa khai báo tạm trú tạm vắng với Thầy Toàn!**\n\nHãy gõ lệnh đăng ký hồ sơ theo cú pháp:\n\`@BotToan profile [Tên thật] [Nam/Nữ] [Ngày/Tháng/Năm sinh]\`\n\n*Ví dụ:* \`@BotToan profile Lê Toán Nam 03/03/2003\``)
+                    .setColor(0xE67E22)
+                    .setFooter({ text: "Khai báo lý lịch để tham gia ghép đôi, xem quẻ và bói duyên!" });
+                await message.reply({ embeds: [embed] }).catch(() => {});
+            } else {
+                await message.reply(`❌ **<@${targetUser.id}> chưa khai báo lý lịch với BotToan!** Nhắc đối phương gõ \`@BotToan profile [Tên] [Nam/Nữ] [Ngày/Tháng/Năm]\` để đăng ký trước nhé!`).catch(() => {});
+            }
+            return;
+        }
+    }
+
+    // TRƯỜNG HỢP B: Có ngày sinh -> ĐĂNG KÝ hoặc CẬP NHẬT Profile
+    const day = parseInt(dobMatch[1], 10);
+    const month = parseInt(dobMatch[2], 10);
+    const year = parseInt(dobMatch[3], 10);
+
+    if (isNaN(day) || isNaN(month) || isNaN(year) || !isValidDate(day, month, year)) {
+        await message.reply("❌ **Ngày sinh đéo có thật!** Đừng lòe thiên hạ, nhập đúng ngày tháng năm sinh thực tế đi con giời (Ví dụ: 03/03/2003)!").catch(() => {});
         return;
     }
 
-    const name = match[1].trim();
-    const genderInput = match[2].toLowerCase();
-    const dob = match[3].replace(/\-/g, '/'); // chuẩn hóa định dạng
+    const dobFormatted = `${day.toString().padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
 
-    if (name.length < 2 || name.length > 50) {
-        await message.reply("❌ Tên gì ngắn ngủn hoặc dài quá thế? Nhập tên thật từ 2 đến 50 ký tự đi cưng!").catch(()=>{});
+    // Loại bỏ chuỗi ngày sinh khỏi text
+    const textWithoutDob = remainingText.replace(dobRegex, '').trim();
+
+    // Tách các từ để tìm giới tính và tên
+    const words = textWithoutDob.split(/\s+/).filter(w => w.length > 0);
+
+    if (words.length === 0) {
+        await message.reply("❌ **Thiếu tên thật rồi con giời!** Hãy nhập theo mẫu: `@BotToan profile [Tên thật] [Nam/Nữ] [Ngày/Tháng/Năm sinh]`").catch(() => {});
         return;
     }
 
     let gender = "Nam";
-    if (genderInput === 'nữ' || genderInput === 'nu' || genderInput === 'nư') {
-        gender = "Nữ";
+    let nameWords: string[] = [];
+
+    // Danh sách từ khóa giới tính
+    const genderKeywords = ['nam', 'nữ', 'nu', 'nư'];
+    const lastWordLower = words[words.length - 1].toLowerCase();
+
+    if (genderKeywords.includes(lastWordLower)) {
+        if (lastWordLower === 'nữ' || lastWordLower === 'nu' || lastWordLower === 'nư') {
+            gender = "Nữ";
+        } else {
+            gender = "Nam";
+        }
+        nameWords = words.slice(0, words.length - 1);
+    } else {
+        // Tìm từ khóa giới tính từ phải qua trái
+        let genderFoundIdx = -1;
+        for (let i = words.length - 1; i >= 0; i--) {
+            if (genderKeywords.includes(words[i].toLowerCase())) {
+                genderFoundIdx = i;
+                break;
+            }
+        }
+
+        if (genderFoundIdx !== -1) {
+            const gStr = words[genderFoundIdx].toLowerCase();
+            gender = (gStr === 'nữ' || gStr === 'nu' || gStr === 'nư') ? "Nữ" : "Nam";
+            nameWords = words.filter((_, idx) => idx !== genderFoundIdx);
+        } else {
+            nameWords = words;
+        }
     }
 
-    const dobParts = dob.split('/');
-    const day = parseInt(dobParts[0], 10);
-    const month = parseInt(dobParts[1], 10);
-    const year = parseInt(dobParts[2], 10);
+    const name = nameWords.join(' ').trim();
 
-    if (isNaN(day) || isNaN(month) || isNaN(year) || !isValidDate(day, month, year)) {
-        await message.reply("❌ **Ngày sinh đéo có thật!** Đừng lòe thiên hạ, nhập đúng ngày tháng năm sinh thực tế đi con giời (Ví dụ: 15/05/2000)!").catch(()=>{});
+    if (name.length < 2 || name.length > 50) {
+        await message.reply("❌ **Tên thật phải từ 2 đến 50 ký tự!** Nhập lại tên đàng hoàng đi cưng (Ví dụ: `Lê Toán`).").catch(() => {});
         return;
     }
 
     // Lưu hồ sơ
-    await saveProfile(message.author.id, name, gender, dob);
+    await saveProfile(message.author.id, name, gender, dobFormatted);
 
     const embed = new EmbedBuilder()
         .setTitle("✅ CẬP NHẬT HỒ SƠ THÀNH CÔNG")
-        .setDescription(`🎉 Chúc mừng con giời <@${message.author.id}> đã khai báo tạm trú tạm vắng thành công!\n\n📋 **Thông tin lý lịch:**\n- 👤 **Họ và tên:** \`${name}\`\n- 🚻 **Giới tính:** \`${gender}\`\n- 🎂 **Ngày sinh:** \`${dob}\` (Dương lịch)`)
+        .setThumbnail(message.author.displayAvatarURL({ forceStatic: false }))
+        .setDescription(`🎉 Chúc mừng con giời <@${message.author.id}> đã khai báo tạm trú tạm vắng thành công!\n\n📋 **Thông tin lý lịch:**\n- 👤 **Họ và tên:** \`${name}\`\n- 🚻 **Giới tính:** \`${gender}\`\n- 🎂 **Ngày sinh:** \`${dobFormatted}\` (Dương lịch)`)
         .setColor(0x2ECC71)
-        .setFooter({ text: "Gõ @BotToan ghep doi @User hoặc @BotToan crush @User để bói duyên ngay!" });
+        .setFooter({ text: "Gõ @BotToan profile để xem lại hồ sơ | Gõ @BotToan ghep doi để bói duyên!" });
 
-    await message.reply({ embeds: [embed] }).catch(()=>{});
+    await message.reply({ embeds: [embed] }).catch(() => {});
 }
 
 // ================= XỬ LÝ LỆNH CRUSH MẬT =================

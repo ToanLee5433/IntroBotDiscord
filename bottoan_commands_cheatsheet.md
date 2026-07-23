@@ -83,6 +83,8 @@ Dưới đây là danh sách đầy đủ tất cả các cách gọi lệnh c�
 
 | Lệnh tâm linh | Cú pháp cách gọi | Quy tắc & Kết quả |
 | :--- | :--- | :--- |
+| **Hồ sơ lý lịch** | `@BotToan profile`<br>`@BotToan ttcn`<br>`@BotToan ho so`<br>`@BotToan profile @User` | Xem thẻ hồ sơ thông tin cá nhân của bạn hoặc người được tag (Họ tên, Giới tính, Ngày sinh, Tử vi/Tuổi âm/Can chi). |
+| **Đăng ký / Cập nhật Profile** | `@BotToan profile [Tên] [Nam/Nữ] [Ngày/Tháng/Năm]`<br>`@BotToan ttcn [Tên] [Nam/Nữ] [DD/MM/YYYY]` | Đăng ký hoặc cập nhật hồ sơ lý lịch giang hồ.<br>*Ví dụ:* `@BotToan profile Lê Toán Nam 03/03/2003` |
 | **Bói Tarot** | `@BotToan boi tarot`<br>`@BotToan tarot`<br>`@BotToan xem tarot`<br>`@BotToan trai bai tarot`<br>`@BotToan xem boi tarot` | Rút lá bài Tarot định mệnh ngày hôm nay. |
 | **Gieo quẻ** | `@BotToan gieo que`<br>`@BotToan xin que` | Xin quẻ xăm tâm linh hàng ngày. |
 | **Khai báo Crush** | `@BotToan crush`<br>`@BotToan thich` | Đăng ký thầm thương trộm nhớ một người trong server (hoàn toàn bí mật). |
