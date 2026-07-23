@@ -39,8 +39,8 @@ const child_process_1 = require("child_process");
 const ffmpegPath = require('ffmpeg-static');
 const audioDir = path.join(__dirname, '../../audio');
 const volumeFilters = {
-    'bontre': '1.5',
-    'entry': '0.7'
+    'bontre': '1.8',
+    'entry': '0.2'
 };
 console.log('[AUDIO CONVERT] Đang quét thư mục audio...');
 if (!fs.existsSync(audioDir)) {

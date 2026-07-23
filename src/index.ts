@@ -227,21 +227,35 @@ const client = new Client({
 // ================= HÀM HỖ TRỢ TẠM NGẮT TIẾNG / CÁCH LY HORNBOT KHI BOTTOAN PHÁT NHẠC =================
 async function isolateHornBot(guild: any, voiceChannelId: string) {
     if (!guild || !voiceChannelId) return;
-    try {
-        const hornBotId = '1131890979100700712';
-        const hornBot = await guild.members.fetch(hornBotId).catch(() => null);
-        if (hornBot && hornBot.voice.channelId === voiceChannelId) {
-            const currentChId = hornBot.voice.channelId;
-            const otherChannel = guild.channels.cache.find((c: any) => c.isVoiceBased() && c.id !== currentChId);
-            if (otherChannel) {
-                await hornBot.voice.setChannel(otherChannel.id, "BotToan tạm ngắt tiếng HornBot").catch(() => {});
-            } else {
-                await hornBot.voice.disconnect("BotToan tạm ngắt tiếng HornBot").catch(() => {});
+
+    const doDisconnect = async () => {
+        try {
+            const hornBotId = '1131890979100700712';
+            // Force fetch từ Discord API để lấy trạng thái voice thực tế mới nhất
+            const hornBot = await guild.members.fetch({ user: hornBotId, force: true }).catch(() => null);
+            if (hornBot && hornBot.voice && hornBot.voice.channelId) {
+                if (hornBot.voice.channelId === voiceChannelId) {
+                    console.log(`[HORNBOT ISOLATE] Đã phát hiện HornBot trong kênh ${voiceChannelId}, đang ngắt kết nối HornBot...`);
+                    await hornBot.voice.disconnect("BotToan ngắt tiếng HornBot để phát âm thanh").catch(async () => {
+                        const currentChId = hornBot.voice.channelId;
+                        const otherChannel = guild.channels.cache.find((c: any) => c.isVoiceBased() && c.id !== currentChId);
+                        if (otherChannel) {
+                            await hornBot.voice.setChannel(otherChannel.id, "BotToan cách ly HornBot").catch(() => {});
+                        }
+                    });
+                }
             }
+        } catch (e) {
+            console.error("Lỗi khi cách ly HornBot:", e);
         }
-    } catch (e) {
-        console.error("Lỗi khi cách ly HornBot:", e);
-    }
+    };
+
+    // Thực thi ngay lập tức và retry liên tục ở các mốc 0.5s, 1.2s, 2.5s, 4s để chặn HornBot vào trễ
+    await doDisconnect();
+    setTimeout(() => doDisconnect(), 500);
+    setTimeout(() => doDisconnect(), 1200);
+    setTimeout(() => doDisconnect(), 2500);
+    setTimeout(() => doDisconnect(), 4000);
 }
 
 // ================= LẮNG NGHE LỆNH & CHAT =================
@@ -613,6 +627,7 @@ client.on('messageCreate', async (message: Message) => {
         }
 
         try {
+            await isolateHornBot(message.guild, userVoiceChannel.id);
             const existingConnection = getVoiceConnection(message.guild.id);
             if (existingConnection) {
                 try { existingConnection.destroy(); } catch (e) {}

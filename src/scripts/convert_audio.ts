@@ -6,8 +6,8 @@ const ffmpegPath = require('ffmpeg-static');
 const audioDir = path.join(__dirname, '../../audio');
 
 const volumeFilters: Record<string, string> = {
-    'bontre': '1.5',
-    'entry': '0.7'
+    'bontre': '1.8',
+    'entry': '0.2'
 };
 
 console.log('[AUDIO CONVERT] Đang quét thư mục audio...');
