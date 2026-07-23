@@ -19,8 +19,8 @@ jobs:
             cd ~/IntroBotDiscord || cd ~/intro-bot-discord || exit 1
             git reset --hard HEAD
             git pull origin main
-            pkill -f "dist/index.js" || true
-            pkill -f "node.*index" || true
+            if [ -f bot.pid ]; then kill -9 $(cat bot.pid) 2>/dev/null || true; rm -f bot.pid; fi
+            pkill -f "node dist/index.js" || true
             sleep 2
-            nohup node dist/index.js > bot.log 2>&1 &
+            nohup node dist/index.js > bot.log 2>&1 & echo $! > bot.pid
             echo "[ALWAYS DATA DEPLOY SUCCESS] BotToan code pulled and restarted successfully!"
