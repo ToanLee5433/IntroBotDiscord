@@ -15,12 +15,19 @@ jobs:
           host: ssh-letoan0504.alwaysdata.net
           username: letoan0504
           password: ${{ secrets.ALWAYSDATA_PASSWORD }}
+          request_pty: false
           script: |
             cd ~/IntroBotDiscord || cd ~/intro-bot-discord || exit 1
             git reset --hard HEAD
             git pull origin main
-            if [ -f bot.pid ]; then kill -9 $(cat bot.pid) 2>/dev/null || true; rm -f bot.pid; fi
-            pkill -f "node dist/index.js" || true
-            sleep 2
-            nohup node dist/index.js > bot.log 2>&1 & echo $! > bot.pid
-            echo "[ALWAYS DATA DEPLOY SUCCESS] BotToan code pulled and restarted successfully!"
+            OLD_PID=$(cat bot.pid 2>/dev/null || echo "")
+            if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+              kill -9 "$OLD_PID" 2>/dev/null || true
+            fi
+            rm -f bot.pid
+            sleep 1
+            nohup node dist/index.js >> bot.log 2>&1 &
+            echo $! > bot.pid
+            disown
+            echo "[DEPLOY OK] BotToan restarted with PID $(cat bot.pid)"
+
