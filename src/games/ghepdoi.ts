@@ -416,10 +416,65 @@ export function setupProfileInteractions(client: any) {
             }
         } else if (action === 'match') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            const fortune = await getMatchmakingFortune(interaction.user.username);
-            await interaction.editReply({
-                content: `💖 **Dự đoán Tình Duyên Nhanh cho ${interaction.user.username}:**\n${fortune}`
-            });
+            try {
+                let matchedMember: any = null;
+                if (interaction.guild) {
+                    const members = await interaction.guild.members.fetch().catch(() => interaction.guild.members.cache);
+                    const candidates = members.filter((m: any) => !m.user.bot && m.id !== userId);
+                    
+                    // Ưu tiên chọn người khác giới tính nếu có profile
+                    const myGender = profile?.gender;
+                    if (myGender) {
+                        const oppositeGenderCandidates: any[] = [];
+                        for (const [, member] of candidates) {
+                            const p = await getProfile(member.id);
+                            if (p && p.gender && p.gender !== myGender) {
+                                oppositeGenderCandidates.push(member);
+                            }
+                        }
+                        if (oppositeGenderCandidates.length > 0) {
+                            matchedMember = oppositeGenderCandidates[Math.floor(Math.random() * oppositeGenderCandidates.length)];
+                        }
+                    }
+                    
+                    if (!matchedMember && candidates.size > 0) {
+                        matchedMember = candidates.random();
+                    }
+                }
+
+                if (matchedMember) {
+                    const targetProfile = await getProfile(matchedMember.id);
+                    let compatibilityScore = Math.floor(Math.random() * 30) + 70; // 70% - 99%
+                    
+                    let targetInfo = `<@${matchedMember.id}> (${matchedMember.displayName})`;
+                    let extraText = "";
+                    if (targetProfile && targetProfile.birthday) {
+                        const parts = targetProfile.birthday.replace(/\-/g, '/').split('/');
+                        const day = parseInt(parts[0], 10);
+                        const month = parseInt(parts[1], 10);
+                        if (!isNaN(day) && !isNaN(month)) {
+                            const zInfo = getWesternZodiacInfo(day, month);
+                            extraText = `\n- ♍ **Cung:** \`${zInfo.name} (${zInfo.symbol})\``;
+                        }
+                    }
+
+                    await interaction.editReply({
+                        content: 
+                            `💖 **KẾT QUẢ GHÉP ĐÔI NHANH TRONG SERVER** 💖\n\n` +
+                            `👩‍❤️‍👨 **Đối tượng ghép cặp:** ${targetInfo}\n` +
+                            `📊 **Tỉ lệ hợp cạ:** \`${compatibilityScore}%\` ${extraText}\n\n` +
+                            `🔮 *Lời khuyên phong thủy:* Hãy chủ động gõ \`@BotToan ghep doi <@${matchedMember.id}>\` để xem luận giải tử vi chi tiết của hai đứa nhé!`
+                    });
+                } else {
+                    const fortune = await getMatchmakingFortune(interaction.user.username);
+                    await interaction.editReply({
+                        content: `💖 **Dự đoán Tình Duyên Nhanh cho ${interaction.user.username}:**\n${fortune}`
+                    });
+                }
+            } catch (err) {
+                console.error("Lỗi ghép đôi nhanh button:", err);
+                await interaction.editReply({ content: "❌ **Gặp lỗi khi quét ghép đôi trong server!**" });
+            }
         } else if (action === 'wallet') {
             await interaction.reply({
                 content: `🏦 **Tài chính Ngân hàng của <@${targetUserId}>:**\n- 💵 **Ví tiền:** \`${formatMoney(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${formatMoney(debt)}\`đ`,
