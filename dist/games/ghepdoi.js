@@ -430,33 +430,32 @@ function setupProfileInteractions(client) {
                     const members = await interaction.guild.members.fetch().catch(() => interaction.guild.members.cache);
                     const activeCandidates = Array.from(members.values()).filter((m) => !m.user.bot && m.id !== userId);
                     const myGender = profile?.gender;
-                    if (myGender) {
-                        const oppositeCandidates = [];
-                        const sameCandidates = [];
-                        for (const member of activeCandidates) {
-                            const p = await (0, database_1.getProfile)(member.id);
-                            if (p && p.gender) {
-                                if (p.gender !== myGender) {
-                                    oppositeCandidates.push(member);
-                                }
-                                else {
-                                    sameCandidates.push(member);
-                                }
+                    const oppositeCandidates = [];
+                    const sameCandidates = [];
+                    for (const member of activeCandidates) {
+                        const p = await (0, database_1.getProfile)(member.id);
+                        // BẮT BUỘC: Chỉ lọc những thành viên ĐÃ KHAI BÁO HỒ SƠ LÝ LỊCH ĐẦY ĐỦ
+                        if (p && p.name && p.gender && p.birthday) {
+                            if (myGender && p.gender === myGender) {
+                                sameCandidates.push(member);
                             }
                             else {
                                 oppositeCandidates.push(member);
                             }
                         }
-                        if (oppositeCandidates.length > 0) {
-                            oppositeMember = oppositeCandidates[Math.floor(Math.random() * oppositeCandidates.length)];
-                        }
-                        if (sameCandidates.length > 0) {
-                            sameMember = sameCandidates[Math.floor(Math.random() * sameCandidates.length)];
-                        }
                     }
-                    if (!oppositeMember && activeCandidates.length > 0) {
-                        oppositeMember = activeCandidates[Math.floor(Math.random() * activeCandidates.length)];
+                    if (oppositeCandidates.length > 0) {
+                        oppositeMember = oppositeCandidates[Math.floor(Math.random() * oppositeCandidates.length)];
                     }
+                    if (sameCandidates.length > 0) {
+                        sameMember = sameCandidates[Math.floor(Math.random() * sameCandidates.length)];
+                    }
+                }
+                if (!oppositeMember) {
+                    await interaction.editReply({
+                        content: `⚠️ **Server chưa có thành viên nào khác khai báo lý lịch đầy đủ!**\n\nHãy nhắc các đối tượng khác gõ lệnh:\n\`@BotToan profile [Tên] [Nam/Nữ] [Ngày/Tháng/Năm Sinh]\` để đăng ký dữ liệu ghép đôi nhé!`
+                    });
+                    return;
                 }
                 if (oppositeMember) {
                     const oppProfile = await (0, database_1.getProfile)(oppositeMember.id);
