@@ -12,6 +12,7 @@ exports.setupProfileInteractions = setupProfileInteractions;
 exports.getCungPhi = getCungPhi;
 exports.getBatTrachRelation = getBatTrachRelation;
 exports.getFengShuiScore = getFengShuiScore;
+exports.calculateFengShuiBreakdown = calculateFengShuiBreakdown;
 exports.handleProfileRegistration = handleProfileRegistration;
 exports.handleCrushCommand = handleCrushCommand;
 exports.playMatchmaking = playMatchmaking;
@@ -425,140 +426,73 @@ function setupProfileInteractions(client) {
             try {
                 let oppositeMember = null;
                 let sameMember = null;
-                if (interaction.guild) {
-                    // Quét danh sách thành viên thực tế ĐANG Ở TRONG SERVER
+                let topBreakdown = null;
+                let sameBreakdown = null;
+                if (interaction.guild && profile && profile.birthday && profile.gender) {
+                    const dateStr = (0, database_1.getVNDateString)(Date.now());
                     const members = await interaction.guild.members.fetch().catch(() => interaction.guild.members.cache);
                     const activeCandidates = Array.from(members.values()).filter((m) => !m.user.bot && m.id !== userId);
-                    const myGender = profile?.gender;
-                    const oppositeCandidates = [];
-                    const sameCandidates = [];
+                    const myGender = profile.gender;
+                    let bestOppScore = -999;
+                    let bestSameScore = -999;
                     for (const member of activeCandidates) {
                         const p = await (0, database_1.getProfile)(member.id);
-                        // BẮT BUỘC: Chỉ lọc những thành viên ĐÃ KHAI BÁO HỒ SƠ LÝ LỊCH ĐẦY ĐỦ
                         if (p && p.name && p.gender && p.birthday) {
-                            if (myGender && p.gender === myGender) {
-                                sameCandidates.push(member);
+                            const breakdown = calculateFengShuiBreakdown(profile.birthday, profile.gender, p.birthday, p.gender);
+                            // Deterministic daily seed bonus (-5 to +5) based on Date + UserA + UserB
+                            let seedVal = 0;
+                            const seedStr = `${userId}_${member.id}_${dateStr}`;
+                            for (let c = 0; c < seedStr.length; c++) {
+                                seedVal = (seedVal * 31 + seedStr.charCodeAt(c)) % 100000;
+                            }
+                            const dailyBonus = (seedVal % 11) - 5;
+                            const finalScore = Math.max(5, Math.min(99, breakdown.totalScore + dailyBonus));
+                            breakdown.totalScore = finalScore;
+                            if (p.gender !== myGender) {
+                                if (finalScore > bestOppScore) {
+                                    bestOppScore = finalScore;
+                                    oppositeMember = member;
+                                    topBreakdown = breakdown;
+                                }
                             }
                             else {
-                                oppositeCandidates.push(member);
+                                if (finalScore > bestSameScore) {
+                                    bestSameScore = finalScore;
+                                    sameMember = member;
+                                    sameBreakdown = breakdown;
+                                }
                             }
                         }
                     }
-                    if (oppositeCandidates.length > 0) {
-                        oppositeMember = oppositeCandidates[Math.floor(Math.random() * oppositeCandidates.length)];
-                    }
-                    if (sameCandidates.length > 0) {
-                        sameMember = sameCandidates[Math.floor(Math.random() * sameCandidates.length)];
-                    }
                 }
-                if (!oppositeMember) {
+                if (!oppositeMember && !sameMember) {
                     await interaction.editReply({
                         content: `⚠️ **Server chưa có thành viên nào khác khai báo lý lịch đầy đủ!**\n\nHãy nhắc các đối tượng khác gõ lệnh:\n\`@BotToan profile [Tên] [Nam/Nữ] [Ngày/Tháng/Năm Sinh]\` để đăng ký dữ liệu ghép đôi nhé!`
                     });
                     return;
                 }
-                if (oppositeMember) {
-                    const oppProfile = await (0, database_1.getProfile)(oppositeMember.id);
-                    let oppScore = Math.floor(Math.random() * 30) + 70; // 70% - 99%
-                    // Trích xuất thông tin phong thủy của Người gọi (User A) và Đối tượng (User B)
-                    let infoA = "";
-                    let infoB = "";
-                    let zA = null, zB = null;
-                    let lA = null, lB = null;
-                    if (profile && profile.birthday) {
-                        const partsA = profile.birthday.replace(/\-/g, '/').split('/');
-                        const dayA = parseInt(partsA[0], 10);
-                        const monthA = parseInt(partsA[1], 10);
-                        const yearA = parseInt(partsA[2], 10);
-                        if (!isNaN(dayA) && !isNaN(monthA) && !isNaN(yearA)) {
-                            zA = getWesternZodiacInfo(dayA, monthA);
-                            try {
-                                const solarA = lunar_javascript_1.Solar.fromYmd(yearA, monthA, dayA);
-                                const lunarA = solarA.getLunar();
-                                const ganChiA = translateGanChi(lunarA.getYearInGanZhi());
-                                const shengXiaoA = lunarA.getYearShengXiao();
-                                lA = getLunarCompatibility(shengXiaoA);
-                                lA.ganChi = ganChiA;
-                            }
-                            catch (e) { }
-                        }
-                    }
-                    if (oppProfile && oppProfile.birthday) {
-                        const partsB = oppProfile.birthday.replace(/\-/g, '/').split('/');
-                        const dayB = parseInt(partsB[0], 10);
-                        const monthB = parseInt(partsB[1], 10);
-                        const yearB = parseInt(partsB[2], 10);
-                        if (!isNaN(dayB) && !isNaN(monthB) && !isNaN(yearB)) {
-                            zB = getWesternZodiacInfo(dayB, monthB);
-                            try {
-                                const solarB = lunar_javascript_1.Solar.fromYmd(yearB, monthB, dayB);
-                                const lunarB = solarB.getLunar();
-                                const ganChiB = translateGanChi(lunarB.getYearInGanZhi());
-                                const shengXiaoB = lunarB.getYearShengXiao();
-                                lB = getLunarCompatibility(shengXiaoB);
-                                lB.ganChi = ganChiB;
-                            }
-                            catch (e) { }
-                        }
-                    }
-                    infoA = zA ? `Cung ${zA.name} (${zA.symbol})${lA ? ` • Năm ${lA.ganChi} (${lA.animal} ${lA.emoji})` : ''}` : "Chưa khai báo sinh nhật";
-                    infoB = zB ? `Cung ${zB.name} (${zB.symbol})${lB ? ` • Năm ${lB.ganChi} (${lB.animal} ${lB.emoji})` : ''}` : "Chưa khai báo sinh nhật";
-                    // Giải thích vì sao hợp nhau
-                    const matchReasons = [];
-                    if (zA && zB) {
-                        if (zA.compatible.includes(zB.name) || zB.compatible.includes(zA.name)) {
-                            matchReasons.push(`✨ Cung **${zA.name} (${zA.symbol})** và **${zB.name} (${zB.symbol})** thuộc nhóm Tương Sinh Hoàng Đạo, hợp cạ tuyệt đối!`);
-                        }
-                        else {
-                            matchReasons.push(`✨ **${zA.name} ${zA.symbol}** và **${zB.name} ${zB.symbol}** là cặp đôi bù trừ hoàn hảo, một người sôi nổi một người chín chắn!`);
-                        }
-                    }
-                    if (lA && lB) {
-                        if (lA.tamHop.includes(lB.animal)) {
-                            matchReasons.push(`☯️ Tuổi **${lA.animal}** và **${lB.animal}** thuộc nhóm **Tam Hợp Âm Lịch**, gặp nhau là có duyên nợ từ kiếp trước!`);
-                        }
-                        else if (lA.lucHop.includes(lB.animal)) {
-                            matchReasons.push(`☯️ Tuổi **${lA.animal}** và **${lB.animal}** thế **Lục Hợp Quý Nhân**, hỗ trợ nhau tài vận phát đạt!`);
-                        }
-                    }
-                    if (matchReasons.length === 0) {
-                        matchReasons.push(`🔥 Hai bạn hợp nhau nhờ 'trường năng lượng tâm linh': Cùng gu ăn uống, cùng máu cá cược và mê tiền như nhau!`);
-                    }
-                    let matchMsg = `💖 **KẾT QUẢ GHÉP ĐÔI NHANH TRONG SERVER** 💖\n\n` +
-                        `👩‍❤️‍👨 **CẶP ĐÔI CHUẨN DUYÊN (Nam x Nữ):**\n` +
-                        `- 👤 **Bạn:** <@${userId}> (\`${infoA}\`)\n` +
-                        `- 💘 **Đối tượng:** <@${oppositeMember.id}> (\`${infoB}\`)\n` +
-                        `- 📊 **Tỉ lệ hợp cạ:** \`${oppScore}%\`\n` +
-                        `- 🔮 **Vì sao hai bạn hợp nhau:**\n${matchReasons.map(r => `  ${r}`).join('\n')}\n\n`;
-                    if (sameMember && sameMember.id !== oppositeMember.id) {
-                        const sameProfile = await (0, database_1.getProfile)(sameMember.id);
-                        let sameScore = Math.floor(Math.random() * 20) + 80; // 80% - 99%
-                        const sameGenderLabel = profile?.gender === 'Nữ' ? '👭 CẶP ĐÔI BÁCH HỢP BỰA' : '👬 CẶP ĐÔI ĐAM MỸ BỰA';
-                        let sameZInfo = "";
-                        if (sameProfile && sameProfile.birthday) {
-                            const partsS = sameProfile.birthday.replace(/\-/g, '/').split('/');
-                            const dayS = parseInt(partsS[0], 10);
-                            const monthS = parseInt(partsS[1], 10);
-                            if (!isNaN(dayS) && !isNaN(monthS)) {
-                                const zS = getWesternZodiacInfo(dayS, monthS);
-                                sameZInfo = `Cung ${zS.name} ${zS.symbol}`;
-                            }
-                        }
-                        matchMsg +=
-                            `${sameGenderLabel} (Cùng giới tính):\n` +
-                                `- 🤝 **Đồng chí cạ cứng:** <@${sameMember.id}> (\`${sameZInfo || 'Đồng chí siêu ngầu'}\`)\n` +
-                                `- 📊 **Tỉ lệ dắt tay nhau trốn nợ:** \`${sameScore}%\` 💸\n` +
-                                `- 🤪 **Lý do bựa:** "Hai đứa hợp nhau ở khoản siêng ăn nhậu, cùng chí hướng đi vay nợ ngân hàng rồi bùng kèo trốn nợ!"\n\n`;
-                    }
-                    matchMsg += `💡 *Mẹo phong thủy:* Gõ \`@BotToan ghep doi\` kèm tag <@${oppositeMember.id}> để xem luận giải tử vi chi tiết của hai đứa nhé!`;
-                    await interaction.editReply({ content: matchMsg });
+                const targetMember = oppositeMember || sameMember;
+                const breakdown = topBreakdown || sameBreakdown;
+                let matchMsg = `💖 **KẾT QUẢ GHÉP ĐÔI NHANH CHUẨN XÁC VÀ NHẤT QUÁN** 💖\n\n` +
+                    `👩‍❤️‍👨 **CẶP ĐÔI CHUẨN DUYÊN (Duyên Định Hôm Nay):**\n` +
+                    `- 👤 **Bạn:** <@${userId}>\n` +
+                    `- 💘 **Đối tượng:** <@${targetMember.id}>\n` +
+                    `- 📊 **Tỉ lệ tương hợp:** \`${breakdown.totalScore}%\`\n\n` +
+                    `📊 **BẢNG ĐIỂM CHI TIẾT HÔM NAY:**\n` +
+                    `${breakdown.details.map(d => `  ${d}`).join('\n')}\n` +
+                    `-----------------------------------\n` +
+                    `🔮 **LỜI PHÁN CỦA THẦY BÓI BOTTOAN:**\n` +
+                    `${breakdown.verdict}\n\n`;
+                if (oppositeMember && sameMember && sameMember.id !== oppositeMember.id && sameBreakdown) {
+                    const sameGenderLabel = profile?.gender === 'Nữ' ? '👭 CẶP ĐÔI BÁCH HỢP BỰA' : '👬 CẶP ĐÔI ĐAM MỸ BỰA';
+                    matchMsg +=
+                        `${sameGenderLabel} (Đồng chí cùng giới):\n` +
+                            `- 🤝 **Đồng chí cạ cứng:** <@${sameMember.id}>\n` +
+                            `- 📊 **Tỉ lệ dắt tay nhau trốn nợ:** \`${sameBreakdown.totalScore}%\` 💸\n` +
+                            `- 🔮 **Lý do bựa:** ${sameBreakdown.verdict}\n\n`;
                 }
-                else {
-                    const fortune = await (0, gemini_1.getMatchmakingFortune)(interaction.user.username);
-                    await interaction.editReply({
-                        content: `💖 **Dự đoán Tình Duyên Nhanh cho ${interaction.user.username}:**\n${fortune}`
-                    });
-                }
+                matchMsg += `💡 *Mẹo phong thủy:* Gõ \`@BotToan ghep doi\` kèm tag <@${targetMember.id}> để xem bói bựa tử vi phong thủy hai đứa nhé!`;
+                await interaction.editReply({ content: matchMsg });
             }
             catch (err) {
                 console.error("Lỗi ghép đôi nhanh button:", err);
@@ -801,6 +735,161 @@ function getFengShuiScore(zodiacA, zodiacB, menhA, menhB, cungA, cungB) {
     score += (0, utils_1.trueRandom)(-10, 10);
     return Math.max(0, Math.min(100, score));
 }
+function calculateFengShuiBreakdown(birthdayA, genderA, birthdayB, genderB) {
+    const partsA = birthdayA.replace(/\-/g, '/').split('/');
+    const dayA = parseInt(partsA[0], 10);
+    const monthA = parseInt(partsA[1], 10);
+    const yearA = parseInt(partsA[2], 10);
+    const partsB = birthdayB.replace(/\-/g, '/').split('/');
+    const dayB = parseInt(partsB[0], 10);
+    const monthB = parseInt(partsB[1], 10);
+    const yearB = parseInt(partsB[2], 10);
+    const zA = getWesternZodiacInfo(dayA, monthA);
+    const zB = getWesternZodiacInfo(dayB, monthB);
+    const solarA = lunar_javascript_1.Solar.fromYmd(yearA, monthA, dayA);
+    const lunarA = solarA.getLunar();
+    const shengXiaoA = lunarA.getYearShengXiao();
+    const animalA = getLunarCompatibility(shengXiaoA).animal;
+    const menhA = translateNaYin(lunarA.getYearNaYin());
+    const solarB = lunar_javascript_1.Solar.fromYmd(yearB, monthB, dayB);
+    const lunarB = solarB.getLunar();
+    const shengXiaoB = lunarB.getYearShengXiao();
+    const animalB = getLunarCompatibility(shengXiaoB).animal;
+    const menhB = translateNaYin(lunarB.getYearNaYin());
+    const cungPhiA = getCungPhi(birthdayA, genderA);
+    const cungPhiB = getCungPhi(birthdayB, genderB);
+    const bt = getBatTrachRelation(cungPhiA.name, cungPhiB.name);
+    let score = 50;
+    const details = [];
+    // 1. Cung Hoàng Đạo
+    if (zA.compatible.includes(zB.name) || zB.compatible.includes(zA.name)) {
+        score += 15;
+        details.push(`• **Cung Hoàng Đạo:** ${zA.name} ${zA.symbol} 💖 ${zB.name} ${zB.symbol} (+15đ - Tương sinh nhóm cạ cứng)`);
+    }
+    else {
+        score += 5;
+        details.push(`• **Cung Hoàng Đạo:** ${zA.name} ${zA.symbol} 🤝 ${zB.name} ${zB.symbol} (+5đ - Cặp đôi bù trừ cá tính)`);
+    }
+    // 2. Âm Lịch Chi (Con Giáp)
+    const tamHop = [
+        ['Tý', 'Thìn', 'Thân'], ['Sửu', 'Tỵ', 'Dậu'],
+        ['Dần', 'Ngọ', 'Tuất'], ['Mão', 'Mùi', 'Hợi']
+    ];
+    const lucHop = [
+        ['Tý', 'Sửu'], ['Dần', 'Hợi'], ['Mão', 'Tuất'],
+        ['Thìn', 'Dậu'], ['Tỵ', 'Thân'], ['Ngọ', 'Mùi']
+    ];
+    const tuHanhXung = [
+        ['Tý', 'Ngọ'], ['Mão', 'Dậu'], ['Dần', 'Thân'],
+        ['Tỵ', 'Hợi'], ['Thìn', 'Tuất'], ['Sửu', 'Mùi']
+    ];
+    let chiMatched = false;
+    for (const group of tamHop) {
+        if (group.includes(animalA) && group.includes(animalB)) {
+            score += 35;
+            details.push(`• **Âm Lịch Chi:** ${animalA} 🤝 ${animalB} (+35đ - Tam Hợp rực rỡ, tơ hồng kiếp trước)`);
+            chiMatched = true;
+            break;
+        }
+    }
+    if (!chiMatched) {
+        for (const pair of lucHop) {
+            if ((pair[0] === animalA && pair[1] === animalB) || (pair[0] === animalB && pair[1] === animalA)) {
+                score += 25;
+                details.push(`• **Âm Lịch Chi:** ${animalA} 🤝 ${animalB} (+25đ - Lục Hợp Quý Nhân, gặp là phát lộc)`);
+                chiMatched = true;
+                break;
+            }
+        }
+    }
+    if (!chiMatched) {
+        for (const pair of tuHanhXung) {
+            if ((pair[0] === animalA && pair[1] === animalB) || (pair[0] === animalB && pair[1] === animalA)) {
+                score -= 30;
+                details.push(`• **Âm Lịch Chi:** ${animalA} ⚡ ${animalB} (-30đ - Tứ Hành Xung, đụng là khẩu chiến)`);
+                chiMatched = true;
+                break;
+            }
+        }
+    }
+    if (!chiMatched) {
+        score += 10;
+        details.push(`• **Âm Lịch Chi:** ${animalA} 🕊️ ${animalB} (+10đ - Bình hòa êm đẹp)`);
+    }
+    // 3. Ngũ Hành Mệnh
+    const getElement = (menh) => {
+        if (menh.includes('Kim'))
+            return 'Kim';
+        if (menh.includes('Mộc'))
+            return 'Mộc';
+        if (menh.includes('Thủy'))
+            return 'Thủy';
+        if (menh.includes('Hỏa'))
+            return 'Hỏa';
+        if (menh.includes('Thổ'))
+            return 'Thổ';
+        return '';
+    };
+    const elA = getElement(menhA);
+    const elB = getElement(menhB);
+    const shortMenhA = menhA.split(' ')[0];
+    const shortMenhB = menhB.split(' ')[0];
+    if (elA && elB) {
+        if (elA === elB) {
+            score += 10;
+            details.push(`• **Ngũ Hành:** ${shortMenhA} 🛡️ ${shortMenhB} (+10đ - Cùng mệnh ${elA}, đồng lòng vượt khó)`);
+        }
+        else {
+            const sinhMap = {
+                'Kim': 'Thủy', 'Thủy': 'Mộc', 'Mộc': 'Hỏa', 'Hỏa': 'Thổ', 'Thổ': 'Kim'
+            };
+            if (sinhMap[elA] === elB) {
+                score += 25;
+                details.push(`• **Ngũ Hành:** ${shortMenhA} 🔥 ${shortMenhB} (+25đ - ${elA} sinh ${elB}, bạn làm nền cho người ấy tỏa sáng)`);
+            }
+            else if (sinhMap[elB] === elA) {
+                score += 25;
+                details.push(`• **Ngũ Hành:** ${shortMenhA} 🔥 ${shortMenhB} (+25đ - ${elB} sinh ${elA}, người ấy sinh tài lộc gánh bạn)`);
+            }
+            else {
+                const khacMap = {
+                    'Kim': 'Mộc', 'Mộc': 'Thổ', 'Thổ': 'Thủy', 'Thủy': 'Hỏa', 'Hỏa': 'Kim'
+                };
+                if (khacMap[elA] === elB || khacMap[elB] === elA) {
+                    score -= 20;
+                    details.push(`• **Ngũ Hành:** ${shortMenhA} ⚔️ ${shortMenhB} (-20đ - ${elA} khắc ${elB}, lửa nước bất dung)`);
+                }
+                else {
+                    score += 5;
+                    details.push(`• **Ngũ Hành:** ${shortMenhA} 🕊️ ${shortMenhB} (+5đ - Tương hòa nhẹ nhàng)`);
+                }
+            }
+        }
+    }
+    // 4. Bát Trạch Cung Phi
+    const sign = bt.scoreDelta >= 0 ? `+${bt.scoreDelta}` : `${bt.scoreDelta}`;
+    const btIcon = bt.isGood ? '✨' : '☠️';
+    details.push(`• **Bát Trạch:** ${cungPhiA.name} x ${cungPhiB.name} -> ${bt.relation} ${btIcon} (${sign}đ - ${bt.desc})`);
+    score += bt.scoreDelta;
+    const totalScore = Math.max(5, Math.min(99, score));
+    let verdict = "";
+    if (totalScore >= 85) {
+        verdict = `"Hôm nay tơ hồng nối chặt! Hai bạn hợp nhau từ tính cách đến vận khí. Rủ nhau đi raid boss hoặc gõ phím cày game đêm nay là đại thắng!"`;
+    }
+    else if (totalScore >= 70) {
+        verdict = `"Tình cảm ở mức khá ngon lành! Tuy thỉnh thoảng có chút khắc khẩu nhẹ nhưng gom tiền đi ăn lẩu hoặc bảo kê nhau làm vài ván Valorant là chuẩn bài."`;
+    }
+    else if (totalScore >= 50) {
+        verdict = `"Duyên số tầm trung! Muốn êm đẹp thì một người nhường một bước, tốt nhất là kéo nhau ra sòng bài BotToan cúng tiền để thử thách tình cảm."`;
+    }
+    else if (totalScore >= 35) {
+        verdict = `"Hơi khắc nhẹ! Yêu nhau thì ít mà đập nhau thì nhiều. Cần chuẩn bị sẵn bông băng thuốc đỏ trước khi hẹn hò."`;
+    }
+    else {
+        verdict = `"Trời đánh tránh bữa ăn! Hai mệnh chạm nhau là khói lửa ngút trời. Khuyên chân thành dắt nhau đi bùng nợ ngân hàng chứ đừng tính chuyện cưới xin kẻo sứt đầu mẻ trán!"`;
+    }
+    return { totalScore, details, verdict };
+}
 // Giao diện thanh tiến trình emoji tình yêu
 function getLoveBar(percent) {
     const totalSlots = 10;
@@ -901,9 +990,11 @@ async function handleProfileRegistration(message, rawInput) {
                     const menh = naYinRaw ? translateNaYin(naYinRaw) : "";
                     const wZodiac = getWesternZodiacInfo(day, month);
                     const lComp = getLunarCompatibility(shengXiao);
+                    const cungPhi = getCungPhi(`${day}/${month}/${year}`, profile.gender);
                     extraAstrologyInfo =
                         `- 🎂 **Tuổi Dương:** \`${age}\` tuổi — **Cung:** \`${wZodiac.name} (${wZodiac.nameEn} ${wZodiac.symbol})\`\n` +
                             `- 🌙 **Tuổi Âm:** \`Năm ${ganChi} (${lComp.animal} ${lComp.emoji})\` — **Mệnh:** \`${menh || 'N/A'}\`\n` +
+                            `- ⛩️ **Cung Phi Bát Trạch:** \`${cungPhi.name} (${cungPhi.group})\`\n` +
                             `- 💖 **Cung hợp:** \`${wZodiac.compatible}\`\n` +
                             `- 🤝 **Tuổi hợp cạ:** \`${lComp.tamHop} (Tam Hợp), ${lComp.lucHop} (Lục Hợp)\`\n` +
                             `- ⚡ **Tuổi khắc:** \`${lComp.xungChinhDien}\`, \`${lComp.xungNhom}\``;
@@ -962,7 +1053,6 @@ async function handleProfileRegistration(message, rawInput) {
                 .setLabel('🏦 Check Ví Tiền')
                 .setStyle(discord_js_1.ButtonStyle.Secondary));
             await message.reply({ embeds: [embed], components: [actionRow] }).catch(() => { });
-            return;
             return;
         }
         else {
