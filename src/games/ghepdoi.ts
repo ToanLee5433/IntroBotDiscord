@@ -181,7 +181,8 @@ export async function generateProfileCardCanvas(
     balance: number, 
     debt: number, 
     targetMember: GuildMember | null | undefined,
-    isPrincess: boolean = false
+    isPrincess: boolean = false,
+    matchedPartnerName: string = ""
 ): Promise<Buffer> {
     let createCanvas: any, loadImage: any, GlobalFonts: any;
     try {
@@ -339,7 +340,8 @@ export async function generateProfileCardCanvas(
         { label: "♍ Cung Hoàng Đạo:", val: zodiacText },
         { label: "🌙 Tuổi Âm Lịch:", val: lunarText },
         { label: "☯️ Mệnh Ngũ Hành:", val: menhText || "N/A" },
-        { label: "💰 Tài chính:", val: `Ví: ${formatMoney(balance)}đ | Nợ: ${formatMoney(debt)}đ` }
+        { label: "💰 Tài chính:", val: `Ví: ${formatMoney(balance)}đ | Nợ: ${formatMoney(debt)}đ` },
+        { label: "👩‍❤️‍👨 Tình cảm:", val: matchedPartnerName ? `💕 Khớp lệnh với ${matchedPartnerName}` : "🖤 Độc thân vui tính" }
     ];
 
     fields.forEach(f => {
@@ -347,7 +349,7 @@ export async function generateProfileCardCanvas(
         ctx.font = fontRegular;
         ctx.fillText(f.label, textX, startY);
 
-        ctx.fillStyle = '#F8FAFC';
+        ctx.fillStyle = f.label.includes('Tình cảm') && matchedPartnerName ? '#FF69B4' : '#F8FAFC';
         ctx.font = fontRegular;
         ctx.fillText(f.val, textX + 150, startY);
 
@@ -371,6 +373,26 @@ export async function generateProfileCardCanvas(
     ctx.fillText('★ ĐÃ KHAI BÁO ★', 0, 5);
     ctx.fillText('THẦY TOÀN KÝ', 0, 20);
     ctx.restore();
+
+    // 5. Pink Love Stamp (if matched couple)
+    if (matchedPartnerName) {
+        ctx.save();
+        ctx.translate(width - 230, height - 85);
+        ctx.rotate(12 * Math.PI / 180);
+        ctx.strokeStyle = '#FF69B4';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 45, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#FF69B4';
+        ctx.font = fontStamp;
+        ctx.textAlign = 'center';
+        ctx.fillText('💕 KHỚP LỆNH 💕', 0, -10);
+        ctx.fillText('★ ĐÃ KẾT DUYÊN ★', 0, 5);
+        ctx.fillText(matchedPartnerName.substring(0, 14), 0, 20);
+        ctx.restore();
+    }
 
     return canvas.toBuffer('image/png');
 }
@@ -420,7 +442,17 @@ export function setupProfileInteractions(client: any) {
         if (action === 'card') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             try {
-                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess);
+                let matchedPartnerName = "";
+                const myCrushId = await getCrush(targetUserId);
+                if (myCrushId) {
+                    const partnerCrushId = await getCrush(myCrushId);
+                    if (partnerCrushId === targetUserId) {
+                        const partnerProfile = await getProfile(myCrushId);
+                        const partnerUser = await interaction.client.users.fetch(myCrushId).catch(() => null);
+                        matchedPartnerName = partnerProfile?.name || partnerUser?.username || myCrushId;
+                    }
+                }
+                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess, matchedPartnerName);
                 const attachment = new AttachmentBuilder(cardBuffer, { name: `TheGiangHo_${targetUserId}.png` });
                 await interaction.editReply({
                     content: `🖼️ **Thẻ Căn Cước Giang Hồ của <@${targetUserId}> đây!** *(Nhấp vào ảnh để xem full & tải về)*`,
@@ -1026,21 +1058,42 @@ export async function handleProfileRegistration(message: Message, rawInput: stri
 
         const profile = await getProfile(targetUser.id);
         const isSelf = targetUser.id === message.author.id;
-
         const isWantImage = remainingText.includes('--image') || remainingText.toLowerCase().includes('card') || remainingText.toLowerCase().includes('the giang ho');
 
         if (profile && profile.name && profile.gender && profile.birthday) {
             const balance = await getBalance(targetUser.id);
             const debt = await getDebt(targetUser.id);
-            let targetMember = message.guild ? message.guild.members.cache.get(targetUser.id) : null;
+            let targetMember: any = message.guild ? message.guild.members.cache.get(targetUser.id) : null;
             if (!targetMember && message.guild) {
                 targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
             }
             const isPrincess = targetMember ? targetMember.roles.cache.has("1528640097325547580") : false;
 
+            // Trích xuất thông tin Tình Trạng Hôn Nhân / Tình Cảm / Cặp Đôi Khớp Lệnh
+            const myCrushId = await getCrush(targetUser.id);
+            let coupleStatusText = "🖤 **Độc thân vui tính** *(Chưa thả thính ai)*";
+            let matchedPartnerName = "";
+
+            if (myCrushId) {
+                const partnerCrushId = await getCrush(myCrushId);
+                const partnerUser = await message.client.users.fetch(myCrushId).catch(() => null);
+                const partnerProfile = partnerUser ? await getProfile(partnerUser.id) : null;
+                const partnerName = partnerProfile?.name || partnerUser?.username || myCrushId;
+
+                if (partnerCrushId === targetUser.id) {
+                    // MUTUAL MATCH!
+                    matchedPartnerName = partnerName;
+                    coupleStatusText = `💕 **ĐÃ KHỚP LỆNH YÊU ĐƯƠNG** với <@${myCrushId}> (\`${partnerName}\`) 👩‍❤️‍👨\n*(Lưỡng Tình Tương Duyệt — Tơ hồng kết duyên!)*`;
+                } else if (isSelf) {
+                    coupleStatusText = `🤫 **Đang thầm thương trộm nhớ:** <@${myCrushId}> (\`${partnerName}\`)\n*(Đang tương tư đơn phương — Chưa khớp lệnh!)*`;
+                } else {
+                    coupleStatusText = `🤫 **Đang âm thầm tương tư một đối tượng bí mật...** *(Chưa khớp lệnh công khai)*`;
+                }
+            }
+
             // Nếu người dùng yêu cầu dạng Ảnh (Visual Card)
             if (isWantImage) {
-                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess);
+                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess, matchedPartnerName);
                 const attachment = new AttachmentBuilder(cardBuffer, { name: `TheGiangHo_${targetUser.id}.png` });
                 await message.reply({
                     content: `🖼️ **Thẻ Căn Cước Giang Hồ / Giấy Tạm Trú của <@${targetUser.id}> đây!**`,
@@ -1088,9 +1141,9 @@ export async function handleProfileRegistration(message: Message, rawInput: stri
 
             if (targetMember) {
                 const roles = targetMember.roles.cache
-                    .filter(r => r.id !== message.guild?.id)
-                    .sort((a, b) => b.position - a.position)
-                    .map(r => `<@&${r.id}>`);
+                    .filter((r: any) => r.id !== message.guild?.id)
+                    .sort((a: any, b: any) => b.position - a.position)
+                    .map((r: any) => `<@&${r.id}>`);
 
                 if (roles.length > 0) {
                     rolesText = roles.length > 8 ? `${roles.slice(0, 8).join(', ')} *(+${roles.length - 8} vai trò nữa)*` : roles.join(', ');
@@ -1117,7 +1170,8 @@ export async function handleProfileRegistration(message: Message, rawInput: stri
                     { name: "👤 Họ và tên thật", value: `\`${profile.name}\``, inline: true },
                     { name: "🚻 Giới tính", value: `${genderIcon} \`${profile.gender}\``, inline: true },
                     { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true },
-                    { name: "💰 Tài chính Ngân hàng", value: `- 💵 **Ví tiền:** \`${formatMoney(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${formatMoney(debt)}\`đ`, inline: false }
+                    { name: "💰 Tài chính Ngân hàng", value: `- 💵 **Ví tiền:** \`${formatMoney(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${formatMoney(debt)}\`đ`, inline: false },
+                    { name: "👩‍❤️‍👨 Tình Trạng Hôn Nhân / Tình Cảm", value: coupleStatusText, inline: false }
                 )
                 .setColor(0x00A8FF)
                 .setFooter({ text: isSelf ? "Gõ @BotToan profile [Tên] [Nam/Nữ] [DD/MM/YYYY] để cập nhật hồ sơ!" : "BotToan - Hồ sơ lý lịch giang hồ" });

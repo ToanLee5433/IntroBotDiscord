@@ -182,7 +182,7 @@ function getGangTitle(balance, debt, isPrincess = false) {
     return '⚔️ DÂN CHƠI GIANG HỒ';
 }
 // ================= CANVAS PROFILE CARD GENERATOR =================
-async function generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess = false) {
+async function generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess = false, matchedPartnerName = "") {
     let createCanvas, loadImage, GlobalFonts;
     try {
         const canvasPkg = require('@napi-rs/canvas');
@@ -326,13 +326,14 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
         { label: "♍ Cung Hoàng Đạo:", val: zodiacText },
         { label: "🌙 Tuổi Âm Lịch:", val: lunarText },
         { label: "☯️ Mệnh Ngũ Hành:", val: menhText || "N/A" },
-        { label: "💰 Tài chính:", val: `Ví: ${(0, utils_1.formatMoney)(balance)}đ | Nợ: ${(0, utils_1.formatMoney)(debt)}đ` }
+        { label: "💰 Tài chính:", val: `Ví: ${(0, utils_1.formatMoney)(balance)}đ | Nợ: ${(0, utils_1.formatMoney)(debt)}đ` },
+        { label: "👩‍❤️‍👨 Tình cảm:", val: matchedPartnerName ? `💕 Khớp lệnh với ${matchedPartnerName}` : "🖤 Độc thân vui tính" }
     ];
     fields.forEach(f => {
         ctx.fillStyle = '#94A3B8';
         ctx.font = fontRegular;
         ctx.fillText(f.label, textX, startY);
-        ctx.fillStyle = '#F8FAFC';
+        ctx.fillStyle = f.label.includes('Tình cảm') && matchedPartnerName ? '#FF69B4' : '#F8FAFC';
         ctx.font = fontRegular;
         ctx.fillText(f.val, textX + 150, startY);
         startY += lineSpacing;
@@ -353,6 +354,24 @@ async function generateProfileCardCanvas(targetUser, profile, balance, debt, tar
     ctx.fillText('★ ĐÃ KHAI BÁO ★', 0, 5);
     ctx.fillText('THẦY TOÀN KÝ', 0, 20);
     ctx.restore();
+    // 5. Pink Love Stamp (if matched couple)
+    if (matchedPartnerName) {
+        ctx.save();
+        ctx.translate(width - 230, height - 85);
+        ctx.rotate(12 * Math.PI / 180);
+        ctx.strokeStyle = '#FF69B4';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 45, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = '#FF69B4';
+        ctx.font = fontStamp;
+        ctx.textAlign = 'center';
+        ctx.fillText('💕 KHỚP LỆNH 💕', 0, -10);
+        ctx.fillText('★ ĐÃ KẾT DUYÊN ★', 0, 5);
+        ctx.fillText(matchedPartnerName.substring(0, 14), 0, 20);
+        ctx.restore();
+    }
     return canvas.toBuffer('image/png');
 }
 // ================= COOLDOWN & INTERACTION LISTENER CHO BUTTONS =================
@@ -395,7 +414,17 @@ function setupProfileInteractions(client) {
         if (action === 'card') {
             await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
             try {
-                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess);
+                let matchedPartnerName = "";
+                const myCrushId = await (0, database_1.getCrush)(targetUserId);
+                if (myCrushId) {
+                    const partnerCrushId = await (0, database_1.getCrush)(myCrushId);
+                    if (partnerCrushId === targetUserId) {
+                        const partnerProfile = await (0, database_1.getProfile)(myCrushId);
+                        const partnerUser = await interaction.client.users.fetch(myCrushId).catch(() => null);
+                        matchedPartnerName = partnerProfile?.name || partnerUser?.username || myCrushId;
+                    }
+                }
+                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess, matchedPartnerName);
                 const attachment = new discord_js_1.AttachmentBuilder(cardBuffer, { name: `TheGiangHo_${targetUserId}.png` });
                 await interaction.editReply({
                     content: `🖼️ **Thẻ Căn Cước Giang Hồ của <@${targetUserId}> đây!** *(Nhấp vào ảnh để xem full & tải về)*`,
@@ -964,9 +993,30 @@ async function handleProfileRegistration(message, rawInput) {
                 targetMember = await message.guild.members.fetch(targetUser.id).catch(() => null);
             }
             const isPrincess = targetMember ? targetMember.roles.cache.has("1528640097325547580") : false;
+            // Trích xuất thông tin Tình Trạng Hôn Nhân / Tình Cảm / Cặp Đôi Khớp Lệnh
+            const myCrushId = await (0, database_1.getCrush)(targetUser.id);
+            let coupleStatusText = "🖤 **Độc thân vui tính** *(Chưa thả thính ai)*";
+            let matchedPartnerName = "";
+            if (myCrushId) {
+                const partnerCrushId = await (0, database_1.getCrush)(myCrushId);
+                const partnerUser = await message.client.users.fetch(myCrushId).catch(() => null);
+                const partnerProfile = partnerUser ? await (0, database_1.getProfile)(partnerUser.id) : null;
+                const partnerName = partnerProfile?.name || partnerUser?.username || myCrushId;
+                if (partnerCrushId === targetUser.id) {
+                    // MUTUAL MATCH!
+                    matchedPartnerName = partnerName;
+                    coupleStatusText = `💕 **ĐÃ KHỚP LỆNH YÊU ĐƯƠNG** với <@${myCrushId}> (\`${partnerName}\`) 👩‍❤️‍👨\n*(Lưỡng Tình Tương Duyệt — Tơ hồng kết duyên!)*`;
+                }
+                else if (isSelf) {
+                    coupleStatusText = `🤫 **Đang thầm thương trộm nhớ:** <@${myCrushId}> (\`${partnerName}\`)\n*(Đang tương tư đơn phương — Chưa khớp lệnh!)*`;
+                }
+                else {
+                    coupleStatusText = `🤫 **Đang âm thầm tương tư một đối tượng bí mật...** *(Chưa khớp lệnh công khai)*`;
+                }
+            }
             // Nếu người dùng yêu cầu dạng Ảnh (Visual Card)
             if (isWantImage) {
-                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess);
+                const cardBuffer = await generateProfileCardCanvas(targetUser, profile, balance, debt, targetMember, isPrincess, matchedPartnerName);
                 const attachment = new discord_js_1.AttachmentBuilder(cardBuffer, { name: `TheGiangHo_${targetUser.id}.png` });
                 await message.reply({
                     content: `🖼️ **Thẻ Căn Cước Giang Hồ / Giấy Tạm Trú của <@${targetUser.id}> đây!**`,
@@ -1009,9 +1059,9 @@ async function handleProfileRegistration(message, rawInput) {
             let memberInfoText = "";
             if (targetMember) {
                 const roles = targetMember.roles.cache
-                    .filter(r => r.id !== message.guild?.id)
+                    .filter((r) => r.id !== message.guild?.id)
                     .sort((a, b) => b.position - a.position)
-                    .map(r => `<@&${r.id}>`);
+                    .map((r) => `<@&${r.id}>`);
                 if (roles.length > 0) {
                     rolesText = roles.length > 8 ? `${roles.slice(0, 8).join(', ')} *(+${roles.length - 8} vai trò nữa)*` : roles.join(', ');
                 }
@@ -1031,7 +1081,7 @@ async function handleProfileRegistration(message, rawInput) {
                 .setTitle(`📋 HỒ SƠ LÝ LỊCH GIANG HỒ • ${gangTitle}`)
                 .setThumbnail(avatarUrl)
                 .setDescription(`Thông tin hồ sơ tạm trú tạm vắng của <@${targetUser.id}>:`)
-                .addFields({ name: "👤 Họ và tên thật", value: `\`${profile.name}\``, inline: true }, { name: "🚻 Giới tính", value: `${genderIcon} \`${profile.gender}\``, inline: true }, { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true }, { name: "💰 Tài chính Ngân hàng", value: `- 💵 **Ví tiền:** \`${(0, utils_1.formatMoney)(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${(0, utils_1.formatMoney)(debt)}\`đ`, inline: false })
+                .addFields({ name: "👤 Họ và tên thật", value: `\`${profile.name}\``, inline: true }, { name: "🚻 Giới tính", value: `${genderIcon} \`${profile.gender}\``, inline: true }, { name: "🎂 Ngày sinh", value: `\`${profile.birthday}\``, inline: true }, { name: "💰 Tài chính Ngân hàng", value: `- 💵 **Ví tiền:** \`${(0, utils_1.formatMoney)(balance)}\`đ\n- 💸 **Nợ ngân hàng:** \`${(0, utils_1.formatMoney)(debt)}\`đ`, inline: false }, { name: "👩‍❤️‍👨 Tình Trạng Hôn Nhân / Tình Cảm", value: coupleStatusText, inline: false })
                 .setColor(0x00A8FF)
                 .setFooter({ text: isSelf ? "Gõ @BotToan profile [Tên] [Nam/Nữ] [DD/MM/YYYY] để cập nhật hồ sơ!" : "BotToan - Hồ sơ lý lịch giang hồ" });
             if (extraAstrologyInfo) {
