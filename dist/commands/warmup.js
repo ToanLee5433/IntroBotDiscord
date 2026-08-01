@@ -734,6 +734,19 @@ async function handleWarmupCommand(message, rawInput, client) {
         }
     }
     if (exports.globalWarmupCache.length === 0) {
+        // Nếu RAM Cache đang trống (do vừa restart/sập server), tự nạp lại từ DB 1 lần
+        await loadWarmupVideosCache(client);
+        // Cập nhật lại filteredCache sau khi nạp cache
+        if (searchQuery) {
+            filteredCache = exports.globalWarmupCache.filter(v => v.title.toLowerCase().includes(searchQuery) ||
+                v.description.toLowerCase().includes(searchQuery) ||
+                v.category.toLowerCase().includes(searchQuery));
+        }
+        else {
+            filteredCache = exports.globalWarmupCache;
+        }
+    }
+    if (exports.globalWarmupCache.length === 0) {
         await message.reply("📂 **Kho video warmup hiện tại đang trống!** Admin vui lòng dùng lệnh `@BotToan warmup add` để thêm video trước nhé!").catch(() => { });
         return;
     }

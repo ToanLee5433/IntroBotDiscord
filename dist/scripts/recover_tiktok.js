@@ -71,7 +71,7 @@ async function run() {
             continue;
         let needsUpdate = false;
         const updateData = {};
-        // 1. Chuyển đổi tên miền sang tnktok.com (để có khung xem/embed phát được trên Discord)
+        // 1. Chuyển đổi tên miền sang tnktok.com (1)
         if (video.videoUrl && (video.videoUrl.includes('tiktok.com') || video.videoUrl.includes('fxtiktok.com') || video.videoUrl.includes('vxtiktok.com')) && !video.videoUrl.includes('tnktok.com')) {
             updateData.videoUrl = video.videoUrl
                 .replace(/tiktok\.com/g, 'tnktok.com')

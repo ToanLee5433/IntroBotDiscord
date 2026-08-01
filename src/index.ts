@@ -554,6 +554,96 @@ client.on('messageCreate', async (message: Message) => {
         return;
     }
 
+    // ----------------- TÍNH NĂNG PHÁT ÂM THANH "TOÀN / GIẢI NGHỆ" (giainghe.mp3) -----------------
+    const toanTriggers = [
+        'toan', 'giainghe', 'giai nghe', 'nhac toan', 'bat toan'
+    ];
+    const isToanTrigger = toanTriggers.some(t => {
+        if (t === 'toan') {
+            return cleanInput === 'toan' || cleanInput.startsWith('toan ') || cleanInput.endsWith(' toan') || cleanInput.includes(' toan ');
+        }
+        return cleanInput.includes(t);
+    });
+
+    if (isToanTrigger) {
+        // 1. Xác định target user được tag (nếu có)
+        const targetUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
+        let targetName = "";
+        if (targetUser && message.guild) {
+            const member = message.guild.members.cache.get(targetUser.id);
+            targetName = member ? member.displayName : targetUser.username;
+        }
+
+        // 2. Tìm kênh voice của người gọi hoặc người được tag
+        const senderMember = message.member;
+        const targetMember = targetUser && message.guild ? message.guild.members.cache.get(targetUser.id) : null;
+        const userVoiceChannel = senderMember?.voice.channel || targetMember?.voice.channel;
+
+        if (!userVoiceChannel || !message.guild) {
+            await message.reply("❌ **Bạn (hoặc người được tag) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào phát nhạc Toàn (Giải Nghệ) được chứ!**").catch(() => {});
+            return;
+        }
+
+        const audioPathMp3 = path.join(__dirname, '../audio/giainghe.mp3');
+        const audioPathOgg = path.join(__dirname, '../audio/giainghe.ogg');
+        const audioPath = fs.existsSync(audioPathOgg) ? audioPathOgg : (fs.existsSync(audioPathMp3) ? audioPathMp3 : null);
+        const audioType = audioPath?.endsWith('.ogg') ? StreamType.OggOpus : StreamType.Arbitrary;
+        const hasAudioFile = !!audioPath;
+
+        if (!hasAudioFile || !audioPath) {
+            await message.reply("❌ **Không tìm thấy file âm thanh `giainghe.mp3` trong thư mục audio!**").catch(() => {});
+            return;
+        }
+
+        try {
+            await isolateHornBot(message.guild, userVoiceChannel.id);
+            const existingConnection = getVoiceConnection(message.guild.id);
+            if (existingConnection) {
+                try { existingConnection.destroy(); } catch (e) {}
+            }
+
+            const connection = joinVoiceChannel({
+                channelId: userVoiceChannel.id,
+                guildId: message.guild.id,
+                adapterCreator: message.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
+
+            await entersState(connection, VoiceConnectionStatus.Ready, 15000);
+            const player = createAudioPlayer();
+            connection.subscribe(player);
+
+            const announceMsg = targetName 
+                ? `🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` phát soundboard Toàn (Giải Nghệ) cho ${targetName}!** 🔊` 
+                : `🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` phát soundboard Toàn (Giải Nghệ)!** 🔊`;
+
+            await message.reply(announceMsg).catch(() => {});
+
+            try { 
+                player.play(createAudioResource(fs.createReadStream(audioPath), { inputType: audioType })); 
+            } catch (e) {
+                console.error('[TOAN GIAINGHE] Lỗi phát audio:', e);
+            }
+
+            player.on(AudioPlayerStatus.Idle, () => {
+                try { player.stop(); } catch (e) {}
+                try { connection.destroy(); } catch (e) {}
+            });
+
+            player.on('error', err => {
+                console.error("[TOAN GIAINGHE AUDIO PLAYER ERROR]:", err.message);
+                try { connection.destroy(); } catch (e) {}
+            });
+
+        } catch (err) {
+            console.error("Lỗi kết nối voice phát giainghe.mp3:", err);
+            await message.reply("❌ **Gặp lỗi khi kết nối vào phòng thoại!**").catch(() => {});
+        }
+        return;
+    }
+
+
     // ----------------- TÍNH NĂNG PHÁT NHẠC INTRO THEO YÊU CẦU (@BotToan intro [@User / ID]) -----------------
     const isWCIntro = cleanInput === 'intro wc' || cleanInput === 'wc intro' || cleanInput === 'intro worldcup' || cleanInput === 'worldcup intro';
     if (isWCIntro) {
@@ -2429,6 +2519,19 @@ client.once('ready', async (readyClient) => {
             });
         })();
 
+        // Kết nối DB song song (không chặn đăng nhập Discord)
+        dbConnectionPromise = connectDB()
+            .then(async () => {
+                console.log("[HỆ THỐNG] Tiến trình kết nối DB hoàn tất.");
+                // Tự động nạp lại RAM cache video warmup nếu client đã sẵn sàng
+                if (client.isReady()) {
+                    await loadWarmupVideosCache(client).catch(err => console.error("Lỗi nạp cache video warmup sau khi kết nối DB:", err));
+                }
+            })
+            .catch(err => {
+                console.error("[HỆ THỐNG LỖI] Gặp lỗi khi kết nối DB:", err);
+            });
+
         console.log("[DISCORD] Đang kết nối tới Gateway...");
         client.login(TOKEN).then(() => {
             console.log("[DISCORD] Đã gửi yêu cầu đăng nhập.");
@@ -2443,15 +2546,6 @@ client.once('ready', async (readyClient) => {
             }
             process.exit(1);
         });
-
-        // Kết nối DB song song (không chặn đăng nhập Discord)
-        dbConnectionPromise = connectDB()
-            .then(async () => {
-                console.log("[HỆ THỐNG] Tiến trình kết nối DB hoàn tất.");
-            })
-            .catch(err => {
-                console.error("[HỆ THỐNG LỖI] Gặp lỗi khi kết nối DB:", err);
-            });
 
         // Tải icon agent song song
         loadAgentIcons()
@@ -2610,7 +2704,7 @@ async function handleHelpCommand(message: Message, client: any) {
             },
             { name: "🗣️ CHAT AI & VOICE INTRO", value:
                 "• `intro` | `intro @User` | `intro [ID]`: Bật nhạc Intro cá nhân/mặc định trong phòng voice\n" +
-                "• `xem stream` | `bon tre` | `entry`: Phát soundboard (\"Thức xem stream...\", \"Bọn trẻ\", \"Entry\") trong phòng voice\n" +
+                "• `xem stream` | `bon tre` | `entry` | `toan` (`toàn`): Phát soundboard (\"Thức xem stream...\", \"Bọn trẻ\", \"Entry\", \"Toàn Giải Nghệ\") trong phòng voice\n" +
                 "• `@BotToan [nội dung]`: Chat trực tiếp với Gemini AI thông minh mỏ hỗn\n" +
                 "• `cam mom` | `im di` | `nin`: Tắt tiếng / di chuyển Horn-Bot welcome ra khỏi voice",
                 inline: false

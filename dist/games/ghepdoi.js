@@ -437,18 +437,8 @@ function setupProfileInteractions(client) {
             }
         }
         else if (action === 'tarot') {
-            const dateStr = (0, database_1.getVNDateString)(now);
-            const hasQue = await (0, database_1.hasGieoQueToday)(userId, dateStr);
-            if (hasQue) {
-                await interaction.reply({
-                    content: `🔮 **Hôm nay bạn đã gieo quẻ rồi!** Hãy quay lại vào ngày mai để nhận quẻ mới nhé.`,
-                    flags: discord_js_1.MessageFlags.Ephemeral
-                }).catch(() => { });
-            }
-            else {
-                await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
-                await handleGieoQue(interaction);
-            }
+            await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
+            await handleGieoQue(interaction);
         }
         else if (action === 'match') {
             await interaction.deferReply({ flags: discord_js_1.MessageFlags.Ephemeral });
@@ -1835,17 +1825,37 @@ async function handleBuaYeu(message) {
     }
 }
 // ================= XỬ LÝ LỆNH GIEO QUẺ HÀNG NGÀY =================
-async function handleGieoQue(message) {
-    const userId = message.author.id;
+async function handleGieoQue(ctx) {
+    const isInteraction = !('author' in ctx);
+    const userId = isInteraction ? ctx.user.id : ctx.author.id;
+    const client = ctx.client;
+    const replyHelper = async (options) => {
+        try {
+            if (isInteraction) {
+                if (ctx.deferred || ctx.replied) {
+                    return await ctx.editReply(options);
+                }
+                else {
+                    return await ctx.reply(options);
+                }
+            }
+            else {
+                return await ctx.reply(options);
+            }
+        }
+        catch (e) {
+            console.error("Lỗi gửi reply gieo quẻ:", e);
+        }
+    };
     if (utils_1.activeGamePlayers.has(userId)) {
-        await message.reply("❌ **Mày đang bận việc khác rồi con giời!** Đang chơi game bói toán khác thì xong đi đã chứ!").catch(() => { });
+        await replyHelper("❌ **Mày đang bận việc khác rồi con giời!** Đang chơi game bói toán khác thì xong đi đã chứ!");
         return;
     }
     utils_1.activeGamePlayers.add(userId);
     try {
         const profile = await (0, database_1.getProfile)(userId);
         if (!profile) {
-            await message.reply(`❌ **Mày chưa khai báo lý lịch (profile) bói toán!**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``).catch(() => { });
+            await replyHelper(`❌ **Mày chưa khai báo lý lịch (profile) bói toán!**\nHãy gõ lệnh sau để tạo hồ sơ trước:\n\`@BotToan profile [Tên] [Nam/Nu] [Ngày/Tháng/Năm Sinh]\``);
             return;
         }
         profile.birthday = profile.birthday.replace(/\-/g, '/');
@@ -1863,8 +1873,8 @@ async function handleGieoQue(message) {
                 .setTitle("🚫 XIN QUẺ THẤT BẠI - HÔM NAY XEM THẾ ĐỦ RỒI!")
                 .setDescription(`⚠️ **Mày đã xin quẻ vận mệnh hôm nay rồi con giời!**\n\nQuy tắc giang hồ mỗi ngày chỉ được xin **1 lượt duy nhất** thôi. Xem lắm quẻ hóa quẻ hung đấy!\nHãy quay lại sau **${hours} giờ ${minutes} phút** nữa nhé!`)
                 .setColor(0xFF0000)
-                .setFooter({ text: "BotToan - Thầy bói giang hồ", iconURL: message.client.user?.displayAvatarURL() });
-            await message.reply({ embeds: [embed] }).catch(() => { });
+                .setFooter({ text: "BotToan - Thầy bói giang hồ", iconURL: client.user?.displayAvatarURL() });
+            await replyHelper({ embeds: [embed] });
             return;
         }
         let balance = await (0, database_1.getBalance)(userId);
@@ -1922,7 +1932,7 @@ async function handleGieoQue(message) {
             balanceChange = -Math.min(balance, penalty);
             queAction = `Bị đàn em giang hồ của BotToan quây chặn đường trấn lột (-${Math.abs(balanceChange)}k)`;
             color = 0xFF0000;
-            if (Math.random() < 0.2 && message.guild) {
+            if (Math.random() < 0.2 && ctx.guild) {
                 isJailTriggered = true;
                 jailNote = "\n🚔 **Nghiệp quật tàn bạo:** Bị cảnh sát tóm cổ tống giam 1 phút để cải tạo!";
             }
@@ -1938,8 +1948,9 @@ async function handleGieoQue(message) {
         else {
             rewardOrPenaltyText = "Không biến động";
         }
-        if ('sendTyping' in message.channel)
-            await message.channel.sendTyping().catch(() => { });
+        if (!isInteraction && ctx.channel && 'sendTyping' in ctx.channel) {
+            await ctx.channel.sendTyping().catch(() => { });
+        }
         const dobParts = profile.birthday.split('/');
         const solar = lunar_javascript_1.Solar.fromYmd(parseInt(dobParts[2]), parseInt(dobParts[1]), parseInt(dobParts[0]));
         const lunar = solar.getLunar();
@@ -2034,16 +2045,18 @@ async function handleGieoQue(message) {
             value: explanation.trim(),
             inline: false
         })
-            .setFooter({ text: "Gõ @BotToan gieo que hàng ngày để xem vận hạn (1 lượt/ngày)", iconURL: message.client.user?.displayAvatarURL() })
+            .setFooter({ text: "Gõ @BotToan gieo que hàng ngày để xem vận hạn (1 lượt/ngày)", iconURL: client.user?.displayAvatarURL() })
             .setTimestamp();
-        await message.reply({ embeds: [embed] });
+        await replyHelper({ embeds: [embed] });
         await (0, database_1.markGieoQueToday)(userId, todayStr);
-        if (isJailTriggered && message.guild) {
+        if (isJailTriggered && ctx.guild) {
             setTimeout(async () => {
                 try {
-                    await (0, utils_1.sendToJail)(message.guild, userId, "Nghiệp quật quẻ Đại Hung!");
+                    await (0, utils_1.sendToJail)(ctx.guild, userId, "Nghiệp quật quẻ Đại Hung!");
                     await (0, database_1.banChat)(userId, 60000);
-                    await message.channel.send(`🚔 Đã áp giải khứa <@${userId}> vào Nhà Tù 1 phút vì bốc trúng quẻ **Đại Hung** nghiệp chướng quá nặng!`).catch(() => { });
+                    if (ctx.channel && 'send' in ctx.channel) {
+                        await ctx.channel.send(`🚔 Đã áp giải khứa <@${userId}> vào Nhà Tù 1 phút vì bốc trúng quẻ **Đại Hung** nghiệp chướng quá nặng!`).catch(() => { });
+                    }
                 }
                 catch (err) {
                     console.error("Lỗi tống giam Đại Hung:", err);
@@ -2053,7 +2066,7 @@ async function handleGieoQue(message) {
     }
     catch (error) {
         console.error("Lỗi khi xử lý gieo quẻ:", error);
-        await message.reply("❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này, hãy thử lại sau!").catch(() => { });
+        await replyHelper("❌ **Có lỗi tâm linh xảy ra!** Thầy Toàn bị nghẹn nhang không thể gieo quẻ lúc này, hãy thử lại sau!");
     }
     finally {
         utils_1.activeGamePlayers.delete(userId);
