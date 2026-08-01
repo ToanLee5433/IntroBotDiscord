@@ -2,6 +2,9 @@ export const PORT = process.env.PORT || 8080;
 export const TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN;
 export const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMINI_API;
 export const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+export const ATLAS_DATA_API_KEY = process.env.ATLAS_DATA_API_KEY || "";
+export const ATLAS_APP_ID = process.env.ATLAS_APP_ID || "";
+export const ATLAS_DATA_SOURCE = process.env.ATLAS_DATA_SOURCE || "Cluster0";
 export const VALORANT_API_KEY = process.env.VALORANT_API_KEY;
 export const WARMUP_CHANNEL_ID = process.env.WARMUP_CHANNEL_ID || "";
 

@@ -1,11 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fullAgentsByRole = exports.agentIcons = exports.WARMUP_CHANNEL_ID = exports.VALORANT_API_KEY = exports.MONGO_URI = exports.GEMINI_KEY = exports.TOKEN = exports.PORT = void 0;
+exports.fullAgentsByRole = exports.agentIcons = exports.WARMUP_CHANNEL_ID = exports.VALORANT_API_KEY = exports.ATLAS_DATA_SOURCE = exports.ATLAS_APP_ID = exports.ATLAS_DATA_API_KEY = exports.MONGO_URI = exports.GEMINI_KEY = exports.TOKEN = exports.PORT = void 0;
 exports.loadAgentIcons = loadAgentIcons;
 exports.PORT = process.env.PORT || 8080;
 exports.TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN;
 exports.GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMINI_API;
 exports.MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+exports.ATLAS_DATA_API_KEY = process.env.ATLAS_DATA_API_KEY || "";
+exports.ATLAS_APP_ID = process.env.ATLAS_APP_ID || "";
+exports.ATLAS_DATA_SOURCE = process.env.ATLAS_DATA_SOURCE || "Cluster0";
 exports.VALORANT_API_KEY = process.env.VALORANT_API_KEY;
 exports.WARMUP_CHANNEL_ID = process.env.WARMUP_CHANNEL_ID || "";
 exports.agentIcons = new Map();
