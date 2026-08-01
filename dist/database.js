@@ -258,13 +258,16 @@ async function connectDB() {
     }
     const connectOptions = {
         serverSelectionTimeoutMS: 15000,
-        connectTimeoutMS: 15000
+        connectTimeoutMS: 15000,
+        tls: true,
+        tlsAllowInvalidCertificates: true,
+        tlsAllowInvalidHostnames: true
     };
-    // Đợt 1: Kết nối trực tiếp bằng MONGO_URI gốc
+    // Đợt 1: Kết nối bằng MONGO_URI gốc kèm TLS bypass
     try {
-        console.log("[DB] Đang thử kết nối MongoDB đợt 1...");
+        console.log("[DB] Đang thử kết nối MongoDB đợt 1 (TLS bypass)...");
         await mongoose_1.default.connect(config_1.MONGO_URI, connectOptions);
-        console.log("[DB] Kết nối MongoDB thành công!");
+        console.log("[DB] ✅ Kết nối MongoDB thành công ở đợt 1!");
         useMongoDB = true;
         return;
     }
@@ -279,7 +282,7 @@ async function connectDB() {
             if (match) {
                 const creds = match[1]; // user:pass
                 const dbName = (match[3] && match[3].trim()) ? match[3].trim() : 'intro-bot';
-                fallbackUri = `mongodb://${creds}@ac-z161zes-shard-00-00.tjagckz.mongodb.net:27017,ac-z161zes-shard-00-01.tjagckz.mongodb.net:27017,ac-z161zes-shard-00-02.tjagckz.mongodb.net:27017/${dbName}?ssl=true&replicaSet=atlas-14ogil-shard-0&authSource=admin`;
+                fallbackUri = `mongodb://${creds}@ac-z161zes-shard-00-00.tjagckz.mongodb.net:27017,ac-z161zes-shard-00-01.tjagckz.mongodb.net:27017,ac-z161zes-shard-00-02.tjagckz.mongodb.net:27017/${dbName}?ssl=true&replicaSet=atlas-14ogil-shard-0&authSource=admin&tlsAllowInvalidCertificates=true`;
             }
         }
         console.log("[DB] Đang thử kết nối lại MongoDB đợt 2 với Standard Direct ReplicaSet...");
