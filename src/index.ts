@@ -2520,6 +2520,15 @@ client.once('ready', async (readyClient) => {
         })();
 
         // Kết nối DB song song (không chặn đăng nhập Discord)
+        // Diagnostic: log outbound IP của service để kiểm tra tường lửa
+        fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) })
+            .then(r => r.json())
+            .then((d: any) => console.log(`[DB CHẨN ĐOÁN] IP đầu ra của Service: ${d.ip}`))
+            .catch(() => fetch('https://ifconfig.me/ip', { signal: AbortSignal.timeout(5000) })
+                .then(r => r.text())
+                .then(ip => console.log(`[DB CHẨN ĐOÁN] IP đầu ra của Service: ${ip.trim()}`))
+                .catch(e => console.log(`[DB CHẨN ĐOÁN] Không lấy được IP: ${e.message}`))
+            );
         dbConnectionPromise = connectDB()
             .then(async () => {
                 console.log("[HỆ THỐNG] Tiến trình kết nối DB hoàn tất.");
