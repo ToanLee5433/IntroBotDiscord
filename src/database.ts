@@ -246,28 +246,41 @@ export async function connectDB(): Promise<void> {
     }
 
     const connectOptions = {
-        serverSelectionTimeoutMS: 30000, // Tăng lên 30 giây cho VPS/AlwaysData bắt tay SSL & DNS SRV
-        connectTimeoutMS: 30000,
-        family: 4 // Ưu tiên IPv4 tránh lỗi DNS lookup IPv6 trên hosting
+        serverSelectionTimeoutMS: 15000,
+        connectTimeoutMS: 15000
     };
 
+    // Đợt 1: Kết nối trực tiếp bằng MONGO_URI gốc
     try {
+        console.log("[DB] Đang thử kết nối MongoDB đợt 1...");
         await mongoose.connect(MONGO_URI, connectOptions);
         console.log("[DB] Kết nối MongoDB thành công!");
         useMongoDB = true;
+        return;
     } catch (error: any) {
         console.error("[DB LỖI] Thử kết nối MongoDB đợt 1 thất bại:", error?.message || error);
-        try {
-            console.log("[DB] Đang thử kết nối lại MongoDB đợt 2...");
-            await new Promise(res => setTimeout(res, 2000));
-            await mongoose.connect(MONGO_URI, connectOptions);
-            console.log("[DB] Kết nối MongoDB thành công ở đợt 2!");
-            useMongoDB = true;
-        } catch (error2) {
-            console.error("[DB LỖI] Lỗi kết nối MongoDB đợt 2:", error2);
-            console.warn("[DB CẢNH BÁO] Chuyển hướng sử dụng bộ nhớ tạm (RAM) vì không thể kết nối MongoDB!");
-            useMongoDB = false;
+    }
+
+    // Đợt 2: Tự động chuyển đổi sang Standard Direct Connection String (bỏ qua DNS SRV) nếu đợt 1 thất bại
+    try {
+        let fallbackUri = MONGO_URI;
+        if (MONGO_URI.includes('mongodb+srv://')) {
+            const match = MONGO_URI.match(/mongodb\+srv:\/\/([^@]+)@([^\/]+)\/?([^?]*)/);
+            if (match) {
+                const creds = match[1]; // user:pass
+                const dbName = (match[3] && match[3].trim()) ? match[3].trim() : 'intro-bot';
+                fallbackUri = `mongodb://${creds}@ac-z161zes-shard-00-00.tjagckz.mongodb.net:27017,ac-z161zes-shard-00-01.tjagckz.mongodb.net:27017,ac-z161zes-shard-00-02.tjagckz.mongodb.net:27017/${dbName}?ssl=true&replicaSet=atlas-14ogil-shard-0&authSource=admin`;
+            }
         }
+
+        console.log("[DB] Đang thử kết nối lại MongoDB đợt 2 với Standard Direct ReplicaSet...");
+        await mongoose.connect(fallbackUri, connectOptions);
+        console.log("[DB] ✅ Kết nối MongoDB thành công ở đợt 2 (Standard Direct)!");
+        useMongoDB = true;
+    } catch (error2: any) {
+        console.error("[DB LỖI] Lỗi kết nối MongoDB đợt 2:", error2?.message || error2);
+        console.warn("[DB CẢNH BÁO] Chuyển hướng sử dụng bộ nhớ tạm (RAM) vì không thể kết nối MongoDB!");
+        useMongoDB = false;
     }
 }
 
