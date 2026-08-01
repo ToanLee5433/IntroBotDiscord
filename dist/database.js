@@ -258,10 +258,7 @@ async function connectDB() {
     }
     const connectOptions = {
         serverSelectionTimeoutMS: 15000,
-        connectTimeoutMS: 15000,
-        tls: true,
-        tlsAllowInvalidCertificates: true,
-        tlsAllowInvalidHostnames: true
+        connectTimeoutMS: 15000
     };
     // Đợt 1: Kết nối bằng MONGO_URI gốc kèm TLS bypass
     try {
