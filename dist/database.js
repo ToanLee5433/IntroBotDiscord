@@ -256,17 +256,30 @@ async function connectDB() {
         useMongoDB = false;
         return;
     }
+    const connectOptions = {
+        serverSelectionTimeoutMS: 30000, // Tăng lên 30 giây cho VPS/AlwaysData bắt tay SSL & DNS SRV
+        connectTimeoutMS: 30000,
+        family: 4 // Ưu tiên IPv4 tránh lỗi DNS lookup IPv6 trên hosting
+    };
     try {
-        await mongoose_1.default.connect(config_1.MONGO_URI, {
-            serverSelectionTimeoutMS: 5000 // Thử kết nối tối đa 5 giây, tránh treo bot
-        });
+        await mongoose_1.default.connect(config_1.MONGO_URI, connectOptions);
         console.log("[DB] Kết nối MongoDB thành công!");
         useMongoDB = true;
     }
     catch (error) {
-        console.error("[DB LỖI] Lỗi kết nối MongoDB:", error);
-        console.warn("[DB CẢNH BÁO] Chuyển hướng sử dụng bộ nhớ tạm (RAM) vì không thể kết nối MongoDB!");
-        useMongoDB = false;
+        console.error("[DB LỖI] Thử kết nối MongoDB đợt 1 thất bại:", error?.message || error);
+        try {
+            console.log("[DB] Đang thử kết nối lại MongoDB đợt 2...");
+            await new Promise(res => setTimeout(res, 2000));
+            await mongoose_1.default.connect(config_1.MONGO_URI, connectOptions);
+            console.log("[DB] Kết nối MongoDB thành công ở đợt 2!");
+            useMongoDB = true;
+        }
+        catch (error2) {
+            console.error("[DB LỖI] Lỗi kết nối MongoDB đợt 2:", error2);
+            console.warn("[DB CẢNH BÁO] Chuyển hướng sử dụng bộ nhớ tạm (RAM) vì không thể kết nối MongoDB!");
+            useMongoDB = false;
+        }
     }
 }
 /**
