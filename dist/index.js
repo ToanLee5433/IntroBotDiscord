@@ -244,6 +244,94 @@ const client = new discord_js_1.Client({
     ]
 });
 (0, ghepdoi_1.setupProfileInteractions)(client);
+// ================= TỰ ĐỘNG THEO CHÂN (FOLLOW/FLO) KHI THÀNH VIÊN VÀO PHÒNG VOICE & PHÁT INTRO =================
+const userVoiceCooldown = new Map();
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    try {
+        // Chỉ xử lý khi người dùng thực sự tham gia phòng voice mới hoặc chuyển phòng (không phải bot)
+        if (!newState.member || newState.member.user.bot)
+            return;
+        if (oldState.channelId === newState.channelId)
+            return; // Không xử lý khi chỉ bật/tắt mic/tai nghe
+        if (!newState.channelId || !newState.guild)
+            return; // Người dùng ngắt kết nối voice (out phòng)
+        const userId = newState.member.id;
+        const now = Date.now();
+        const lastPlay = userVoiceCooldown.get(userId) || 0;
+        // Cooldown 5 giây giữa các lần đổi phòng liên tục để tránh spam audio
+        if (now - lastPlay < 5000)
+            return;
+        userVoiceCooldown.set(userId, now);
+        const voiceChannel = newState.channel;
+        const guild = newState.guild;
+        if (!voiceChannel)
+            return;
+        // Tìm file audio intro (userID.ogg > userID.mp3 > default.ogg > default.mp3)
+        const resolveAudioFileForUser = (uId) => {
+            const ogg = path.join(__dirname, '../audio', uId + '.ogg');
+            if (fs.existsSync(ogg))
+                return { file: ogg, type: voice_1.StreamType.OggOpus };
+            const mp3 = path.join(__dirname, '../audio', uId + '.mp3');
+            if (fs.existsSync(mp3))
+                return { file: mp3, type: voice_1.StreamType.Arbitrary };
+            const defaultOgg = path.join(__dirname, '../audio/default.ogg');
+            if (fs.existsSync(defaultOgg))
+                return { file: defaultOgg, type: voice_1.StreamType.OggOpus };
+            const defaultMp3 = path.join(__dirname, '../audio/default.mp3');
+            if (fs.existsSync(defaultMp3))
+                return { file: defaultMp3, type: voice_1.StreamType.Arbitrary };
+            return null;
+        };
+        const audioResult = resolveAudioFileForUser(userId);
+        if (!audioResult)
+            return;
+        console.log(`[AUTO INTRO / FLO] ${newState.member.displayName} đã vào phòng voice "${voiceChannel.name}", đang theo chân phát Intro...`);
+        await isolateHornBot(guild, voiceChannel.id);
+        const existingConnection = (0, voice_1.getVoiceConnection)(guild.id);
+        if (existingConnection) {
+            try {
+                existingConnection.destroy();
+            }
+            catch (e) { }
+            await new Promise(r => setTimeout(r, 100));
+        }
+        const connection = (0, voice_1.joinVoiceChannel)({
+            channelId: voiceChannel.id,
+            guildId: guild.id,
+            adapterCreator: guild.voiceAdapterCreator,
+            selfDeaf: false,
+            selfMute: false,
+        });
+        await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 5000);
+        const player = (0, voice_1.createAudioPlayer)();
+        const resource = (0, voice_1.createAudioResource)(fs.createReadStream(audioResult.file), { inputType: audioResult.type });
+        connection.subscribe(player);
+        player.play(resource);
+        player.on(voice_1.AudioPlayerStatus.Idle, () => {
+            try {
+                player.stop();
+            }
+            catch (e) { }
+            const humanMembers = voiceChannel.members?.filter((m) => !m.user.bot);
+            if (humanMembers && humanMembers.size === 0) {
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            }
+        });
+        player.on('error', err => {
+            console.error("[AUTO INTRO PLAY ERROR]:", err.message);
+            try {
+                connection.destroy();
+            }
+            catch (e) { }
+        });
+    }
+    catch (err) {
+        console.error("[VOICE STATE UPDATE LỖI]:", err?.message || err);
+    }
+});
 // ================= HÀM HỖ TRỢ TẠM NGẮT TIẾNG / CÁCH LY HORNBOT KHI BOTTOAN PHÁT NHẠC =================
 async function isolateHornBot(guild, voiceChannelId) {
     if (!guild || !voiceChannelId)
