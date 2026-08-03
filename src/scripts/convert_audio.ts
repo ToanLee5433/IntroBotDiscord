@@ -38,8 +38,18 @@ for (const file of files) {
                     needsConversion = true;
                 }
             } catch (e) {}
-        } else if (!fs.existsSync(targetOgg)) {
-            needsConversion = true;
+        } else {
+            if (!fs.existsSync(targetOgg)) {
+                needsConversion = true;
+            } else {
+                try {
+                    const srcStat = fs.statSync(sourceFile);
+                    const oggStat = fs.statSync(targetOgg);
+                    if (srcStat.mtimeMs > oggStat.mtimeMs) {
+                        needsConversion = true;
+                    }
+                } catch (e) {}
+            }
         }
 
         const volumeFilter = volumeFilters[base] || '1.0';

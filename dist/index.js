@@ -655,6 +655,88 @@ client.on('messageCreate', async (message) => {
         }
         return;
     }
+    // ----------------- TÍNH NĂNG PHÁT ÂM THANH "THUA ECO" (thuaeco.mp3) -----------------
+    const thuaEcoTriggers = [
+        'thua eco', 'thuaeco', 'eco thua', 'nhac thua eco', 'bat thua eco'
+    ];
+    if (thuaEcoTriggers.some(t => cleanInput.includes(t))) {
+        // 1. Xác định target user được tag (nếu có)
+        const targetUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
+        let targetName = "";
+        if (targetUser && message.guild) {
+            const member = message.guild.members.cache.get(targetUser.id);
+            targetName = member ? member.displayName : targetUser.username;
+        }
+        // 2. Tìm kênh voice của người gọi hoặc người được tag
+        const senderMember = message.member;
+        const targetMember = targetUser && message.guild ? message.guild.members.cache.get(targetUser.id) : null;
+        const userVoiceChannel = senderMember?.voice.channel || targetMember?.voice.channel;
+        if (!userVoiceChannel || !message.guild) {
+            await message.reply("❌ **Bạn (hoặc người được tag) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào phát nhạc Thua Eco được chứ!**").catch(() => { });
+            return;
+        }
+        const audioPathMp3 = path.join(__dirname, '../audio/thuaeco.mp3');
+        const audioPathOgg = path.join(__dirname, '../audio/thuaeco.ogg');
+        const audioPath = fs.existsSync(audioPathOgg) ? audioPathOgg : (fs.existsSync(audioPathMp3) ? audioPathMp3 : null);
+        const audioType = audioPath?.endsWith('.ogg') ? voice_1.StreamType.OggOpus : voice_1.StreamType.Arbitrary;
+        const hasAudioFile = !!audioPath;
+        if (!hasAudioFile || !audioPath) {
+            await message.reply("❌ **Không tìm thấy file âm thanh `thuaeco.mp3` trong thư mục audio!**").catch(() => { });
+            return;
+        }
+        try {
+            await isolateHornBot(message.guild, userVoiceChannel.id);
+            const existingConnection = (0, voice_1.getVoiceConnection)(message.guild.id);
+            if (existingConnection) {
+                try {
+                    existingConnection.destroy();
+                }
+                catch (e) { }
+            }
+            const connection = (0, voice_1.joinVoiceChannel)({
+                channelId: userVoiceChannel.id,
+                guildId: message.guild.id,
+                adapterCreator: message.guild.voiceAdapterCreator,
+                selfDeaf: false,
+                selfMute: false,
+            });
+            await (0, voice_1.entersState)(connection, voice_1.VoiceConnectionStatus.Ready, 15000);
+            const player = (0, voice_1.createAudioPlayer)();
+            connection.subscribe(player);
+            const announceMsg = targetName
+                ? `🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` phát soundboard Thua Eco cho ${targetName}!** 🔊`
+                : `🎙️ **Đang vào phòng thoại \`${userVoiceChannel.name}\` phát soundboard Thua Eco!** 🔊`;
+            await message.reply(announceMsg).catch(() => { });
+            try {
+                player.play((0, voice_1.createAudioResource)(fs.createReadStream(audioPath), { inputType: audioType }));
+            }
+            catch (e) {
+                console.error('[THUA ECO] Lỗi phát audio:', e);
+            }
+            player.on(voice_1.AudioPlayerStatus.Idle, () => {
+                try {
+                    player.stop();
+                }
+                catch (e) { }
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
+            player.on('error', err => {
+                console.error("[THUA ECO AUDIO PLAYER ERROR]:", err.message);
+                try {
+                    connection.destroy();
+                }
+                catch (e) { }
+            });
+        }
+        catch (err) {
+            console.error("Lỗi kết nối voice phát thuaeco.mp3:", err);
+            await message.reply("❌ **Gặp lỗi khi kết nối vào phòng thoại!**").catch(() => { });
+        }
+        return;
+    }
     // ----------------- TÍNH NĂNG PHÁT NHẠC INTRO THEO YÊU CẦU (@BotToan intro [@User / ID]) -----------------
     const isWCIntro = cleanInput === 'intro wc' || cleanInput === 'wc intro' || cleanInput === 'intro worldcup' || cleanInput === 'worldcup intro';
     if (isWCIntro) {
@@ -704,13 +786,26 @@ client.on('messageCreate', async (message) => {
             await message.reply(`❌ **${displayName} (hoặc bạn) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào phát Intro được chứ!**`).catch(() => { });
             return;
         }
-        // 4. Tìm file audio intro theo ưu tiên: userID.ogg > userID.mp3 > default.ogg > default.mp3
+        // 4. Tìm file audio intro theo ưu tiên: mtime mới nhất giữa (userID.ogg, userID.mp3) > default
         const resolveAudioFile = (uId) => {
             const ogg = path.join(__dirname, '../audio', uId + '.ogg');
-            if (fs.existsSync(ogg))
-                return { file: ogg, type: voice_1.StreamType.OggOpus };
             const mp3 = path.join(__dirname, '../audio', uId + '.mp3');
-            if (fs.existsSync(mp3))
+            const hasOgg = fs.existsSync(ogg);
+            const hasMp3 = fs.existsSync(mp3);
+            if (hasOgg && hasMp3) {
+                try {
+                    const oggStat = fs.statSync(ogg);
+                    const mp3Stat = fs.statSync(mp3);
+                    if (mp3Stat.mtimeMs > oggStat.mtimeMs) {
+                        return { file: mp3, type: voice_1.StreamType.Arbitrary };
+                    }
+                }
+                catch (e) { }
+                return { file: ogg, type: voice_1.StreamType.OggOpus };
+            }
+            if (hasOgg)
+                return { file: ogg, type: voice_1.StreamType.OggOpus };
+            if (hasMp3)
                 return { file: mp3, type: voice_1.StreamType.Arbitrary };
             // Fallback default
             const defaultOgg = path.join(__dirname, '../audio/default.ogg');
