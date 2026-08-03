@@ -786,26 +786,13 @@ client.on('messageCreate', async (message) => {
             await message.reply(`❌ **${displayName} (hoặc bạn) phải ở trong phòng thoại (Voice) trước thì BotToan mới vào phát Intro được chứ!**`).catch(() => { });
             return;
         }
-        // 4. Tìm file audio intro theo ưu tiên: mtime mới nhất giữa (userID.ogg, userID.mp3) > default
+        // 4. Tìm file audio intro theo ưu tiên: userID.ogg > userID.mp3 > default.ogg > default.mp3
         const resolveAudioFile = (uId) => {
             const ogg = path.join(__dirname, '../audio', uId + '.ogg');
+            if (fs.existsSync(ogg))
+                return { file: ogg, type: voice_1.StreamType.OggOpus };
             const mp3 = path.join(__dirname, '../audio', uId + '.mp3');
-            const hasOgg = fs.existsSync(ogg);
-            const hasMp3 = fs.existsSync(mp3);
-            if (hasOgg && hasMp3) {
-                try {
-                    const oggStat = fs.statSync(ogg);
-                    const mp3Stat = fs.statSync(mp3);
-                    if (mp3Stat.mtimeMs > oggStat.mtimeMs) {
-                        return { file: mp3, type: voice_1.StreamType.Arbitrary };
-                    }
-                }
-                catch (e) { }
-                return { file: ogg, type: voice_1.StreamType.OggOpus };
-            }
-            if (hasOgg)
-                return { file: ogg, type: voice_1.StreamType.OggOpus };
-            if (hasMp3)
+            if (fs.existsSync(mp3))
                 return { file: mp3, type: voice_1.StreamType.Arbitrary };
             // Fallback default
             const defaultOgg = path.join(__dirname, '../audio/default.ogg');

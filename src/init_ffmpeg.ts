@@ -32,8 +32,18 @@ try {
                             needsConversion = true; // Là Vorbis hoặc định dạng OGG không phải Opus
                         }
                     } catch (e) {}
-                } else if (!fs.existsSync(targetOgg)) {
-                    needsConversion = true; // Có file mp3/wav nhưng chưa có file ogg
+                } else {
+                    if (!fs.existsSync(targetOgg)) {
+                        needsConversion = true; // Có file mp3/wav nhưng chưa có file ogg
+                    } else {
+                        try {
+                            const srcStat = fs.statSync(sourceFile);
+                            const oggStat = fs.statSync(targetOgg);
+                            if (srcStat.mtimeMs > oggStat.mtimeMs) {
+                                needsConversion = true; // File mp3/wav mới được chỉnh sửa lại -> cần convert lại ogg
+                            }
+                        } catch (e) {}
+                    }
                 }
                 
                 if (needsConversion) {
