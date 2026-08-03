@@ -246,6 +246,7 @@ export async function connectDB(): Promise<void> {
     }
 
     const connectOptions: mongoose.ConnectOptions = {
+        family: 4,
         serverSelectionTimeoutMS: 15000,
         connectTimeoutMS: 15000
     };

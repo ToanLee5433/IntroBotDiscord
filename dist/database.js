@@ -257,6 +257,7 @@ async function connectDB() {
         return;
     }
     const connectOptions = {
+        family: 4,
         serverSelectionTimeoutMS: 15000,
         connectTimeoutMS: 15000
     };
