@@ -1,10 +1,21 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.fullAgentsByRole = exports.agentIcons = exports.WARMUP_CHANNEL_ID = exports.VALORANT_API_KEY = exports.ATLAS_DATA_SOURCE = exports.ATLAS_APP_ID = exports.ATLAS_DATA_API_KEY = exports.MONGO_URI = exports.GEMINI_KEY = exports.TOKEN = exports.PORT = void 0;
+exports.fullAgentsByRole = exports.agentIcons = exports.WARMUP_CHANNEL_ID = exports.VALORANT_API_KEY = exports.ATLAS_DATA_SOURCE = exports.ATLAS_APP_ID = exports.ATLAS_DATA_API_KEY = exports.MONGO_URI = exports.GEMINI_CHAT_MODEL = exports.GEMINI_KEY = exports.TOKEN = exports.PORT = void 0;
 exports.loadAgentIcons = loadAgentIcons;
-exports.PORT = process.env.PORT || 8080;
+const node_path_1 = require("node:path");
+// Node giữ nguyên biến do môi trường deploy cấp nếu trùng tên trong .env.
+try {
+    process.loadEnvFile((0, node_path_1.resolve)(__dirname, '../.env'));
+}
+catch (error) {
+    if (error.code !== 'ENOENT')
+        throw error;
+}
+exports.PORT = Number(process.env.PORT || 8080);
 exports.TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN;
-exports.GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMINI_API;
+exports.GEMINI_KEY = [process.env.GEMINI_API_KEY, process.env.GEMINI_KEY, process.env.GEMINI_API]
+    .map(value => value?.trim()).find(Boolean);
+exports.GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-3.5-flash-lite';
 exports.MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 exports.ATLAS_DATA_API_KEY = process.env.ATLAS_DATA_API_KEY || "";
 exports.ATLAS_APP_ID = process.env.ATLAS_APP_ID || "";

@@ -53,6 +53,7 @@ const lixi_1 = require("./games/lixi");
 const russianroulette_1 = require("./games/russianroulette");
 const pokerroulette_1 = require("./games/pokerroulette");
 const gemini_1 = require("./services/gemini");
+const ai_chat_1 = require("./commands/ai-chat");
 const discord_js_2 = require("discord.js");
 const valorant_2 = require("./services/valorant");
 const ghepdoi_1 = require("./games/ghepdoi");
@@ -392,7 +393,6 @@ client.on('messageCreate', async (message) => {
     // Loại bỏ các ký tự dấu câu/ký hiệu đứng ở đầu chuỗi (ví dụ: ": profile", "- profile", ", profile")
     rawInput = rawInput.replace(/^[:,\-\/!\?\s]+/, '').trim();
     const cleanInput = (0, utils_1.removeAccents)(rawInput).toLowerCase();
-    console.log(`[TIN NHẮN] Mentioned Bot. rawInput: "${rawInput}", cleanInput: "${cleanInput}"`);
     // ----------------- KIỂM TRA CẤM CHAT (BOT LEVEL) -----------------
     const banExpires = await (0, database_1.getChatBanExpires)(message.author.id);
     if (banExpires > Date.now()) {
@@ -407,6 +407,12 @@ client.on('messageCreate', async (message) => {
         ];
         const randomTroll = trollMessages[Math.floor(Math.random() * trollMessages.length)];
         await message.reply(randomTroll).catch(() => { });
+        return;
+    }
+    // Lệnh chat tường minh không bị các từ khóa minigame/soundboard lấy mất.
+    const chatPrompt = (0, ai_chat_1.getExplicitChatPrompt)(rawInput);
+    if (chatPrompt !== undefined) {
+        await (0, ai_chat_1.handleAiChat)(message, chatPrompt);
         return;
     }
     // ----------------- TÍNH NĂNG PHÁT ÂM THANH "NGỦ ĐỊ EM / XEM STREAM" -----------------
@@ -659,12 +665,7 @@ client.on('messageCreate', async (message) => {
     const toanTriggers = [
         'toan', 'giainghe', 'giai nghe', 'nhac toan', 'bat toan'
     ];
-    const isToanTrigger = toanTriggers.some(t => {
-        if (t === 'toan') {
-            return cleanInput === 'toan' || cleanInput.startsWith('toan ') || cleanInput.endsWith(' toan') || cleanInput.includes(' toan ');
-        }
-        return cleanInput.includes(t);
-    });
+    const isToanTrigger = toanTriggers.includes((0, utils_1.removeAccents)(rawInput.replace(/<@!?\d+>/g, '').replace(/<@&\d+>/g, '').trim()).toLowerCase());
     if (isToanTrigger) {
         // 1. Xác định target user được tag (nếu có)
         const targetUser = message.mentions.users.filter(u => u.id !== client.user?.id).first();
@@ -958,7 +959,6 @@ client.on('messageCreate', async (message) => {
     // ----------------- TÍNH NĂNG WARMUP VIDEO -----------------
     const warmupTriggers = ['warmup', 'khoi dong', 'video'];
     if (warmupTriggers.some(t => cleanInput === t || cleanInput.startsWith(t + ' '))) {
-        console.log(`[WARMUP] Đang gọi handleWarmupCommand cho rawInput: "${rawInput}"`);
         try {
             await (0, warmup_1.handleWarmupCommand)(message, rawInput, client);
             console.log(`[WARMUP] handleWarmupCommand đã hoàn tất.`);
@@ -1039,7 +1039,7 @@ client.on('messageCreate', async (message) => {
     }
     // ----------------- TÍNH NĂNG "CÂM" -----------------
     const shutUpTriggers = ['cam', 'im', 'nin', 'ngung sua', 'cam mom', 'im di', 'im mom'];
-    if (shutUpTriggers.some(t => cleanInput.includes(t))) {
+    if (shutUpTriggers.includes(cleanInput)) {
         message.reply("Biết rồi, cả tao và HornBot đều câm đây! 🤫").catch(() => { });
         // 1. Tắt tiếng & ngắt kết nối voice của BotToan
         if (message.guild) {
@@ -1916,24 +1916,7 @@ client.on('messageCreate', async (message) => {
         }
     }
     // ============ BƯỚC 4 FALLBACK: CHAT TEXT THƯỜNG VỚI GEMINI ============
-    await (0, utils_1.sleep)(2000);
-    try {
-        if ('sendTyping' in message.channel)
-            await message.channel.sendTyping();
-        const responseText = await (0, gemini_1.chatWithGemini)(message.author.id, rawInput);
-        const cleanText = responseText.replace(/https?:\/\/[^\s]+/g, "");
-        const maxLength = 900;
-        const chunks = cleanText.match(new RegExp('.{1,' + maxLength + '}(\\s|$)', 'g')) || [cleanText];
-        for (const chunk of chunks) {
-            if (chunk.trim()) {
-                await message.reply(chunk.trim());
-                await (0, utils_1.sleep)(2000);
-            }
-        }
-    }
-    catch (error) {
-        await message.reply('Mạng lag hay sao ấy, tao đang không load được, thử lại đi mày!');
-    }
+    await (0, ai_chat_1.handleAiChat)(message, rawInput);
 });
 async function executePurge(channel, maxAmount, filterMode, filterUserId, botId) {
     const result = { deleted: 0, skippedPinned: 0, skippedOld: 0 };
@@ -2477,7 +2460,7 @@ client.once('ready', async (readyClient) => {
     try {
         console.log("[HỆ THỐNG] Đang khởi động bot...");
         // Đăng nhập Discord trước để bot online ngay lập tức
-        console.log(`[DISCORD] Kiểm tra TOKEN: Độ dài = ${config_1.TOKEN?.length || 0}, Bắt đầu bằng = "${config_1.TOKEN ? config_1.TOKEN.substring(0, 8) : ''}..."`);
+        console.log(`[DISCORD] Token ${config_1.TOKEN ? 'đã được cấu hình' : 'chưa được cấu hình'}.`);
         // Thử kiểm tra kết nối API Discord trực tiếp bằng HTTP Fetch (có timeout 6 giây)
         (() => {
             const controller = new AbortController();

@@ -1,6 +1,17 @@
-export const PORT = process.env.PORT || 8080;
+import { resolve } from 'node:path';
+
+// Node giữ nguyên biến do môi trường deploy cấp nếu trùng tên trong .env.
+try {
+    process.loadEnvFile(resolve(__dirname, '../.env'));
+} catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+}
+
+export const PORT = Number(process.env.PORT || 8080);
 export const TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN;
-export const GEMINI_KEY = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMINI_API;
+export const GEMINI_KEY = [process.env.GEMINI_API_KEY, process.env.GEMINI_KEY, process.env.GEMINI_API]
+    .map(value => value?.trim()).find(Boolean);
+export const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-3.5-flash-lite';
 export const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 export const ATLAS_DATA_API_KEY = process.env.ATLAS_DATA_API_KEY || "";
 export const ATLAS_APP_ID = process.env.ATLAS_APP_ID || "";
